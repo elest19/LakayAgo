@@ -144,3 +144,8 @@
 *.stl                filter=lfs diff=lfs merge=lfs -text
 *.nc                 filter=lfs diff=lfs merge=lfs -text
 *.mat                filter=lfs diff=lfs merge=lfs -text
+
+# Website static assets should be stored directly in Git
+frontend/public/*.png -filter -diff -merge
+frontend/public/*.jpg -filter -diff -merge
+frontend/public/*.jpeg -filter -diff -merge
