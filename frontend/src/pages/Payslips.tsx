@@ -3,7 +3,7 @@ import { Search, Eye, Download, Printer, X, Building2 } from 'lucide-react'
 import { employees } from '../data/mockData'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
-import logo from '../public/LakayAgo_Logo.jpg'
+import logo from '/LakayAgo_Logo.jpg'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n)
