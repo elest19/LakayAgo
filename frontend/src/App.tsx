@@ -394,19 +394,7 @@ export default function App() {
             )}
 
             <div className="flex-1" />
-              <div className="flex items-center gap-3">
-
-              {/* Search */}
-              {!isMobileView && (
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 w-52 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
-                  <Search size={14} className="text-slate-400 shrink-0" />
-                  <input
-                    placeholder="Search..."
-                    className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400"
-                  />
-                </div>
-              )}
-
+              <div className="flex items-center gap-3"> 
               {/* Notifications */}
                 <div className="relative">
                   <button
