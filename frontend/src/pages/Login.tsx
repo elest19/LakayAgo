@@ -22,7 +22,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
       <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-6">
         <div className="flex flex-col items-center text-center mb-6">
-          <img src="/LakayAgo_Logo.svg" alt="Lakay Ago" className="w-16 h-16 object-contain rounded-lg mb-3" />
+          <img src="/LakayAgo_Logo.jpg" alt="Lakay Ago" className="w-16 h-16 object-contain rounded-lg mb-3" />
           <h2 className="text-lg font-semibold text-slate-800">Sign in to your account</h2>
         </div>
         <form onSubmit={submit} className="space-y-4">
@@ -47,7 +47,6 @@ export default function LoginPage() {
               <input type="checkbox" className="w-3 h-3" />
               Remember me
             </label>
-            <button type="button" className="text-xs text-indigo-600">Forgot?</button>
           </div>
 
           <div>
