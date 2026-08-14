@@ -4,7 +4,21 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import siteConfiguration from '../.figma/make/site.json' assert { type: 'json' }
+import { existsSync, readFileSync } from 'fs'
+import { resolve } from 'path'
+
+let siteConfiguration: any = {}
+const sitePath = resolve(__dirname, '../.figma/make/site.json')
+if (existsSync(sitePath)) {
+  try {
+    siteConfiguration = JSON.parse(readFileSync(sitePath, 'utf8'))
+  } catch (err) {
+    console.warn('Failed to parse .figma/make/site.json', err)
+  }
+} else {
+  // fallback/defaults if you need them:
+  siteConfiguration = {}
+}
 
 // Vite config — https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -32,7 +46,6 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      figmaSiteConfiguration(siteConfiguration),
       figmaErrorOverlayReplay(),
       figmaReactRefreshBoundaryFallback(),
       figmaMakeKitPlugin({ storiesGlob: '/src/**/*.stories.{ts,tsx,js,jsx}' }),
