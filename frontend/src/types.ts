@@ -1,4 +1,5 @@
 export type Page =
+  | 'login'
   | 'dashboard'
   | 'employees'
   | 'attendance-records'

@@ -8,6 +8,7 @@ import {
   CreditCard, BookOpen, Settings, ClipboardCheck, UserCheck, BarChart3
 } from 'lucide-react'
 
+import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Employees from './pages/Employees'
 import AttendanceRecords from './pages/AttendanceRecords'
@@ -79,6 +80,7 @@ const navItems: NavEntry[] = [
 ]
 
 const pageMeta: Record<Page, { title: string; breadcrumbs: string[] }> = {
+  login: { title: 'Sign in', breadcrumbs: ['Sign in'] },
   dashboard: { title: 'Dashboard', breadcrumbs: ['Dashboard'] },
   employees: { title: 'Employees', breadcrumbs: ['Employees'] },
   'attendance-records': { title: 'Attendance Records', breadcrumbs: ['Attendance', 'Records'] },
@@ -127,7 +129,7 @@ function ToastContainer({ toasts, removeToast }: { toasts: Toast[]; removeToast:
 }
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<Page>('dashboard')
+  const [currentPage, setCurrentPage] = useState<Page>('login')
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const isMobileView = useIsMobile()
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['Attendance', 'Payroll']))
@@ -210,6 +212,7 @@ export default function App() {
 
   const renderPage = () => {
     switch (currentPage) {
+      case 'login': return <Login />
       case 'dashboard': return <Dashboard />
       case 'employees': return <Employees />
       case 'attendance-records': return <AttendanceRecords />
@@ -332,278 +335,276 @@ export default function App() {
 
   return (
     <AppContext.Provider value={{ currentPage, navigate, showToast, openEmployee, clearOpenEmployee, openEmployeeId }}>
-      <div className="flex h-screen overflow-hidden bg-slate-50">
-        {/* Desktop Sidebar */}
-      {!isMobileView && (
-        <aside className="flex flex-col bg-slate-900 shrink-0 transition-all duration-300 ease-in-out w-60">
-          <SidebarContent />
-        </aside>
-      )}
-
-      {isMobileView && (
+      {currentPage === 'login' ? (
+        <Login />
+      ) : (
         <>
-          <div
-            className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 ease-in-out ${
-              mobileSidebarOpen
-                ? 'opacity-100 pointer-events-auto'
-                : 'opacity-0 pointer-events-none'
-            }`}
-            onClick={() => setMobileSidebarOpen(false)}
-            aria-hidden="true"
-          />
-
-          {/* Drawer */}
-          <aside
-            className={`fixed right-0 top-0 bottom-0 z-50 w-60 bg-slate-900 flex flex-col will-change-transform transition-transform duration-300 ease-in-out ${
-              mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full'
-            }`}
-          >
-            <SidebarContent />
-          </aside>
-        </>
-      )}
-
-        {/* Main content */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-3.5 flex items-center gap-4 shrink-0 z-30">
-          {/* Top Header */}
-          {!isMobileView ? (
-              <div>
-                <h1 className="text-base font-bold text-slate-800 leading-tight font-display">{meta.title}</h1>
-                <div className="flex items-center gap-1 text-xs text-slate-400">
-                  {meta.breadcrumbs.map((crumb, i) => (
-                    <span key={i} className="flex items-center gap-1">
-                      {i > 0 && <ChevronRight size={10} />}
-                      <span>{crumb}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <img src="/LakayAgo_Logo.jpg" alt="Lakay Ago" className="w-12 h-12 object-contain rounded-sm" />
-                <div className="flex flex-col">
-                  <span className="text-base font-bold text-slate-800 leading-tight font-display">
-                    Lakay Ago
-                  </span>
-                  <span className="text-xs text-slate-500 leading-tight">
-                    Attendance & Payroll System
-                  </span>
-                </div>
-              </div>
+          <div className="flex h-screen overflow-hidden bg-slate-50">
+            {/* Desktop Sidebar */}
+            {!isMobileView && (
+              <aside className="flex flex-col bg-slate-900 shrink-0 transition-all duration-300 ease-in-out w-60">
+                <SidebarContent />
+              </aside>
             )}
 
-            <div className="flex-1" />
-              <div className="flex items-center gap-3"> 
-              {/* Notifications */}
-                <div className="relative">
-                  <button
-                    onClick={() => { setNotifOpen(!notifOpen); setProfileOpen(false) }}
-                    className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 cursor-pointer"
-                  >
-                    <Bell size={18} />
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-                  </button>
-                  
-                  {notifMounted && (
-                    <div className={`absolute right-0 top-11 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown ${notifVisible ? 'show' : 'closing'}`}>
-                      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                        <span className="font-semibold text-sm font-display text-slate-800">Notifications</span>
-                        <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">4 new</span>
-                      </div>
-                      {[
-                        { msg: '2 employees have missing attendance', time: '10 min ago', type: 'warning' },
-                        { msg: 'Payroll calculation ready for review', time: '1 hr ago', type: 'info' },
-                        { msg: 'Attendance import completed', time: '2 hrs ago', type: 'success' },
-                        { msg: 'Leave request from Carlo Mendoza', time: '1 day ago', type: 'info' },
-                      ].map((n, i) => (
-                        <div key={i} className="px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 cursor-pointer">
-                          <p className="text-sm text-slate-700">{n.msg}</p>
-                          <p className="text-xs text-slate-400 mt-0.5">{n.time}</p>
-                        </div>
+            {isMobileView && (
+              <>
+                <div
+                  className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 ease-in-out ${
+                    mobileSidebarOpen
+                      ? 'opacity-100 pointer-events-auto'
+                      : 'opacity-0 pointer-events-none'
+                  }`}
+                  onClick={() => setMobileSidebarOpen(false)}
+                  aria-hidden="true"
+                />
+
+                {/* Drawer */}
+                <aside
+                  className={`fixed right-0 top-0 bottom-0 z-50 w-60 bg-slate-900 flex flex-col will-change-transform transition-transform duration-300 ease-in-out ${
+                    mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full'
+                  }`}
+                >
+                  <SidebarContent />
+                </aside>
+              </>
+            )}
+
+            {/* Main content */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-3.5 flex items-center gap-4 shrink-0 z-30">
+                {/* Top Header */}
+                {!isMobileView ? (
+                  <div>
+                    <h1 className="text-base font-bold text-slate-800 leading-tight font-display">{meta.title}</h1>
+                    <div className="flex items-center gap-1 text-xs text-slate-400">
+                      {meta.breadcrumbs.map((crumb, i) => (
+                        <span key={i} className="flex items-center gap-1">
+                          {i > 0 && <ChevronRight size={10} />}
+                          <span>{crumb}</span>
+                        </span>
                       ))}
                     </div>
-                  )}
-              </div> 
-
-              {!isMobileView && (
-                <>
-                {/* Profile */}
-                <div className="relative">
-                  <button
-                    onClick={() => { setProfileOpen(!profileOpen); setNotifOpen(false) }}
-                    className="flex items-center gap-2 rounded-lg hover:bg-slate-100 px-2 py-1.5 cursor-pointer"
-                  >
-                    <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center">
-                      <span className="text-white text-xs font-bold font-display">EM</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <img src="/LakayAgo_Logo.jpg" alt="Lakay Ago" className="w-12 h-12 object-contain rounded-sm" />
+                    <div className="flex flex-col">
+                      <span className="text-base font-bold text-slate-800 leading-tight font-display">
+                        Lakay Ago
+                      </span>
+                      <span className="text-xs text-slate-500 leading-tight">
+                        Attendance & Payroll System
+                      </span>
                     </div>
-                    
-                      <>
+                  </div>
+                )}
+
+                <div className="flex-1" />
+                <div className="flex items-center gap-3">
+                  {/* Notifications */}
+                  <div className="relative">
+                    <button
+                      onClick={() => { setNotifOpen(!notifOpen); setProfileOpen(false) }}
+                      className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 cursor-pointer"
+                    >
+                      <Bell size={18} />
+                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+                    </button>
+
+                    {notifMounted && (
+                      <div className={`absolute right-0 top-11 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown ${notifVisible ? 'show' : 'closing'}`}>
+                        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                          <span className="font-semibold text-sm font-display text-slate-800">Notifications</span>
+                          <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">4 new</span>
+                        </div>
+                        {[
+                          { msg: '2 employees have missing attendance', time: '10 min ago', type: 'warning' },
+                          { msg: 'Payroll calculation ready for review', time: '1 hr ago', type: 'info' },
+                          { msg: 'Attendance import completed', time: '2 hrs ago', type: 'success' },
+                          { msg: 'Leave request from Carlo Mendoza', time: '1 day ago', type: 'info' },
+                        ].map((n, i) => (
+                          <div key={i} className="px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 cursor-pointer">
+                            <p className="text-sm text-slate-700">{n.msg}</p>
+                            <p className="text-xs text-slate-400 mt-0.5">{n.time}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {!isMobileView && (
+                    <div className="relative">
+                      <button
+                        onClick={() => { setProfileOpen(!profileOpen); setNotifOpen(false) }}
+                        className="flex items-center gap-2 rounded-lg hover:bg-slate-100 px-2 py-1.5 cursor-pointer"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center">
+                          <span className="text-white text-xs font-bold font-display">EM</span>
+                        </div>
                         <span className="text-sm font-medium text-slate-700 font-display">Admin</span>
-                      </>    
-                  </button>
+                      </button>
+                    </div>
+                  )}
+
+                  {isMobileView && (
+                    <button
+                      className="text-slate-500 hover:text-slate-700 cursor-pointer"
+                      onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+                    >
+                      <Menu size={20} />
+                    </button>
+                  )}
                 </div>
-                </>
-              )}
-              
+              </header>
 
-              {isMobileView && (
-                  <button
-                    className="text-slate-500 hover:text-slate-700 cursor-pointer"
-                    onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-                  >
-                    <Menu size={20} />
-                  </button>
-                )}
+              {/* Page Content */}
+              <main className="flex-1 overflow-y-auto">
+                {renderPage()}
+              </main>
             </div>
-          </header>
 
-          {/* Page Content */}
-          <main className="flex-1 overflow-y-auto">
-            {renderPage()}
-          </main>
-        </div>
+            <Modal open={profileOpen} title="Profile" onClose={() => { setProfileOpen(false); setIsEditingProfile(false) }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center">
+                    <span className="text-white text-sm font-bold font-display">EM</span>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800">
+                      {profileForm.firstName} {profileForm.lastName}
+                    </p>
+                    <p className="text-xs text-slate-500">{profileForm.email}</p>
+                  </div>
+                </div>
+              </div>
 
-        <Modal open={profileOpen} title={`Profile`} onClose={() => { setProfileOpen(false); setIsEditingProfile(false) }}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center">
-                <span className="text-white text-sm font-bold font-display">EM</span>
-              </div>
-              <div>
-                <p className="font-semibold text-slate-800">
-                  {profileForm.firstName} {profileForm.lastName}
-                </p>
-                <p className="text-xs text-slate-500">{profileForm.email}</p>
-              </div>
-            </div>
+              <form className="mt-4 space-y-4" onSubmit={e => { e.preventDefault(); setIsEditingProfile(false) }}>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex flex-col text-sm">
+                    <span className="text-slate-600 mb-1">First Name</span>
+                    <input
+                      value={profileForm.firstName}
+                      onChange={e => setProfileForm(p => ({ ...p, firstName: e.target.value }))}
+                      disabled={!isEditingProfile}
+                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="flex flex-col text-sm">
+                    <span className="text-slate-600 mb-1">Last Name</span>
+                    <input
+                      value={profileForm.lastName}
+                      onChange={e => setProfileForm(p => ({ ...p, lastName: e.target.value }))}
+                      disabled={!isEditingProfile}
+                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex flex-col text-sm">
+                    <span className="text-slate-600 mb-1">Contact Number</span>
+                    <input
+                      value={profileForm.contactNumber}
+                      onChange={e => setProfileForm(p => ({ ...p, contactNumber: e.target.value }))}
+                      disabled={!isEditingProfile}
+                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="flex flex-col text-sm">
+                    <span className="text-slate-600 mb-1">Role</span>
+
+                    <select
+                      value={profileForm.role}
+                      onChange={e =>
+                        setProfileForm(p => ({ ...p, role: e.target.value }))
+                      }
+                      disabled={!isEditingProfile}
+                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                    >
+                      <option value="Super Admin">Super Admin</option>
+                      <option value="Admin">Admin</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex flex-col text-sm">
+                    <span className="text-slate-600 mb-1">Email</span>
+                    <input
+                      type="email"
+                      value={profileForm.email}
+                      onChange={e => setProfileForm(p => ({ ...p, email: e.target.value }))}
+                      disabled={!isEditingProfile}
+                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="flex flex-col text-sm">
+                    <span className="text-slate-600 mb-1">Password</span>
+                    <input
+                      type="password"
+                      value={profileForm.password}
+                      onChange={e => setProfileForm(p => ({ ...p, password: e.target.value }))}
+                      disabled={!isEditingProfile}
+                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { navigate('login'); setProfileOpen(false); showToast({ type: 'info', message: 'Signed out' }) }}
+                      className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isEditingProfile && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileForm({
+                            firstName: 'Eduardo',
+                            lastName: 'Mendoza',
+                            contactNumber: '+63 912 345 6789',
+                            role: 'Super Admin',
+                            email: 'eduardo.mendoza@company.ph',
+                            password: 'secret',
+                          })
+                          setIsEditingProfile(false)
+                        }}
+                        className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingProfile(prev => !prev)}
+                      title="Toggle edit"
+                      className="rounded-md px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 shadow-sm cursor-pointer"
+                    >
+                      {isEditingProfile ? 'Save Changes' : 'Edit'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </Modal>
+
+            <ToastContainer toasts={toasts} removeToast={removeToast} />
+
+            {/* Close dropdowns on outside click */}
+            {(profileOpen || notifOpen) && (
+              <div className="fixed inset-0 z-40" onClick={() => { setProfileOpen(false); setNotifOpen(false) }} />
+            )}
           </div>
-
-          <form className="mt-4 space-y-4" onSubmit={e => { e.preventDefault(); setIsEditingProfile(false) }}>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col text-sm">
-                <span className="text-slate-600 mb-1">First Name</span>
-                <input
-                  value={profileForm.firstName}
-                  onChange={e => setProfileForm(p => ({ ...p, firstName: e.target.value }))}
-                  disabled={!isEditingProfile}
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="flex flex-col text-sm">
-                <span className="text-slate-600 mb-1">Last Name</span>
-                <input
-                  value={profileForm.lastName}
-                  onChange={e => setProfileForm(p => ({ ...p, lastName: e.target.value }))}
-                  disabled={!isEditingProfile}
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                />
-              </label>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col text-sm">
-                <span className="text-slate-600 mb-1">Contact Number</span>
-                <input
-                  value={profileForm.contactNumber}
-                  onChange={e => setProfileForm(p => ({ ...p, contactNumber: e.target.value }))}
-                  disabled={!isEditingProfile}
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="flex flex-col text-sm">
-                <span className="text-slate-600 mb-1">Role</span>
-
-                <select
-                  value={profileForm.role}
-                  onChange={e =>
-                    setProfileForm(p => ({ ...p, role: e.target.value }))
-                  }
-                  disabled={!isEditingProfile}
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                >
-                  <option value="Super Admin">Super Admin</option>
-                  <option value="Admin">Admin</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col text-sm">
-                <span className="text-slate-600 mb-1">Email</span>
-                <input
-                  type="email"
-                  value={profileForm.email}
-                  onChange={e => setProfileForm(p => ({ ...p, email: e.target.value }))}
-                  disabled={!isEditingProfile}
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="flex flex-col text-sm">
-                <span className="text-slate-600 mb-1">Password</span>
-                <input
-                  type="password"
-                  value={profileForm.password}
-                  onChange={e => setProfileForm(p => ({ ...p, password: e.target.value }))}
-                  disabled={!isEditingProfile}
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                />
-              </label>
-            </div>
-
-            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => { /* keep your existing sign-out handler here */ }}
-                  className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
-                >
-                  Sign Out
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                {isEditingProfile && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // cancel edits: reset to original (optional - adjust if you have a persisted source)
-                      setProfileForm({
-                        firstName: 'Eduardo',
-                        lastName: 'Mendoza',
-                        contactNumber: '+63 912 345 6789',
-                        role: 'Super Admin',
-                        email: 'eduardo.mendoza@company.ph',
-                        password: 'secret',
-                      })
-                      setIsEditingProfile(false)
-                    }}
-                    className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => setIsEditingProfile(prev => !prev)}
-                  title="Toggle edit"
-                  className="rounded-md px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 shadow-sm cursor-pointer"
-                >
-                  {isEditingProfile ? 'Save Changes' : 'Edit'}
-                </button>
-              </div>
-            </div>
-          </form>
-        </Modal>
-
-        <ToastContainer toasts={toasts} removeToast={removeToast} />
-
-        {/* Close dropdowns on outside click */}
-        {(profileOpen || notifOpen) && (
-          <div className="fixed inset-0 z-40" onClick={() => { setProfileOpen(false); setNotifOpen(false) }} />
-        )}
-      </div>
+        </>
+      )}
     </AppContext.Provider>
   )
 }
