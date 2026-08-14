@@ -3,7 +3,6 @@ import { Search, Eye, Download, Printer, X, Building2 } from 'lucide-react'
 import { employees } from '../data/mockData'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
-import logo from '/LakayAgo_Logo.jpg'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n)
@@ -23,7 +22,7 @@ function PayslipDetailModal({ item, onClose }: { item: typeof payslipData[0]; on
       <div className="bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-y-auto">
         {/* Payslip header */}
         <div className="flex items-center bg-indigo-600 rounded-t-2xl px-8 py-3 text-white"> 
-          <img src={logo} alt="Lakay Ago" className="w-12 h-12 mr-2 mb-1" />
+          <img src="/LakayAgo_Logo.jpg" alt="Lakay Ago" className="w-12 h-12 mr-2 mb-1" />
           <p className="text-xl text-indigo-200 font-display uppercase tracking-widest">Employee Payslip</p>
         </div>
 
