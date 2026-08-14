@@ -1,0 +1,10 @@
+{
+  "description": "Transforms provided data into interactive UI/UX prototypes to help designers visualize and refine user interfaces efficiently.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
