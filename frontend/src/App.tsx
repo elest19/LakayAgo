@@ -256,7 +256,7 @@ export default function App() {
       ) : (
         <div className={`flex items-center gap-3 px-4 py-5 border-b border-slate-800 ${showLabels ? '' : 'justify-center'}`}>
           <div className="flex items-center gap-3">
-                <img src="/LakayAgo_Logo.jpg" alt="Lakay Ago" className="w-12 h-12 object-contain rounded-sm" />
+                <img src="/logo.jpg" alt="Lakay Ago" className="w-12 h-12 object-contain rounded-sm" />
                 <div className="flex flex-col">
                   <span className="text-base font-bold text-white leading-tight font-display">
                     Lakay Ago
@@ -388,7 +388,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
-                    <img src="/LakayAgo_Logo.jpg" alt="Lakay Ago" className="w-12 h-12 object-contain rounded-sm" />
+                    <img src="/logo.jpg" alt="Lakay Ago" className="w-12 h-12 object-contain rounded-sm" />
                     <div className="flex flex-col">
                       <span className="text-base font-bold text-slate-800 leading-tight font-display">
                         Lakay Ago
