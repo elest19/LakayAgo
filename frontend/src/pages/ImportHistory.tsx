@@ -20,6 +20,31 @@ export default function ImportHistory() {
   const [selectedImport, setSelectedImport] = useState<ImportRecord | null>(null)
   const [undoTarget, setUndoTarget] = useState<ImportRecord | null>(null)
 
+  function formatImportPeriod(fileName?: string) {
+    if (!fileName) return ''
+    try {
+      const name = fileName.replace(/\.[^/.]+$/, '').toLowerCase()
+      const parts = name.replace(/^attendance_?/, '').split('_')
+      // expect [month, start, end, year] e.g. ['aug','1','15','2026']
+      if (parts.length >= 4) {
+        const monthPart = parts[0]
+        const start = parts[1]
+        const end = parts[2]
+        const year = parts[3]
+        const monthMap: Record<string, string> = {
+          jan: 'January', feb: 'February', mar: 'March', apr: 'April', may: 'May', jun: 'June',
+          jul: 'July', aug: 'August', sep: 'September', oct: 'October', nov: 'November', dec: 'December'
+        }
+        const monthName = monthMap[monthPart] || monthPart.charAt(0).toUpperCase() + monthPart.slice(1)
+        // format as: August 1 - August 15, 2026 Attendance
+        return `${monthName} ${start} - ${monthName} ${end}, ${year}`
+      }
+      return fileName
+    } catch (e) {
+      return fileName
+    }
+  }
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -45,7 +70,7 @@ export default function ImportHistory() {
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
                         <FileText size={14} className="text-emerald-500 shrink-0" />
-                        <span className="text-sm font-medium text-slate-700 font-display">{imp.fileName}</span>
+                        <span className="text-sm font-medium text-slate-700 font-display">{formatImportPeriod(imp.fileName)}</span>
                       </div>
                     </td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-600">{imp.records.toLocaleString()}</td>
@@ -59,15 +84,6 @@ export default function ImportHistory() {
                         <button onClick={() => setSelectedImport(imp)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs flex items-center gap-1 font-display" title="View Import">
                           <Eye size={14} />
                         </button>
-                        {imp.status === 'Successful' && (
-                          <button
-                            onClick={() => setUndoTarget(imp)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
-                            title="Undo Import"
-                          >
-                            <RotateCcw size={14} />
-                          </button>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -79,7 +95,7 @@ export default function ImportHistory() {
               {importHistory.map(imp => (
                 <button key={imp.id} onClick={() => setSelectedImport(imp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-700">{imp.fileName}</div>
+                    <div className="text-sm font-medium text-slate-700">{formatImportPeriod(imp.fileName)}</div>
                     <div className="text-xs text-slate-400">{imp.dateImported} • {imp.importedBy}</div>
                   </div>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColor[imp.status]}`}>{imp.status}</span>
@@ -91,9 +107,9 @@ export default function ImportHistory() {
       </div>
 
       {selectedImport && (
-        <Modal open={!!selectedImport} title={selectedImport.fileName} onClose={() => setSelectedImport(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
-            <div className="space-y-5">
+        <Modal open={!!selectedImport} title={formatImportPeriod(selectedImport.fileName)} onClose={() => setSelectedImport(null)}>
+          <div className="p-6">
+            <div className="w-md space-y-5">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-slate-400">Date Imported</p>
@@ -150,34 +166,6 @@ export default function ImportHistory() {
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {undoTarget && (
-        <Modal open={true} title="Undo Import?" onClose={() => setUndoTarget(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
-            <div className="bg-slate-50 rounded-xl p-3 mb-5">
-              <p className="text-sm font-medium text-slate-700 font-display">{undoTarget.fileName}</p>
-              <p className="text-xs text-slate-400 mt-0.5">{undoTarget.records} records · {undoTarget.dateImported}</p>
-            </div>
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-5">
-              <p className="text-xs text-red-700 font-medium">
-                ⚠ This will remove all {undoTarget.records} attendance records from this import. This action cannot be undone.
-              </p>
-            </div>
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setUndoTarget(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
-              <button
-                onClick={() => {
-                  setUndoTarget(null)
-                  showToast({ type: 'success', message: 'Import reverted', description: `${undoTarget.records} attendance records have been removed.` })
-                }}
-                className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display"
-              >
-                Undo Import
-              </button>
             </div>
           </div>
         </Modal>

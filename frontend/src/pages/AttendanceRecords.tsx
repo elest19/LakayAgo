@@ -25,8 +25,8 @@ function EditAttendanceModal({ record, onClose, onSave }: { record: AttendanceRe
 
   return (
     <Modal open={true} title="Edit Attendance" onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full">
-        <div className="px-6 py-5 space-y-4">
+      <div className="bg-white w-full">
+        <div className="py-2 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Employee</label>
@@ -73,7 +73,7 @@ function EditAttendanceModal({ record, onClose, onSave }: { record: AttendanceRe
             <p className="text-xs text-amber-700">Attendance changes may affect payroll calculations.</p>
           </div>
         </div>
-        <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
+        <div className="py-2 border-t border-slate-100 flex gap-3 justify-end">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
           <button onClick={onSave} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
         </div>
@@ -106,46 +106,85 @@ export default function AttendanceRecords() {
   const pageData = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   return (
-    <div className="p-6">
+    <div className="p-4">
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-slate-800 font-display">Attendance Records</h2>
           <p className="text-sm text-slate-500 mt-0.5">View and manage imported attendance data</p>
         </div>
-        <button
+         {isMobile ? (
+          <>
+          <button
+          onClick={() => navigate('import-attendance')}
+          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display"
+        >
+          <Upload size={16} />
+        </button>
+          </>
+         ) : ( 
+          <>
+          <button
           onClick={() => navigate('import-attendance')}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display"
         >
           <Upload size={16} /> Import Attendance
         </button>
+          </>
+         )}
       </div>
-
-      {/* Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
-        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
-          <Search size={14} className="text-slate-400 shrink-0" />
-          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+      {isMobile ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          </div>
+          <div className="w-full">
+            <select value={period} onChange={e => setPeriod(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+              <option>August 1–15, 2026</option>
+              <option>July 16–31, 2026</option>
+              <option>July 1–15, 2026</option>
+            </select>
+          </div>
+          <div className="w-full">
+            <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+              <option value="">Department: All</option>
+              {['Cooks & Chef', 'Waiters', 'Cashiers', 'Management'].map(d => <option key={d}>{d}</option>)}
+            </select>
+          </div>
+          <div className="w-full">
+            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+              <option value="">Status: All</option>
+              {['Present', 'Absent', 'Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
         </div>
-        <select value={period} onChange={e => setPeriod(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option>August 1–15, 2026</option>
-          <option>July 16–31, 2026</option>
-          <option>July 1–15, 2026</option>
-        </select>
-        <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option value="">Department: All</option>
-          {['Cooks & Chef', 'Waiters', 'Cashiers', 'Management'].map(d => <option key={d}>{d}</option>)}
-        </select>
-        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option value="">Status: All</option>
-          {['Present', 'Absent', 'Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
-        </select>
-      </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          </div>
+          <select value={period} onChange={e => setPeriod(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option>August 1–15, 2026</option>
+            <option>July 16–31, 2026</option>
+            <option>July 1–15, 2026</option>
+          </select>
+          <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="">Department: All</option>
+            {['Cooks & Chef', 'Waiters', 'Cashiers', 'Management'].map(d => <option key={d}>{d}</option>)}
+          </select>
+          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="">Status: All</option>
+            {['Present', 'Absent', 'Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+      )}
 
       {/* Table / Mobile list */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto">
           {!isMobile ? (
-            <table className="w-full">
+            <table>
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   {['Employee', 'Employee ID', 'Date', 'Time In', 'Time Out', 'Late', 'Undertime', 'Overtime', 'Status', 'Actions'].map(h => (
@@ -205,12 +244,26 @@ export default function AttendanceRecords() {
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <div className="truncate">
-                        <div className="text-sm font-medium text-slate-700">{rec.employeeName}</div>
-                        <div className="text-xs text-slate-400">{rec.employeeId} • {rec.date}</div>
+                    <div className="flex items-center justify-between gap-4">
+                      {/* Employee Info */}
+                      <div className="min-w-0 truncate">
+                        <div className="text-sm font-medium text-slate-700 truncate">
+                          {rec.employeeName}
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          {rec.date}
+                        </div>
                       </div>
-                      <div className="text-xs text-slate-500">{rec.timeIn || '—'} · {rec.timeOut || '—'}</div>
+
+                      {/* Time In / Time Out */}
+                      <div className="flex-shrink-0 text-right">
+                        <div className="text-xs text-slate-500">
+                          <span className="text-slate-400">In:</span> {rec.timeIn || '—'}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          <span className="text-slate-400">Out:</span> {rec.timeOut || '—'}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </button>
@@ -224,7 +277,7 @@ export default function AttendanceRecords() {
             <button onClick={() => navigate('import-attendance')} className="mt-3 text-sm text-indigo-600 hover:underline font-display">Import Attendance</button>
           </div>
         )}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 md:static sticky bottom-0 z-10 bg-white">
           <p className="text-xs text-slate-500">Showing {Math.min((page - 1) * PER_PAGE + 1, filtered.length)}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length} records</p>
           <div className="flex items-center gap-1">
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"><ChevronLeft size={16} /></button>
@@ -251,12 +304,10 @@ export default function AttendanceRecords() {
       {selectedRecord && (
         <Modal
           open={!!selectedRecord}
-          title={`Attendance — ${selectedRecord.employeeName}`}
+          title={`Attendance`}
           onClose={() => setSelectedRecord(null)}
         >
-          <div className="bg-white rounded-2xl shadow-2xl w-full">
-            <div className="px-6 py-5 space-y-5">
-              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-start justify-between border-b pb-2 border-slate-100">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 font-display">
                     Employee
@@ -272,7 +323,7 @@ export default function AttendanceRecords() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 pt-2">
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1 font-display">
                     Employee ID
@@ -335,13 +386,6 @@ export default function AttendanceRecords() {
 
               <div className="flex justify-end gap-3">
                 <button
-                  onClick={() => setSelectedRecord(null)}
-                  className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display"
-                >
-                  Close
-                </button>
-
-                <button
                   onClick={() => {
                     setEditing(selectedRecord)
                     setSelectedRecord(null)
@@ -351,8 +395,6 @@ export default function AttendanceRecords() {
                   Edit
                 </button>
               </div>
-            </div>
-          </div>
         </Modal>
       )}
     </div>

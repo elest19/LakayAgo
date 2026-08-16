@@ -19,7 +19,7 @@ const payslipData = employees.slice(0, 12).map((emp, i) => ({
 function PayslipDetailModal({ item, onClose }: { item: typeof payslipData[0]; onClose: () => void }) {
   return (
     <Modal open={true} title={`Payslip — ${item.emp.firstName} ${item.emp.lastName}`} onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-h-[70vh] overflow-y-auto">
         {/* Payslip header */}
         <div className="flex items-center bg-indigo-600 rounded-t-2xl px-8 py-3 text-white"> 
           <img src="/logo.jpg" alt="Lakay Ago" className="w-12 h-12 mr-2 mb-1" />
@@ -184,7 +184,6 @@ export default function Payslips() {
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1">
                         <button onClick={() => setViewing(p)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="View"><Eye size={14} /></button>
-                        <button className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Download"><Download size={14} /></button>
                         {/* <button className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Print"><Printer size={14} /></button> */}
                       </div>
                     </td>

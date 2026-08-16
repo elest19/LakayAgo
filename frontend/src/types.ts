@@ -6,6 +6,7 @@ export type Page =
   | 'import-attendance'
   | 'import-history'
   | 'payroll-periods'
+  | 'payroll-history'
   | 'process-payroll'
   | 'payslips'
   | 'leave-management'

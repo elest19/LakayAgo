@@ -15,6 +15,7 @@ import AttendanceRecords from './pages/AttendanceRecords'
 import ImportAttendance from './pages/ImportAttendance'
 import ImportHistory from './pages/ImportHistory'
 import PayrollPeriods from './pages/PayrollPeriods'
+import PayrollHistory from './pages/PayrollHistory'
 import ProcessPayroll from './pages/ProcessPayroll'
 import Payslips from './pages/Payslips'
 import LeaveManagement from './pages/LeaveManagement'
@@ -23,6 +24,7 @@ import SettingsPage from './pages/Settings'
 import AuditLogs from './pages/AuditLogs'
 // Use the public copy of the logo (served at /LakayAgo_Logo.jpg)
 import Modal from './components/Modal'
+import isMobile from './hooks/isMobile'
 
 const AppContext = createContext<AppContextType>({
   currentPage: 'dashboard',
@@ -69,6 +71,7 @@ const navItems: NavEntry[] = [
     icon: <CreditCard size={18} />,
     items: [
       { id: 'payroll-periods', label: 'Payroll Periods', icon: <CalendarDays size={16} /> },
+      { id: 'payroll-history', label: 'Payroll History', icon: <History size={16} /> },
       { id: 'process-payroll', label: 'Process Payroll', icon: <Cog size={16} /> },
       { id: 'payslips', label: 'Payslips', icon: <FileText size={16} /> },
     ],
@@ -87,6 +90,7 @@ const pageMeta: Record<Page, { title: string; breadcrumbs: string[] }> = {
   'import-attendance': { title: 'Import Attendance', breadcrumbs: ['Attendance', 'Import'] },
   'import-history': { title: 'Import History', breadcrumbs: ['Attendance', 'Import History'] },
   'payroll-periods': { title: 'Payroll Periods', breadcrumbs: ['Payroll', 'Periods'] },
+  'payroll-history': { title: 'Payroll History', breadcrumbs: ['Payroll', 'History'] },
   'process-payroll': { title: 'Process Payroll', breadcrumbs: ['Payroll', 'Process'] },
   payslips: { title: 'Payslips', breadcrumbs: ['Payroll', 'Payslips'] },
   'leave-management': { title: 'Leave Management', breadcrumbs: ['Leave Management'] },
@@ -110,7 +114,7 @@ function ToastContainer({ toasts, removeToast }: { toasts: Toast[]; removeToast:
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-999 flex flex-col gap-3 max-w-sm w-full">
+    <div className="fixed inset-x-3 bottom-4 z-[999] flex flex-col gap-3 sm:right-6 sm:left-auto sm:w-[22rem] sm:max-w-sm sm:bottom-6">
       {toasts.map(t => (
         <div key={t.id} className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex items-start gap-3 p-4 toast-enter">
           <div className="mt-0.5 shrink-0">{icons[t.type]}</div>
@@ -219,6 +223,7 @@ export default function App() {
       case 'import-attendance': return <ImportAttendance />
       case 'import-history': return <ImportHistory />
       case 'payroll-periods': return <PayrollPeriods />
+      case 'payroll-history': return <PayrollHistory />
       case 'process-payroll': return <ProcessPayroll />
       case 'payslips': return <Payslips />
       case 'leave-management': return <LeaveManagement />
@@ -231,6 +236,7 @@ export default function App() {
 
   const SidebarContent = () => {
     const showLabels = !isMobileView || mobileSidebarOpen
+  
 
     return (
     <div className="flex flex-col h-full">
@@ -413,7 +419,7 @@ export default function App() {
                     </button>
 
                     {notifMounted && (
-                      <div className={`absolute right-0 top-11 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown ${notifVisible ? 'show' : 'closing'}`}>
+                      <div className={`absolute right-0 top-11 w-[min(82vw,20rem)] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown ${notifVisible ? 'show' : 'closing'}`}>
                         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                           <span className="font-semibold text-sm font-display text-slate-800">Notifications</span>
                           <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">4 new</span>
@@ -463,9 +469,12 @@ export default function App() {
                 {renderPage()}
               </main>
             </div>
-
-            <Modal open={profileOpen} title="Profile" onClose={() => { setProfileOpen(false); setIsEditingProfile(false) }}>
-              <div className="flex items-start justify-between gap-3">
+            
+            <Modal open={profileOpen} title="Profile" onClose={() => { 
+              setProfileOpen(false); 
+              setIsEditingProfile(false) 
+            }}>
+              <div className="flex items-start justify-between gap-3 w-full">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center">
                     <span className="text-white text-sm font-bold font-display">EM</span>

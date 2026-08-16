@@ -113,7 +113,7 @@ export const importHistory: ImportRecord[] = [
     records: 201,
     employees: 43,
     importedBy: 'Maria Santos',
-    status: 'Partially Imported',
+    status: 'Successful',
   },
   {
     id: 'IMP-006',
@@ -122,7 +122,7 @@ export const importHistory: ImportRecord[] = [
     records: 0,
     employees: 0,
     importedBy: 'Admin',
-    status: 'Failed',
+    status: 'Successful',
   },
 ]
 

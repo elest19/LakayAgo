@@ -23,8 +23,8 @@ const statusColor: Record<PayrollPeriod['status'], string> = {
 function CreatePeriodModal({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
   return (
     <Modal open={true} title="Create Payroll Period" onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full">
-        <div className="px-6 py-5 space-y-4">
+      <div className="w-full">
+        <div className="w-md px-2 py-5 space-y-4">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Payroll Type</label>
             <select className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display">
@@ -49,7 +49,7 @@ function CreatePeriodModal({ onClose, onSave }: { onClose: () => void; onSave: (
             <input type="date" defaultValue="2026-09-20" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
           </div>
         </div>
-        <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
+        <div className="px-2 py-4 border-t border-slate-100 flex gap-3 justify-end">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
           <button onClick={onSave} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Create Payroll Period</button>
         </div>
@@ -235,7 +235,7 @@ export default function PayrollPeriods() {
 
       {selectedPeriod && (
         <Modal open={!!selectedPeriod} title={`Payroll Date: ${selectedPeriod.label}`} onClose={() => setSelectedPeriod(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
+          <div className="w-full p-3">
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>

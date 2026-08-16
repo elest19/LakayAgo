@@ -53,24 +53,46 @@ export default function AuditLogs() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
-        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
-          <Search size={14} className="text-slate-400 shrink-0" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search logs..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+      {isMobile ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-col gap-3 shadow-sm">
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 w-full focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search logs..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          </div>
+          <select value={module} onChange={e => setModule(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="">Module: All</option>
+            {uniqueModules.map(m => <option key={m}>{m}</option>)}
+          </select>
+          <select value={action} onChange={e => setAction(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="">Action: All</option>
+            {uniqueActions.map(a => <option key={a}>{a}</option>)}
+          </select>
+          <select value={user} onChange={e => setUser(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="">User: All</option>
+            {uniqueUsers.map(u => <option key={u}>{u}</option>)}
+          </select>
         </div>
-        <select value={module} onChange={e => setModule(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option value="">Module: All</option>
-          {uniqueModules.map(m => <option key={m}>{m}</option>)}
-        </select>
-        <select value={action} onChange={e => setAction(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option value="">Action: All</option>
-          {uniqueActions.map(a => <option key={a}>{a}</option>)}
-        </select>
-        <select value={user} onChange={e => setUser(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option value="">User: All</option>
-          {uniqueUsers.map(u => <option key={u}>{u}</option>)}
-        </select>
-      </div>
+      ):(
+
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search logs..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          </div>
+          <select value={module} onChange={e => setModule(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="">Module: All</option>
+            {uniqueModules.map(m => <option key={m}>{m}</option>)}
+          </select>
+          <select value={action} onChange={e => setAction(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="">Action: All</option>
+            {uniqueActions.map(a => <option key={a}>{a}</option>)}
+          </select>
+          <select value={user} onChange={e => setUser(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="">User: All</option>
+            {uniqueUsers.map(u => <option key={u}>{u}</option>)}
+          </select>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -138,7 +160,7 @@ export default function AuditLogs() {
 
       {selectedLog && (
         <Modal open={!!selectedLog} title={selectedLog.action} onClose={() => setSelectedLog(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
+          <div className="w-full p-3">
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>

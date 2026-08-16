@@ -3,6 +3,7 @@ import { Upload, FileSpreadsheet, X, CheckCircle, AlertTriangle, Download, Arrow
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
+import WorkflowStepper from '../components/WorkflowStepper'
 
 type Stage = 'upload' | 'validate' | 'success'
 
@@ -17,6 +18,12 @@ const validationRows = [
   { row: 8, empId: 'EMP-008', name: 'Grace Torres', date: 'Aug 1, 2026', timeIn: '8:05 AM', timeOut: '4:45 PM', status: 'valid', error: '' },
 ]
 
+const attendanceImportSteps = [
+  { id: 'upload-file', label: 'Upload File', description: 'Select source file' },
+  { id: 'attendance-validation', label: 'Attendance Validation', description: 'Check record quality' },
+  { id: 'attendance-import', label: 'Attendance Import', description: 'Load validated data' },
+]
+
 export default function ImportAttendance() {
   const { navigate, showToast } = useApp()
   const isMobile = useIsMobile()
@@ -27,6 +34,8 @@ export default function ImportAttendance() {
   const [validating, setValidating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [filterErrors, setFilterErrors] = useState(false)
+
+  const attendanceStepIndex = stage === 'upload' ? 0 : stage === 'validate' ? 1 : 2
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
@@ -51,7 +60,7 @@ export default function ImportAttendance() {
   if (stage === 'success') {
     return (
       <div className="p-6 flex items-center justify-center min-h-96">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center max-w-md w-full">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center max-w-md w-full">
           <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-5">
             <CheckCircle className="text-emerald-600" size={32} />
           </div>
@@ -62,8 +71,12 @@ export default function ImportAttendance() {
             <p className="text-sm font-semibold text-slate-700 font-display">August 1–15, 2026</p>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => navigate('attendance-records')} className="flex-1 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display">View Attendance</button>
-            <button onClick={() => navigate('process-payroll')} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg font-display flex items-center justify-center gap-2">Go to Payroll <ArrowRight size={14} /></button>
+            <button onClick={() => navigate('attendance-records')} className="flex-1 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display">
+              View Attendance
+            </button>
+            <button onClick={() => navigate('process-payroll')} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg font-display flex items-center justify-center gap-2">
+              Go to Payroll <ArrowRight size={14} />
+            </button>
           </div>
         </div>
       </div>
@@ -71,33 +84,19 @@ export default function ImportAttendance() {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-4">
       <div className="mb-6">
         <h2 className="text-xl font-bold text-slate-800 font-display">Import Attendance</h2>
         <p className="text-sm text-slate-500 mt-0.5">Upload attendance records from an Excel file</p>
       </div>
 
-      {/* Workflow steps */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 shadow-sm">
-        <div className="flex items-center justify-center gap-0">
-          {[
-            { label: 'Upload File', active: stage === 'upload', done: stage !== 'upload' },
-            { label: 'Validate', active: stage === 'validate', done: false },
-            { label: 'Import', active: false, done: false },
-          ].map((s, i) => (
-            <div key={i} className="flex items-center">
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium font-display
-                ${s.done ? 'text-emerald-600' : s.active ? 'text-indigo-700 bg-indigo-50' : 'text-slate-400'}`}>
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
-                  ${s.done ? 'bg-emerald-100 text-emerald-600' : s.active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                  {s.done ? '✓' : i + 1}
-                </span>
-                {s.label}
-              </div>
-              {i < 2 && <div className="w-8 h-0.5 bg-slate-200 mx-1" />}
-            </div>
-          ))}
-        </div>
+      <div className="mb-6">
+        <WorkflowStepper
+          steps={attendanceImportSteps}
+          activeIndex={attendanceStepIndex}
+          showNavigation={false}
+          visibleCount={3}
+        />
       </div>
 
       {stage === 'upload' && (
@@ -123,27 +122,35 @@ export default function ImportAttendance() {
               <p className="text-xs text-slate-400 mt-4">Supported formats: .xlsx, .xls</p>
             </div>
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center shrink-0">
-                  <FileSpreadsheet size={22} className="text-emerald-600" />
+            <div className={`bg-white rounded-2xl border border-slate-200 p-2 shadow-sm ${isMobile ? 'p-2' : 'p-6'}`}>
+              <div className="flex items-center gap-2">
+                <div className={`bg-emerald-100 rounded-xl flex items-center justify-center shrink-0 ${isMobile ? 'w-8 h-8' : 'w-12 h-12'}`}>
+                  <FileSpreadsheet size={ isMobile ? 18 : 25 } className="text-emerald-600" />
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-slate-800 font-display">attendance_aug_1_15_2026.xlsx</p>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-xs text-slate-500">245 records</span>
-                    <span className="text-slate-300">·</span>
-                    <span className="text-xs text-slate-500">2.4 MB</span>
-                    <span className="text-slate-300">·</span>
-                    <span className="text-xs text-emerald-600 font-medium">Ready for validation</span>
-                  </div>
+                    {isMobile ? (
+                      <div>
+                        <span className="block text-xs text-slate-500">Records: 245</span>
+                        <span className="block text-xs text-slate-500">Size: 2.4 MB</span>
+                        <span className="block text-xs text-emerald-600 font-medium">Ready for validation</span>
+                      </div>
+                    ) : (
+                      <div>
+                        <span className="text-sm text-slate-500">Records: 245</span>
+                        <span className="text-sm text-slate-500"> - </span>
+                        <span className="text-sm text-slate-500">Size: 2.4 MB</span>
+                        <span className="text-sm text-slate-500"> - </span>
+                        <span className="text-sm text-emerald-600 font-medium">Ready for validation</span>
+                      </div>
+                    )}
                 </div>
                 <button onClick={() => setFileSelected(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
               </div>
             </div>
           )}
 
-          {/* Template download */}
+          {/* Template download 
           <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-700 font-display">Need a template?</p>
@@ -153,6 +160,7 @@ export default function ImportAttendance() {
               <Download size={14} /> Download Excel Template
             </button>
           </div>
+          */}
 
           {fileSelected && (
             <div className="flex justify-end">
@@ -267,12 +275,9 @@ export default function ImportAttendance() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 justify-end">
             <div className="flex gap-2">
               <button onClick={() => setStage('upload')} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel Import</button>
-              <button className="flex items-center gap-2 text-sm font-medium text-indigo-600 border border-indigo-200 bg-indigo-50 px-4 py-2 rounded-lg hover:bg-indigo-100 font-display">
-                <Download size={14} /> Download Error Report
-              </button>
             </div>
             <button
               onClick={handleImport}
@@ -282,7 +287,7 @@ export default function ImportAttendance() {
               {importing ? (
                 <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Importing...</>
               ) : (
-                <>Import Valid Records (242) <ArrowRight size={14} /></>
+                <>Import Records <ArrowRight size={14} /></>
               )}
             </button>
           </div>
@@ -291,7 +296,7 @@ export default function ImportAttendance() {
 
       {selectedRow && (
         <Modal open={!!selectedRow} title={`Row ${selectedRow.row}`} onClose={() => setSelectedRow(null)}>
-          <div className="space-y-3">
+          <div className="w-md space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className="text-xs text-slate-400">Employee ID</p>

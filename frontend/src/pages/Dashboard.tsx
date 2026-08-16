@@ -30,8 +30,8 @@ const StatCard = ({
         </span>
       )}
     </div>
-    <p className="text-2xl font-bold text-slate-800 font-display">{value}</p>
-    <p className="text-sm text-slate-500 mt-0.5">{label}</p>
+    <p className="text-xl font-bold text-slate-800 font-display">{value}</p>
+    <p className="text-xs text-slate-500 mt-0.5">{label}</p>
     {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
   </div>
 )
@@ -77,7 +77,7 @@ export default function Dashboard() {
     <div className="p-6 space-y-6">
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Employees" value="45" icon={<Users size={18} className="text-indigo-600" />} color="bg-indigo-50" trend={{ dir: 'up', text: '+2 this month' }} />
+        <StatCard label="Total Employees" value="45" icon={<Users size={18} className="text-indigo-600" />} color="bg-indigo-50" />
         <StatCard label="Present Today" value="42" sub="93.3% attendance rate" icon={<UserCheck size={18} className="text-emerald-600" />} color="bg-emerald-50" />
         <StatCard label="Missing Attendance" value="2" icon={<AlertTriangle size={18} className="text-amber-600" />} color="bg-amber-50" />
         <StatCard label="Pending Leave Requests" value="4" icon={<Clock size={18} className="text-violet-600" />} color="bg-violet-50" />
@@ -91,9 +91,9 @@ export default function Dashboard() {
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Payroll Status</p>
           <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-700 text-sm font-medium px-3 py-1 rounded-full font-display">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-            Payroll Calculation
+            Calculation
           </span>
-          <p className="text-xs text-slate-400 mt-2">August 1–15, 2026</p>
+          <p className="text-sm text-slate-400 mt-2">Aug 1-15, 2026</p>
         </div>
       </div>
 

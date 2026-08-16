@@ -41,16 +41,13 @@ function AddEmployeeModal({ onClose, onSave }: { onClose: () => void; onSave: ()
 
   return (
     <Modal open={true} title="Add Employee" onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <h3 className="text-lg font-bold text-slate-800 font-display">Add Employee</h3>
-        </div>
-        <div className="flex gap-1 px-6 pt-4">
+      <div className="bg-white w-full max-h-[70vh] flex flex-col">
+        <div className="flex gap-1 px-1 pt-2">
           {(['personal', 'employment', 'payroll'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-4 py-2 text-sm font-medium rounded-lg font-display capitalize cursor-pointer
+              className={`px-2 py-2 text-sm font-medium rounded-lg font-display capitalize cursor-pointer
                 ${tab === t ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
             >
               {t === 'personal' ? 'Personal Info' : t === 'employment' ? 'Employment' : 'Payroll'}
@@ -59,7 +56,7 @@ function AddEmployeeModal({ onClose, onSave }: { onClose: () => void; onSave: ()
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {tab === 'personal' && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
                 { label: 'First Name', ph: 'Juan' }, { label: 'Middle Name', ph: 'Ramos' },
                 { label: 'Last Name', ph: 'Dela Cruz' }, { label: 'Date of Birth', ph: '', type: 'date' },
@@ -78,14 +75,14 @@ function AddEmployeeModal({ onClose, onSave }: { onClose: () => void; onSave: ()
                   <option>Female</option>
                 </select>
               </div>
-              <div className="col-span-2">
+              <div className="col-span-1 sm:col-span-2">
                 <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Address</label>
-                <input type="text" placeholder="123 Mabini St., Quezon City" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                <textarea placeholder="123 Mabini St., Quezon City" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 resize-none h-20 overflow-y-auto break-words whitespace-normal" />
               </div>
             </div>
           )}
           {tab === 'employment' && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
                 { label: 'Employee ID', ph: 'EMP-046' },
                 { label: 'Position', ph: 'Software Developer' },
@@ -115,9 +112,9 @@ function AddEmployeeModal({ onClose, onSave }: { onClose: () => void; onSave: ()
             </div>
           )}
           {tab === 'payroll' && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
-                { label: 'Salary Type', opts: ['Monthly', 'Daily'] },
+                { label: 'Salary Type', opts: ['Monthly', 'Bi-Monthly', 'Daily'] },
               ].map(f => (
                 <div key={f.label}>
                   <label className="block text-xs font-medium text-slate-600 mb-1 font-display">{f.label}</label>
@@ -151,17 +148,104 @@ function EmployeeProfileModal({ employee, onClose, onArchive }: { employee: Empl
   const isMobile = useIsMobile()
   const [tab, setTab] = useState<'overview' | 'attendance' | 'leave' | 'payroll-history'>('overview')
 
+  const [selectedAttendance, setSelectedAttendance] = useState<any | null>(null)
+  const [selectedPayroll, setSelectedPayroll] = useState<any | null>(null)
+
+  const attendanceRecords = [
+    { date: 'Aug 11, 2026', in: '8:00 AM', out: '5:00 PM', late: '—', ot: '—', s: 'Present' },
+    { date: 'Aug 10, 2026', in: '8:03 AM', out: '5:00 PM', late: '3 min', ot: '—', s: 'Present' },
+    { date: 'Aug 9, 2026', in: '8:00 AM', out: '6:30 PM', late: '—', ot: '1.5 hrs', s: 'Present' },
+    { date: 'Aug 8, 2026', in: '8:00 AM', out: '5:00 PM', late: '—', ot: '—', s: 'Present' },
+    { date: 'Aug 7, 2026', in: '', out: '', late: '—', ot: '—', s: 'Leave' },
+  ]
+
+  const payrollRecords = [
+    { p: 'Aug 1–15, 2026', g: 23550, d: 1675, n: 21875, s: 'Pending' },
+    { p: 'Jul 16–31, 2026', g: 23550, d: 1675, n: 21875, s: 'Finalized' },
+    { p: 'Jul 1–15, 2026', g: 22800, d: 1675, n: 21125, s: 'Finalized' },
+    { p: 'Jun 16–30, 2026', g: 22800, d: 1675, n: 21125, s: 'Finalized' },
+  ]
+
+  function AttendanceDetailModal({ item, onClose }: { item: any; onClose: () => void }) {
+    if (!item) return null
+    return (
+      <Modal open={true} title={`Attendance`} onClose={onClose}>
+        <div className="w-md bg-white p-4">
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-slate-400">Date</p>
+              <p className="text-sm font-medium text-slate-700">{item.date}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-slate-400">Time In</p>
+                <p className="text-sm text-slate-700 font-mono">{item.in || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Time Out</p>
+                <p className="text-sm text-slate-700 font-mono">{item.out || '—'}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-slate-400">Late</p>
+                <p className="text-sm text-amber-600">{item.late}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Overtime</p>
+                <p className="text-sm text-indigo-600">{item.ot}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Status</p>
+              <p className="text-sm font-semibold">{item.s}</p>
+            </div>
+          </div>
+        </div>
+      </Modal>
+    )
+  }
+
+  function PayrollDetailModal({ item, onClose }: { item: any; onClose: () => void }) {
+    if (!item) return null
+    return (
+      <Modal open={true} title={`Payroll`} onClose={onClose}>
+        <div className="w-md bg-white p-4">
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-slate-400">Period</p>
+              <p className="text-sm font-medium text-slate-700">{item.p}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-slate-400">Gross Pay</p>
+                <p className="text-sm font-mono text-slate-700">{fmt(item.g)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Deductions</p>
+                <p className="text-sm font-mono text-red-600">{fmt(item.d)}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Net Pay</p>
+              <p className="text-lg font-semibold text-emerald-700">{fmt(item.n)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Status</p>
+              <p className="text-sm">{item.s}</p>
+            </div>
+          </div>
+        </div>
+      </Modal>
+    )
+  }
+
   return (
     <Modal open={true} title={`Employee Information`} onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div className="w-full h-[70vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-start justify-between px-6 py-5 border-b border-slate-100">
+        <div className="flex items-start justify-between px-2 py-5 border-b border-slate-100">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center shrink-0">
-              <span className="text-white font-bold text-xl font-display">
-                {employee.firstName[0]}{employee.lastName[0]}
-              </span>
-            </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-xl font-bold text-slate-800 font-display">{employee.firstName} {employee.lastName}</h3>
@@ -188,26 +272,41 @@ function EmployeeProfileModal({ employee, onClose, onArchive }: { employee: Empl
           </div>
         </div>
         {/* Tabs */}
-        <div className="flex gap-1 px-6 pt-4">
-          {[
-            { id: 'overview', label: 'Overview' },
-            { id: 'attendance', label: 'Attendance' },
-            { id: 'leave', label: 'Leave' },
-            { id: 'payroll-history', label: 'Payroll History' },
-          ].map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id as any)}
-              className={`px-4 py-2 text-sm font-medium rounded-lg font-display cursor-pointer
-                ${tab === t.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
+        {isMobile ? (
+          <div className="border-slate-100 flex flex-wrap gap-1 px-1 py-1">
+            <select
+              value={tab}
+              onChange={(e) => setTab(e.target.value as typeof tab)}
+              className="w-full px-2 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer"
             >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex-1 overflow-y-auto p-6">
+              <option value="overview">Overview</option>
+              <option value="attendance">Attendance</option>
+              <option value="leave">Leave</option>
+              <option value="payroll-history">Payroll History</option>
+            </select>
+          </div>
+        ) : (
+          <div className="border-b border-slate-100 flex gap-1 px-6 py-2">
+            {[
+              { id: 'overview', label: 'Overview' },
+              { id: 'attendance', label: 'Attendance' },
+              { id: 'leave', label: 'Leave' },
+              { id: 'payroll-history', label: 'Payroll History' },
+            ].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id as any)}
+                className={`px-4 py-2 text-sm font-medium rounded-lg font-display cursor-pointer
+                  ${tab === t.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto p-2">
           {tab === 'overview' && (
-            <div className="grid grid-cols-2 gap-6">
+              <div className="w-3xl grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Employment Information</p>
                 <div className="space-y-3">
@@ -236,9 +335,9 @@ function EmployeeProfileModal({ employee, onClose, onArchive }: { employee: Empl
                       { label: 'Address', value: employee.address },
                       { label: 'Date of Birth', value: employee.dateOfBirth },
                     ].map(f => (
-                      <div key={f.label} className="flex flex-col gap-0.5">
-                        <span className="text-xs text-slate-400 font-display">{f.label}</span>
-                        <span className="text-sm font-medium text-slate-700">{f.value}</span>
+                        <div key={f.label} className="flex flex-col gap-0.5">
+                          <span className="text-xs text-slate-400 font-display">{f.label}</span>
+                          <span className="text-sm font-medium text-slate-700 break-words whitespace-normal max-w-full">{f.value}</span>
                       </div>
                     ))}
                   </div>
@@ -251,9 +350,9 @@ function EmployeeProfileModal({ employee, onClose, onArchive }: { employee: Empl
                       { label: 'Salary Type', value: employee.salaryType },
                       { label: 'Allowance', value: fmt(employee.allowance) },
                     ].map(f => (
-                      <div key={f.label} className="flex flex-col gap-0.5">
-                        <span className="text-xs text-slate-400 font-display">{f.label}</span>
-                        <span className="text-sm font-medium text-slate-700">{f.value}</span>
+                        <div key={f.label} className="flex flex-col gap-0.5">
+                          <span className="text-xs text-slate-400 font-display">{f.label}</span>
+                          <span className="text-sm font-medium text-slate-700 break-words whitespace-normal max-w-full">{f.value}</span>
                       </div>
                     ))}
                   </div>
@@ -261,45 +360,73 @@ function EmployeeProfileModal({ employee, onClose, onArchive }: { employee: Empl
               </div>
             </div>
           )}
-          {tab === 'attendance' && (
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Recent Attendance</p>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    {['Date', 'Time In', 'Time Out', 'Late', 'Overtime', 'Status'].map(h => (
-                      <th key={h} className="text-left py-2 px-2 text-xs font-semibold text-slate-400 font-display">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { date: 'Aug 11', in: '8:00 AM', out: '5:00 PM', late: '—', ot: '—', s: 'Present' },
-                    { date: 'Aug 10', in: '8:03 AM', out: '5:00 PM', late: '3 min', ot: '—', s: 'Present' },
-                    { date: 'Aug 9', in: '8:00 AM', out: '6:30 PM', late: '—', ot: '1.5 hrs', s: 'Present' },
-                    { date: 'Aug 8', in: '8:00 AM', out: '5:00 PM', late: '—', ot: '—', s: 'Present' },
-                    { date: 'Aug 7', in: '', out: '', late: '—', ot: '—', s: 'Leave' },
-                  ].map((r, i) => (
-                    <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer">
-                      <td className="py-2.5 px-2 text-slate-600">{r.date}</td>
-                      <td className="py-2.5 px-2 font-mono text-xs">{r.in || '—'}</td>
-                      <td className="py-2.5 px-2 font-mono text-xs">{r.out || '—'}</td>
-                      <td className="py-2.5 px-2 text-amber-600 text-xs">{r.late}</td>
-                      <td className="py-2.5 px-2 text-indigo-600 text-xs">{r.ot}</td>
-                      <td className="py-2.5 px-2">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display
-                          ${r.s === 'Present' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700'}`}>
-                          {r.s}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {isMobile ? (
+            <>
+              {tab === 'attendance' && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Recent Attendance</p>
+                    <div className="flex flex-col divide-y divide-slate-50">
+                      {attendanceRecords.map((r, i) => (
+                        <button key={i} onClick={() => setSelectedAttendance(r)} className="text-left p-3 hover:bg-slate-50 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-slate-700 truncate">{r.date}</div>
+                            <div className="text-xs text-slate-400 truncate">{r.in || '—'} • {r.out || '—'}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-slate-500">{r.s}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  {selectedAttendance && (
+                    <AttendanceDetailModal item={selectedAttendance} onClose={() => setSelectedAttendance(null)} />
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {tab === 'attendance' && (
+                <div className="w-3xl">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Recent Attendance</p>
+                  <table className="text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        {['Date', 'Time In', 'Time Out', 'Late', 'Overtime', 'Status'].map(h => (
+                          <th key={h} className="text-left py-2 px-2 text-xs font-semibold text-slate-400 font-display">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { date: 'Aug 11, 2026', in: '8:00 AM', out: '5:00 PM', late: '—', ot: '—', s: 'Present' },
+                        { date: 'Aug 10, 2026', in: '8:03 AM', out: '5:00 PM', late: '3 min', ot: '—', s: 'Present' },
+                        { date: 'Aug 9, 2026', in: '8:00 AM', out: '6:30 PM', late: '—', ot: '1.5 hrs', s: 'Present' },
+                        { date: 'Aug 8, 2026', in: '8:00 AM', out: '5:00 PM', late: '—', ot: '—', s: 'Present' },
+                        { date: 'Aug 7, 2026', in: '', out: '', late: '—', ot: '—', s: 'Leave' },
+                      ].map((r, i) => (
+                        <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer">
+                          <td className="py-2.5 px-2 text-slate-600">{r.date}</td>
+                          <td className="py-2.5 px-2 font-mono text-xs">{r.in || '—'}</td>
+                          <td className="py-2.5 px-2 font-mono text-xs">{r.out || '—'}</td>
+                          <td className="py-2.5 px-2 text-amber-600 text-xs">{r.late}</td>
+                          <td className="py-2.5 px-2 text-indigo-600 text-xs">{r.ot}</td>
+                          <td className="py-2.5 px-2">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display
+                              ${r.s === 'Present' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700'}`}>
+                              {r.s}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
           {tab === 'leave' && (
-            <div>
+            <div className="w-3xl">
               <div className="grid grid-cols-2 gap-3 mb-4">
                 {[
                   { type: 'Vacation Leave', used: 3, total: 10 },
@@ -312,8 +439,10 @@ function EmployeeProfileModal({ employee, onClose, onArchive }: { employee: Empl
                     <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mb-1.5">
                       <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(l.used / l.total) * 100}%` }} />
                     </div>
-                    <div className="flex justify-between text-xs text-slate-500">
+                    <div className="flex text-xs text-slate-500">
                       <span>Used: <b className="text-slate-700">{l.used}</b> days</span>
+                    </div>
+                    <div className="flex text-xs text-slate-500">
                       <span>Remaining: <b className="text-slate-700">{l.total - l.used}</b> days</span>
                     </div>
                   </div>
@@ -321,39 +450,67 @@ function EmployeeProfileModal({ employee, onClose, onArchive }: { employee: Empl
               </div>
             </div>
           )}
-          {tab === 'payroll-history' && (
-            <div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    {['Period', 'Gross Pay', 'Deductions', 'Net Pay', 'Status'].map(h => (
-                      <th key={h} className="text-left py-2 px-2 text-xs font-semibold text-slate-400 font-display">{h}</th>
+          {isMobile ? (
+            <>
+              {tab === 'payroll-history' && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Payroll History</p>
+                  <div className="flex flex-col divide-y divide-slate-50">
+                    {payrollRecords.map((r, i) => (
+                      <button key={i} onClick={() => setSelectedPayroll(r)} className="text-left p-3 hover:bg-slate-50 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-slate-700 truncate">{r.p}</div>
+                          <div className="text-xs text-slate-400 truncate">{fmt(r.g)} • {fmt(r.n)}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-slate-500">{r.s}</div>
+                        </div>
+                      </button>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { p: 'Aug 1–15, 2026', g: 23550, d: 1675, n: 21875, s: 'Pending' },
-                    { p: 'Jul 16–31, 2026', g: 23550, d: 1675, n: 21875, s: 'Finalized' },
-                    { p: 'Jul 1–15, 2026', g: 22800, d: 1675, n: 21125, s: 'Finalized' },
-                    { p: 'Jun 16–30, 2026', g: 22800, d: 1675, n: 21125, s: 'Finalized' },
-                  ].map((r, i) => (
-                    <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
-                      <td className="py-2.5 px-2 text-slate-600">{r.p}</td>
-                      <td className="py-2.5 px-2 font-mono text-xs text-slate-700">{fmt(r.g)}</td>
-                      <td className="py-2.5 px-2 font-mono text-xs text-red-600">{fmt(r.d)}</td>
-                      <td className="py-2.5 px-2 font-mono text-xs font-semibold text-emerald-700">{fmt(r.n)}</td>
-                      <td className="py-2.5 px-2">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display
-                          ${r.s === 'Finalized' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                          {r.s}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </div>
+                  {selectedPayroll && (
+                    <PayrollDetailModal item={selectedPayroll} onClose={() => setSelectedPayroll(null)} />
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {tab === 'payroll-history' && (
+                <div className="w-3xl">
+                  <table className="text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        {['Period', 'Gross Pay', 'Deductions', 'Net Pay', 'Status'].map(h => (
+                          <th key={h} className="text-left py-2 px-2 text-xs font-semibold text-slate-400 font-display">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { p: 'Aug 1–15, 2026', g: 23550, d: 1675, n: 21875, s: 'Pending' },
+                        { p: 'Jul 16–31, 2026', g: 23550, d: 1675, n: 21875, s: 'Finalized' },
+                        { p: 'Jul 1–15, 2026', g: 22800, d: 1675, n: 21125, s: 'Finalized' },
+                        { p: 'Jun 16–30, 2026', g: 22800, d: 1675, n: 21125, s: 'Finalized' },
+                      ].map((r, i) => (
+                        <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                          <td className="py-2.5 px-2 text-slate-600">{r.p}</td>
+                          <td className="py-2.5 px-2 font-mono text-xs text-slate-700">{fmt(r.g)}</td>
+                          <td className="py-2.5 px-2 font-mono text-xs text-red-600">{fmt(r.d)}</td>
+                          <td className="py-2.5 px-2 font-mono text-xs font-semibold text-emerald-700">{fmt(r.n)}</td>
+                          <td className="py-2.5 px-2">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display
+                              ${r.s === 'Finalized' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {r.s}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -538,7 +695,7 @@ export default function Employees() {
       {/* Archive Confirm */}
       {archiveConfirm && (
         <Modal open={true} title="Archive Employee?" onClose={() => setArchiveConfirm(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
+          <div className="bg-white w-full p-3">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-2">Archive Employee?</h3>
             <p className="text-sm text-slate-600 mb-6">
               Are you sure you want to archive <strong>{archiveConfirm.firstName} {archiveConfirm.lastName}</strong>? They will be marked as inactive.

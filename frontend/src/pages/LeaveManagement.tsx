@@ -29,8 +29,7 @@ function ApproveRejectModal({ leave, action, onClose, onConfirm }: {
 }) {
   return (
     <Modal open={true} title={`${action} Leave Request?`} onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
-        <h3 className="text-lg font-bold text-slate-800 font-display mb-2">{action} Leave Request?</h3>
+      <div className="w-full p-2">
         <div className="bg-slate-50 rounded-xl p-4 mb-5">
           <p className="text-sm font-semibold text-slate-700 font-display">{leave.employeeName}</p>
           <p className="text-xs text-slate-500 mt-0.5">{leave.leaveType} · {leave.startDate} – {leave.endDate} ({leave.days} day{leave.days > 1 ? 's' : ''})</p>
@@ -259,9 +258,9 @@ export default function LeaveManagement() {
 
       {selectedLeave && (
         <Modal open={!!selectedLeave} title={`${selectedLeave.employeeName} — ${selectedLeave.leaveType}`} onClose={() => setSelectedLeave(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
+          <div className={`w-full p-3 overflow-y-auto ${isMobile ? 'max-h-[50vh]' : ''}`}>
             <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
                   <p className="text-xs text-slate-400">Name</p>
                   <p className="text-sm font-medium">{selectedLeave.employeeName}</p>
@@ -292,7 +291,7 @@ export default function LeaveManagement() {
                 <p className="text-sm text-slate-600">{selectedLeave.reason}</p>
               </div>
               {/* Leave balances */}
-              <div>
+              <div className="border-t border-slate-100 pt-3">
                 <p className="text-xs text-slate-400">Leave Balances</p>
                 <div className="space-y-3 mt-2">
                   {getLeaveBalances(selectedLeave.employeeId).map(b => (

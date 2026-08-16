@@ -140,10 +140,25 @@ button:disabled {
   opacity: 0;
   transform: translateY(-6px) scale(0.985);
   transition: opacity var(--motion-medium) var(--motion-ease-out), transform var(--motion-medium) var(--motion-ease-out);
+  max-width: min(90vw, 48rem);
 }
 .modal-content.show {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+.modal-content,
+.modal-content * {
+  max-width: 100%;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.modal-content .whitespace-nowrap {
+  white-space: normal !important;
+}
+.modal-content table {
+  table-layout: fixed;
+  width: 100%;
 }
 
 /* Dropdown / small popover entrance + exit */

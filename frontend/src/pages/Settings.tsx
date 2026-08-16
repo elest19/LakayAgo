@@ -200,21 +200,35 @@ export default function SettingsPage() {
         <p className="text-sm text-slate-500 mt-0.5">Configure system and payroll settings</p>
       </div>
 
-      <div className="flex gap-1 mb-6 flex-wrap">
-        {tabLabels.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium rounded-lg font-display
-              ${tab === t.id ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {isMobile ? (
+          <div className="border-slate-100 flex flex-wrap gap-1">
+            <select
+              value={tab}
+              onChange={(e) => setTab(e.target.value as Tab)}
+              className="w-full px-2 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-b rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer"
+            >
+              {tabLabels.map(t => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="flex gap-1 mb-6 flex-wrap">
+            {tabLabels.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`px-4 py-2 text-sm font-medium rounded-lg font-display
+                  ${tab === t.id ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
       {tab === 'payroll' && (
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm max-w-xl">
+        <div className="bg-white rounded-t rounded-xl border border-slate-200 p-6 shadow-sm max-w-xl">
           <p className="text-sm font-semibold text-slate-700 font-display mb-5">Payroll Settings</p>
           <div className="space-y-4">
             {[
@@ -256,7 +270,7 @@ export default function SettingsPage() {
       )}
 
       {tab === 'attendance' && (
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm max-w-xl">
+        <div className="bg-white rounded-t rounded-xl border border-slate-200 p-6 shadow-sm max-w-xl">
           <p className="text-sm font-semibold text-slate-700 font-display mb-5">Attendance Settings</p>
           <div className="space-y-4">
             {[
@@ -284,7 +298,7 @@ export default function SettingsPage() {
 
       {tab === 'salary' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+          <div className="bg-white rounded-t rounded-xl border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm font-semibold text-slate-700 font-display">Earnings Types</p>
               <button className="flex items-center gap-1 text-xs text-indigo-600 font-medium font-display hover:underline"><Plus size={12} />Add</button>
@@ -308,7 +322,7 @@ export default function SettingsPage() {
               })}
             </div>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+          <div className="bg-white rounded-t rounded-xl border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm font-semibold text-slate-700 font-display">Deduction Types</p>
               <button className="flex items-center gap-1 text-xs text-indigo-600 font-medium font-display hover:underline"><Plus size={12} />Add</button>
@@ -338,7 +352,7 @@ export default function SettingsPage() {
       )}
 
       {tab === 'holidays' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-t rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <p className="text-sm font-semibold text-slate-700 font-display">Holidays</p>
             <button className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
@@ -398,7 +412,7 @@ export default function SettingsPage() {
       )}
 
       {tab === 'users' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-t rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <p className="text-sm font-semibold text-slate-700 font-display">Users & Roles</p>
             <button className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
@@ -446,13 +460,22 @@ export default function SettingsPage() {
             <div className="flex flex-col">
               {userList.map((u, i) => (
                 <div key={`${u.email}-${u.name}`} className="p-3 border-b border-slate-50 flex items-center justify-between gap-3">
-                  <button onClick={() => setSelectedUser(u)} className="text-left flex-1 min-w-0 hover:bg-slate-50">
-                    <div className="text-sm font-medium text-slate-700">{u.name}</div>
-                    <div className="text-xs text-slate-400">{u.role} • {u.email}</div>
+                  <button
+                    onClick={() => setSelectedUser(u)}
+                    className="flex flex-col items-start text-left min-w-0 hover:bg-slate-50"
+                  >
+                    <span className="text-sm font-medium text-slate-700">{u.name}</span>
+                    <span className="text-xs text-slate-400">{u.role}</span>
+                    <span className="text-xs text-slate-400">{u.email}</span>
                   </button>
+
                   <div className="flex gap-1">
-                    <button onClick={() => setEditingUser({ index: i, item: u })} className="p-1.5 text-slate-400 hover:text-slate-700"><Edit2 size={13} /></button>
-                    <button onClick={() => setDeleteTarget({ kind: 'user', index: i, item: u })} className="p-1.5 text-slate-400 hover:text-red-600"><Trash2 size={13} /></button>
+                    <button onClick={() => setEditingUser({ index: i, item: u })} className="p-1.5 text-slate-400 hover:text-slate-700">
+                      <Edit2 size={13} />
+                    </button>
+                    <button onClick={() => setDeleteTarget({ kind: 'user', index: i, item: u })} className="p-1.5 text-slate-400 hover:text-red-600">
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -466,7 +489,7 @@ export default function SettingsPage() {
 
       {saveConfirmOpen && (
         <Modal open={saveConfirmOpen} title="Save changes?" onClose={() => setSaveConfirmOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
+          <div className="w-full p-2">
             <p className="text-sm font-semibold text-slate-700 mb-3">{tabLabels.find(t => t.id === tab)?.label ?? 'This section'}</p>
             <p className="text-sm text-slate-600 mb-4">You are about to save the following changes:</p>
             {tabChanges[tab].length > 0 ? (
@@ -502,7 +525,7 @@ export default function SettingsPage() {
 
       {editingAmount && (
         <Modal open={!!editingAmount} title={`Edit ${editingAmount.key}`} onClose={() => setEditingAmount(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
+          <div className="w-full p-2">
             <p className="text-sm text-slate-600 mb-4">Adjust amount for <span className="font-medium text-slate-700">{editingAmount.key}</span></p>
             <div className="mb-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
               <div className="text-[10px] uppercase tracking-wide text-slate-400">Current amount</div>
@@ -541,7 +564,7 @@ export default function SettingsPage() {
 
       {editingHoliday && (
         <Modal open={!!editingHoliday} title="Edit Holiday" onClose={() => setEditingHoliday(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
+          <div className="w-full p-2">
             <div className="space-y-4">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Holiday Name</label>
@@ -603,8 +626,8 @@ export default function SettingsPage() {
 
       {editingUser && (
         <Modal open={!!editingUser} title="Edit User" onClose={() => setEditingUser(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
-            <div className="space-y-4">
+          <div className="w-full p-2">
+            <div className="w-md space-y-4">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Full Name</label>
                 <input
@@ -665,7 +688,7 @@ export default function SettingsPage() {
 
       {deleteTarget && (
         <Modal open={!!deleteTarget} title="Confirm deletion" onClose={() => setDeleteTarget(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
+          <div className="w-full p-2">
             <p className="text-sm text-slate-600 mb-4">
               Are you sure you want to delete <span className="font-semibold text-slate-700">{deleteTarget.kind === 'holiday' ? (deleteTarget.item as (typeof holidays)[number]).holiday : (deleteTarget.item as (typeof users)[number]).name}</span>?
             </p>
@@ -695,7 +718,7 @@ export default function SettingsPage() {
 
       {deleteSalaryTarget && (
         <Modal open={!!deleteSalaryTarget} title="Confirm deletion" onClose={() => setDeleteSalaryTarget(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full p-6">
+          <div className="w-full p-2">
             <p className="text-sm text-slate-600 mb-4">
               Are you sure you want to delete <span className="font-semibold text-slate-700">{deleteSalaryTarget.key}</span>?
             </p>

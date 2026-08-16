@@ -1,16 +1,32 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CheckCircle2, Circle, AlertTriangle, ChevronRight, X, Search, Eye } from 'lucide-react'
 import { employees } from '../data/mockData'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
+import WorkflowStepper from '../components/WorkflowStepper'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n)
 
 type Step = 'attendance' | 'calculation' | 'review' | 'approved'
 
-const stepLabels = ['Attendance', 'Validation', 'Calculation', 'Review', 'Approval', 'Payslips']
+const payrollWorkflowSteps = [
+  { id: 'file-upload', label: 'File Upload', description: 'Initial file' },
+  { id: 'attendance-validation', label: 'Attendance Validation', description: 'Check records' },
+  { id: 'attendance-import', label: 'Attendance Import', description: 'Load attendance' },
+  { id: 'calculation', label: 'Calculation', description: 'Compute payroll' },
+  { id: 'review', label: 'Review', description: 'Verify values' },
+  { id: 'approval', label: 'Approval', description: 'Approve batch' },
+  { id: 'payslip', label: 'Payslip', description: 'Finalize payslips' },
+]
+
+const stepToIndex: Record<Step, number> = {
+  attendance: 2,
+  calculation: 3,
+  review: 4,
+  approved: 6,
+}
 
 const payrollRows = employees.slice(0, 10).map((emp, i) => ({
   emp,
@@ -26,10 +42,10 @@ function PayrollBreakdownModal({ row, onClose }: { row: typeof payrollRows[0]; o
 
   return (
     <Modal open={true} title={`${row.emp.firstName} ${row.emp.lastName}`} onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-5 space-y-5">
+      <div className=" w-full max-h-[70vh] overflow-y-auto">
+        <div className="w-md px-3 py-2 space-y-5">
           {/* Attendance summary */}
-          <div className="bg-slate-50 rounded-xl p-4">
+          <div className="bg-slate-50 rounded-xl p-2">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3 font-display">Attendance Summary</p>
             <div className="grid grid-cols-3 gap-3">
               {[
@@ -118,17 +134,39 @@ function PayrollBreakdownModal({ row, onClose }: { row: typeof payrollRows[0]; o
 }
 
 export default function ProcessPayroll() {
-  const { showToast } = useApp()
+  const { showToast, navigate } = useApp()
   const isMobile = useIsMobile()
   const [step, setStep] = useState<Step>('calculation')
   const [search, setSearch] = useState('')
   const [viewRow, setViewRow] = useState<typeof payrollRows[0] | null>(null)
   const [approveConfirm, setApproveConfirm] = useState(false)
 
-  const stepIndex: Record<Step, number> = {
-    attendance: 0, calculation: 2, review: 3, approved: 4
+  const [carouselIndex, setCarouselIndex] = useState(0)
+
+  const activePayrollIndex = stepToIndex[step]
+  const maxCarouselIndex = Math.max(0, payrollWorkflowSteps.length - 3)
+
+  useEffect(() => {
+    const desired = Math.min(Math.max(activePayrollIndex - 1, 0), maxCarouselIndex)
+    setCarouselIndex(desired)
+  }, [activePayrollIndex, maxCarouselIndex])
+
+  const goToStepIndex = (nextIndex: number) => {
+    if (nextIndex <= 2) setStep('attendance')
+    else if (nextIndex === 3) setStep('calculation')
+    else if (nextIndex === 4) setStep('review')
+    else setStep('approved')
   }
-  const currentStepIdx = stepIndex[step]
+
+  const handlePrevious = () => {
+    const nextIndex = Math.max(activePayrollIndex - 1, 0)
+    goToStepIndex(nextIndex)
+  }
+
+  const handleNext = () => {
+    const nextIndex = Math.min(activePayrollIndex + 1, payrollWorkflowSteps.length - 1)
+    goToStepIndex(nextIndex)
+  }
 
   const filteredRows = payrollRows.filter(r => {
     const q = search.toLowerCase()
@@ -142,33 +180,16 @@ export default function ProcessPayroll() {
         <p className="text-sm text-slate-500 mt-0.5">August 1–15, 2026</p>
       </div>
 
-      {/* Progress */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6 shadow-sm">
-        <div className="flex items-center justify-between">
-          {stepLabels.map((label, i) => (
-            <div key={i} className="flex items-center flex-1">
-              <div className="flex flex-col items-center gap-1.5">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold font-display
-                  ${i < currentStepIdx ? 'bg-emerald-500 text-white' :
-                    i === currentStepIdx ? 'bg-indigo-600 text-white' :
-                    'bg-slate-100 text-slate-400'}`}
-                >
-                  {i < currentStepIdx ? '✓' : i + 1}
-                </div>
-                <span className={`text-[10px] font-display font-medium text-center leading-tight
-                  ${i < currentStepIdx ? 'text-emerald-600' :
-                    i === currentStepIdx ? 'text-indigo-700' :
-                    'text-slate-400'}`}
-                >
-                  {label}
-                </span>
-              </div>
-              {i < stepLabels.length - 1 && (
-                <div className={`flex-1 h-0.5 mx-2 mb-5 ${i < currentStepIdx ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-              )}
-            </div>
-          ))}
-        </div>
+      <div className="mb-6">
+        <WorkflowStepper
+          steps={payrollWorkflowSteps}
+          activeIndex={activePayrollIndex}
+          carouselIndex={carouselIndex}
+          showNavigation
+          onPrevious={handlePrevious}
+          onNext={handleNext}
+          visibleCount={3}
+        />
       </div>
 
       {step === 'calculation' && (
@@ -184,7 +205,7 @@ export default function ProcessPayroll() {
               { label: 'Overtime', value: '₱18,450', color: 'text-indigo-600' },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">
-                <p className={`text-lg font-bold font-display ${s.color}`}>{s.value}</p>
+                <p className={`font-bold font-display ${s.color} ${isMobile ? 'text-sm' : 'text-lg'}`}>{s.value}</p>
                 <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
               </div>
             ))}
@@ -277,7 +298,7 @@ export default function ProcessPayroll() {
               { label: 'Late Deductions', value: '₱2,350' },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">
-                <p className="text-lg font-bold font-display text-slate-800">{s.value}</p>
+                <p className={`font-bold font-display ${isMobile ? 'text-sm' : 'text-lg'}`}>{s.value}</p>
                 <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
               </div>
             ))}
@@ -306,15 +327,9 @@ export default function ProcessPayroll() {
             </div>
           </div>
 
-          <div className="flex justify-between">
-            <button onClick={() => setStep('calculation')} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back to Calculation</button>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setStep('calculation')} className="px-2 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back to Calculation</button>
             <div className="flex gap-3">
-              <button
-                onClick={() => { showToast({ type: 'warning', message: 'Payroll returned for correction', description: 'August 1–15, 2026 has been sent back.' }); setStep('calculation') }}
-                className="px-4 py-2 text-sm font-medium text-red-600 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 font-display"
-              >
-                Return for Correction
-              </button>
               <button onClick={() => setApproveConfirm(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display">
                 Approve Payroll <CheckCircle2 size={15} />
               </button>
@@ -332,8 +347,20 @@ export default function ProcessPayroll() {
             <h3 className="text-xl font-bold text-slate-800 font-display mb-2">Payroll Approved!</h3>
             <p className="text-sm text-slate-500 mb-6">August 1–15, 2026 payroll has been approved and finalized.<br />Payslips are ready for distribution.</p>
             <div className="flex gap-3 justify-center">
-              <button className="px-5 py-2.5 text-sm font-semibold border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-display">View Payroll History</button>
-              <button className="px-5 py-2.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">View Payslips</button>
+              <button
+                type="button"
+                onClick={() => navigate('payroll-history')}
+                className="px-5 py-2.5 text-sm font-semibold border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-display"
+              >
+                View Payroll History
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('payslips')}
+                className="px-5 py-2.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display"
+              >
+                View Payslips
+              </button>
             </div>
           </div>
         </div>
@@ -342,7 +369,7 @@ export default function ProcessPayroll() {
       {/* Approve Confirm Modal */}
       {approveConfirm && (
         <Modal open={true} title="Approve Payroll?" onClose={() => setApproveConfirm(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+          <div className="w-full max-w-md p-2">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-2">Approve Payroll?</h3>
             <p className="text-sm text-slate-600 mb-2">
               Once approved, payroll will be marked as finalized.

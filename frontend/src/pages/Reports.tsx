@@ -34,6 +34,7 @@ export default function Reports() {
   const [category, setCategory] = useState<'attendance' | 'payroll'>('payroll')
   const [generated, setGenerated] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [useDate, setUseDate] = useState(false)
 
   const handleGenerate = () => {
     setGenerating(true)
@@ -98,14 +99,33 @@ export default function Reports() {
                 </select>
               </div>
             ))}
+            <label className="flex items-center gap-2 text-sm text-slate-600 font-display">
+              <input
+                type="checkbox"
+                checked={useDate}
+                onChange={e => setUseDate(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              Use Date
+            </label>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Date From</label>
-                <input type="date" defaultValue="2026-08-01" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400" />
+                <input
+                  type="date"
+                  defaultValue="2026-08-01"
+                  disabled={!useDate}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Date To</label>
-                <input type="date" defaultValue="2026-08-15" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400" />
+                <input
+                  type="date"
+                  defaultValue="2026-08-15"
+                  disabled={!useDate}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                />
               </div>
             </div>
             <button
@@ -219,7 +239,7 @@ export default function Reports() {
 
       {selectedDept && (
         <Modal open={!!selectedDept} title={selectedDept.dept} onClose={() => setSelectedDept(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl p-2 w-full max-w-3xl max-h-[90vh] flex flex-col">
+          <div className="p-6 w-full max-w-3xl max-h-[70vh] flex flex-col">
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
