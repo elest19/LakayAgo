@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, CheckCircle, XCircle, X } from 'lucide-react'
+import { CheckCircle, XCircle, X } from 'lucide-react'
 import { leaveRequests, employees } from '../data/mockData'
 import type { LeaveRequest } from '../types'
 import { useApp } from '../App'
@@ -159,7 +159,19 @@ export default function LeaveManagement() {
                   {filtered.map(leave => {
                     const ltIdx = leaveTypes.indexOf(leave.leaveType) % leaveColors.length
                     return (
-                      <tr key={leave.id} className="hover:bg-slate-50">
+                      <tr
+                        key={leave.id}
+                        className="hover:bg-slate-50 group cursor-pointer"
+                        onClick={() => setSelectedLeave(leave)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setSelectedLeave(leave)
+                          }
+                        }}
+                      >
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
@@ -185,13 +197,28 @@ export default function LeaveManagement() {
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-1">
-                            <button onClick={() => setSelectedLeave(leave)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="View"><Eye size={14} /></button>
                             {leave.status === 'Pending' && (
                               <>
-                                <button onClick={() => setActionModal({ leave, action: 'Approve' })} className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" title="Approve">
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setActionModal({ leave, action: 'Approve' })
+                                  }}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                  title="Approve"
+                                  type="button"
+                                >
                                   <CheckCircle size={14} />
                                 </button>
-                                <button onClick={() => setActionModal({ leave, action: 'Reject' })} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50" title="Reject">
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setActionModal({ leave, action: 'Reject' })
+                                  }}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                  title="Reject"
+                                  type="button"
+                                >
                                   <XCircle size={14} />
                                 </button>
                               </>

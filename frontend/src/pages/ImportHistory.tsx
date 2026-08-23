@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, RotateCcw, FileText, X } from 'lucide-react'
+import { RotateCcw, FileText, X } from 'lucide-react'
 import { importHistory } from '../data/mockData'
 import type { ImportRecord } from '../types'
 import { useApp } from '../App'
@@ -65,7 +65,19 @@ export default function ImportHistory() {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {importHistory.map(imp => (
-                  <tr key={imp.id} className="hover:bg-slate-50">
+                  <tr
+                    key={imp.id}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setSelectedImport(imp)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedImport(imp)
+                      }
+                    }}
+                  >
                     <td className="py-3 px-4 text-sm text-slate-600">{imp.dateImported}</td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
@@ -79,13 +91,7 @@ export default function ImportHistory() {
                     <td className="py-3 px-4">
                       <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[imp.status]}`}>{imp.status}</span>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => setSelectedImport(imp)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs flex items-center gap-1 font-display" title="View Import">
-                          <Eye size={14} />
-                        </button>
-                      </div>
-                    </td>
+                    <td className="py-3 px-4" />
                   </tr>
                 ))}
               </tbody>

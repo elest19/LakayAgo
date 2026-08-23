@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, ArrowRight, X, Eye, Download } from 'lucide-react'
+import { Plus, ArrowRight, X, Download } from 'lucide-react'
 import { payrollPeriods } from '../data/mockData'
 import type { PayrollPeriod } from '../types'
 import { useApp } from '../App'
@@ -59,7 +59,7 @@ function CreatePeriodModal({ onClose, onSave }: { onClose: () => void; onSave: (
 }
 
 export default function PayrollPeriods() {
-  const { navigate, showToast } = useApp()
+  const { navigate, showToast, setActivePayrollPeriod } = useApp()
   const isMobile = useIsMobile()
   const [selectedPeriod, setSelectedPeriod] = useState<PayrollPeriod | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -120,7 +120,19 @@ export default function PayrollPeriods() {
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {visiblePeriods.map(pp => (
-                    <tr key={pp.id} className="hover:bg-slate-50">
+                    <tr
+                      key={pp.id}
+                      className="hover:bg-slate-50 group cursor-pointer"
+                      onClick={() => setSelectedPeriod(pp)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setSelectedPeriod(pp)
+                        }
+                      }}
+                    >
                       <td className="py-3.5 px-4">
                         <p className="text-sm font-semibold text-slate-700 font-display">{pp.label}</p>
                         <p className="text-xs text-slate-400 mt-0.5">{pp.payrollType} · Pay: {pp.payDate}</p>
@@ -141,16 +153,16 @@ export default function PayrollPeriods() {
                         <div className="flex items-center gap-1">
                           {pp.status !== 'Finalized' && pp.status !== 'Pending' ? (
                             <button
-                              onClick={() => navigate('process-payroll')}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setActivePayrollPeriod(pp)
+                                navigate('process-payroll')
+                              }}
                               className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 font-display"
                             >
                               Continue <ArrowRight size={12} />
                             </button>
-                          ) : (
-                            <button onClick={() => setSelectedPeriod(pp)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="View">
-                              <Eye size={14} />
-                            </button>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -189,7 +201,19 @@ export default function PayrollPeriods() {
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {visiblePeriods.map(pp => (
-                    <tr key={pp.id} className="hover:bg-slate-50">
+                    <tr
+                      key={pp.id}
+                      className="hover:bg-slate-50 group cursor-pointer"
+                      onClick={() => setSelectedPeriod(pp)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setSelectedPeriod(pp)
+                        }
+                      }}
+                    >
                       <td className="py-3.5 px-4">
                         <p className="text-sm font-semibold text-slate-700 font-display">{pp.label}</p>
                         <p className="text-xs text-slate-400 mt-0.5">Pay Date: {pp.payDate}</p>
@@ -203,9 +227,17 @@ export default function PayrollPeriods() {
                       </td>
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-1">
-                          <button onClick={() => setSelectedPeriod(pp)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="View Payroll"><Eye size={14} /></button>
                           {pp.status === 'Finalized' && (
-                            <button className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Download Report"><Download size={14} /></button>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation()
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                              title="Download Report"
+                              type="button"
+                            >
+                              <Download size={14} />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -267,7 +299,10 @@ export default function PayrollPeriods() {
             {selectedPeriod.status !== 'Finalized' ? (
               <div className="mt-6 flex justify-end">
                 <button
-                  onClick={() => navigate('process-payroll')}
+                  onClick={() => {
+                    setActivePayrollPeriod(selectedPeriod)
+                    navigate('process-payroll')
+                  }}
                   className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display"
                 >
                   Continue <ArrowRight size={12} />

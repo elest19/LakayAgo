@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Circle, AlertTriangle, ChevronRight, X, Search, Eye } from 'lucide-react'
+import { CheckCircle2, Circle, AlertTriangle, ChevronRight, X, Search } from 'lucide-react'
 import { employees } from '../data/mockData'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
@@ -134,7 +134,7 @@ function PayrollBreakdownModal({ row, onClose }: { row: typeof payrollRows[0]; o
 }
 
 export default function ProcessPayroll() {
-  const { showToast, navigate } = useApp()
+  const { showToast, navigate, activePayrollPeriod } = useApp()
   const isMobile = useIsMobile()
   const [step, setStep] = useState<Step>('calculation')
   const [search, setSearch] = useState('')
@@ -173,11 +173,33 @@ export default function ProcessPayroll() {
     return !q || `${r.emp.firstName} ${r.emp.lastName}`.toLowerCase().includes(q)
   })
 
+  if (!activePayrollPeriod) {
+    return (
+      <div className="p-6">
+        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center shadow-sm">
+          <h2 className="text-xl font-bold text-slate-800 font-display mb-2">No payroll period selected</h2>
+          <p className="text-sm text-slate-500 mb-5">Choose a payroll period before processing payroll.</p>
+          <button
+            type="button"
+            onClick={() => navigate('payroll-periods')}
+            className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display"
+          >
+            Go back to Payroll Periods
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="p-6">
       <div className="mb-6">
         <h2 className="text-xl font-bold text-slate-800 font-display">Payroll Processing</h2>
         <p className="text-sm text-slate-500 mt-0.5">August 1–15, 2026</p>
+      </div>
+
+      <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-800 font-display">
+        Processing: {activePayrollPeriod.label} · {activePayrollPeriod.payrollType}
       </div>
 
       <div className="mb-6">
@@ -231,7 +253,19 @@ export default function ProcessPayroll() {
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {filteredRows.map(r => (
-                      <tr key={r.emp.id} className="hover:bg-slate-50">
+                      <tr
+                        key={r.emp.id}
+                        className="hover:bg-slate-50 group cursor-pointer"
+                        onClick={() => setViewRow(r)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setViewRow(r)
+                          }
+                        }}
+                      >
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2.5">
                             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
@@ -251,11 +285,7 @@ export default function ProcessPayroll() {
                         <td className="py-3 px-4">
                           <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">Calculated</span>
                         </td>
-                        <td className="py-3 px-4">
-                          <button onClick={() => setViewRow(r)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50">
-                            <Eye size={14} />
-                          </button>
-                        </td>
+                        <td className="py-3 px-4" />
                       </tr>
                     ))}
                   </tbody>

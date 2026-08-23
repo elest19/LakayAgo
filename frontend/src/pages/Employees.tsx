@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Search, Plus, Eye, Edit2, Archive, ChevronLeft, ChevronRight, X, User } from 'lucide-react'
+import { Search, Plus, Edit2, Archive, ChevronLeft, ChevronRight, X, User } from 'lucide-react'
 import { employees as allEmployees, departments } from '../data/mockData'
 import type { Employee } from '../types'
 import { useApp } from '../App'
@@ -128,10 +128,7 @@ function AddEmployeeModal({ onClose, onSave }: { onClose: () => void; onSave: ()
                 <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Basic Salary (₱)</label>
                 <input type="number" placeholder="20000" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Allowance (₱)</label>
-                <input type="number" placeholder="1500" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
-              </div>
+              
             </div>
           )}
         </div>
@@ -348,7 +345,6 @@ function EmployeeProfileModal({ employee, onClose, onArchive }: { employee: Empl
                     {[
                       { label: 'Basic Salary', value: fmt(employee.basicSalary) },
                       { label: 'Salary Type', value: employee.salaryType },
-                      { label: 'Allowance', value: fmt(employee.allowance) },
                     ].map(f => (
                         <div key={f.label} className="flex flex-col gap-0.5">
                           <span className="text-xs text-slate-400 font-display">{f.label}</span>
@@ -608,7 +604,19 @@ export default function Employees() {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {pageData.map(emp => (
-                  <tr key={emp.id} className="hover:bg-slate-50 group">
+                  <tr
+                    key={emp.id}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setViewEmployee(emp)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setViewEmployee(emp)
+                      }
+                    }}
+                  >
                     <td className="py-3 px-4">
                       <span className="font-mono text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{emp.id}</span>
                     </td>
@@ -630,10 +638,20 @@ export default function Employees() {
                     <td className="py-3 px-4"><StatusBadge status={emp.status} /></td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => setViewEmployee(emp)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer" title="View">
-                          <Eye size={14} />
-                        </button>
-                        <button onClick={() => setArchiveConfirm(emp)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer" title="Archive">
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setArchiveConfirm(emp)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.stopPropagation()
+                            }
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                          title="Archive"
+                          type="button"
+                        >
                           <Archive size={14} />
                         </button>
                       </div>
@@ -696,7 +714,6 @@ export default function Employees() {
       {archiveConfirm && (
         <Modal open={true} title="Archive Employee?" onClose={() => setArchiveConfirm(null)}>
           <div className="bg-white w-full p-3">
-            <h3 className="text-lg font-bold text-slate-800 font-display mb-2">Archive Employee?</h3>
             <p className="text-sm text-slate-600 mb-6">
               Are you sure you want to archive <strong>{archiveConfirm.firstName} {archiveConfirm.lastName}</strong>? They will be marked as inactive.
             </p>

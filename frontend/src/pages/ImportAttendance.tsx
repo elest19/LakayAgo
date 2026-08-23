@@ -1,22 +1,67 @@
-import { useState } from 'react'
-import { Upload, FileSpreadsheet, X, CheckCircle, AlertTriangle, Download, ArrowRight } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Upload, FileSpreadsheet, X, CheckCircle, AlertTriangle, ArrowRight, ChevronUp, ChevronDown, Edit2 } from 'lucide-react'
 import { useApp } from '../App'
+import { upsertAttendanceRecords } from '../data/mockData'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 import WorkflowStepper from '../components/WorkflowStepper'
+import { deriveAttendanceStatus, parseAttendanceReport, type FingerprintAttendanceSummary, type NormalizedAttendanceRecord } from '../utils/fingerprintAttendanceParser'
+import type { AttendanceRecord } from '../types'
+
+const buildAttendancePreview = (records: NormalizedAttendanceRecord[]): FingerprintAttendanceSummary => {
+  const attendanceRecords: AttendanceRecord[] = records.map(record => {
+    const normalizedStatus = deriveAttendanceStatus(record.check_in, record.check_out, record.is_weekend, record.check_in ?? '', record.check_out ?? '')
+
+    return {
+      id: `${record.employee_id}-${record.date}`,
+      employeeId: record.employee_id,
+      employeeName: record.employee_name,
+      department: 'Unassigned',
+      date: record.date,
+      day: record.weekday,
+      timeIn: record.check_in ?? '',
+      timeOut: record.check_out ?? '',
+      firstOnDuty: record.check_in ?? null,
+      firstOffDuty: record.check_out ?? null,
+      secondOnDuty: record.second_shift_check_in ?? null,
+      secondOffDuty: record.second_shift_check_out ?? null,
+      overtimeCheckIn: record.overtime_check_in ?? null,
+      overtimeCheckOut: record.overtime_check_out ?? null,
+      lateMinutes: 0,
+      undertimeMinutes: 0,
+      overtimeHours: record.is_weekend ? 1 : 0,
+      status: normalizedStatus === 'present'
+        ? (record.is_weekend ? 'Overtime' : 'Present')
+        : normalizedStatus === 'absent'
+          ? 'Absent'
+          : normalizedStatus === 'incomplete'
+            ? 'Incomplete'
+            : record.is_weekend
+              ? 'Rest Day'
+              : 'Absent',
+    }
+  })
+
+  const sortedDates = attendanceRecords.map(record => record.date).sort()
+  const dateRange = sortedDates.length > 0
+    ? { start: sortedDates[0], end: sortedDates[sortedDates.length - 1] }
+    : null
+
+  return {
+    sheetsProcessed: 1,
+    employeesFound: new Set(attendanceRecords.map(record => record.employeeId)).size,
+    attendanceRecords: attendanceRecords.length,
+    regularAttendance: attendanceRecords.filter(record => record.status === 'Present').length,
+    weekendOvertime: attendanceRecords.filter(record => record.status === 'Overtime').length,
+    absent: attendanceRecords.filter(record => record.status === 'Absent').length,
+    dateRange,
+    warnings: [],
+    duplicates: 0,
+    records: attendanceRecords,
+  }
+}
 
 type Stage = 'upload' | 'validate' | 'success'
-
-const validationRows = [
-  { row: 1, empId: 'EMP-001', name: 'Juan Dela Cruz', date: 'Aug 1, 2026', timeIn: '8:03 AM', timeOut: '5:00 PM', status: 'valid', error: '' },
-  { row: 2, empId: 'EMP-002', name: 'Maria Santos', date: 'Aug 1, 2026', timeIn: '8:00 AM', timeOut: '6:00 PM', status: 'valid', error: '' },
-  { row: 3, empId: 'EMP-XXX', name: '—', date: 'Aug 1, 2026', timeIn: '8:00 AM', timeOut: '5:00 PM', status: 'error', error: 'Employee ID not found' },
-  { row: 4, empId: 'EMP-004', name: 'Ana Garcia', date: 'Aug 1, 2026', timeIn: '8:00 AM', timeOut: '', status: 'error', error: 'Missing Time Out' },
-  { row: 5, empId: 'EMP-005', name: 'Carlo Mendoza', date: 'Aug 1, 2026', timeIn: '', timeOut: '', status: 'valid', error: '' },
-  { row: 6, empId: 'EMP-006', name: 'Lorna Bautista', date: 'Aug/01/26', timeIn: '8:00 AM', timeOut: '5:00 PM', status: 'error', error: 'Invalid date format' },
-  { row: 7, empId: 'EMP-007', name: 'Mark Villanueva', date: 'Aug 1, 2026', timeIn: '8:00 AM', timeOut: '5:00 PM', status: 'valid', error: '' },
-  { row: 8, empId: 'EMP-008', name: 'Grace Torres', date: 'Aug 1, 2026', timeIn: '8:05 AM', timeOut: '4:45 PM', status: 'valid', error: '' },
-]
 
 const attendanceImportSteps = [
   { id: 'upload-file', label: 'Upload File', description: 'Select source file' },
@@ -24,38 +69,265 @@ const attendanceImportSteps = [
   { id: 'attendance-import', label: 'Attendance Import', description: 'Load validated data' },
 ]
 
+function EditAttendanceRowModal({ record, onClose, onSave }: { record: AttendanceRecord; onClose: () => void; onSave: (nextRecord: AttendanceRecord) => void }) {
+  const [draft, setDraft] = useState<AttendanceRecord>({ ...record })
+
+  return (
+    <Modal open={true} title="Edit Attendance" onClose={onClose}>
+      <div className="space-y-4 py-2">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Employee</label>
+            <input value={draft.employeeName} readOnly className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Date</label>
+            <input value={draft.date} readOnly className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time In</label>
+            <input value={draft.timeIn} onChange={e => setDraft(prev => ({ ...prev, timeIn: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time Out</label>
+            <input value={draft.timeOut} onChange={e => setDraft(prev => ({ ...prev, timeOut: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Status</label>
+            <select
+              value={draft.status}
+              onChange={e => setDraft(prev => ({ ...prev, status: e.target.value as AttendanceRecord['status'] }))}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display"
+            >
+              {(['Present', 'Absent', 'Leave', 'Rest Day', 'Holiday', 'Incomplete', 'Overtime'] as AttendanceRecord['status'][]).map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-3">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+          <button type="button" onClick={() => onSave(draft)} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 export default function ImportAttendance() {
   const { navigate, showToast } = useApp()
   const isMobile = useIsMobile()
-  const [selectedRow, setSelectedRow] = useState<typeof validationRows[number] | null>(null)
+  const [selectedRow, setSelectedRow] = useState<{ employeeId: string; employeeName: string } | null>(null)
+  const [selectedDetailRecord, setSelectedDetailRecord] = useState<AttendanceRecord | null>(null)
+  const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null)
   const [stage, setStage] = useState<Stage>('upload')
   const [dragging, setDragging] = useState(false)
   const [fileSelected, setFileSelected] = useState(false)
   const [validating, setValidating] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [filterErrors, setFilterErrors] = useState(false)
+  const [fileName, setFileName] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
+  const [preview, setPreview] = useState<FingerprintAttendanceSummary | null>(null)
+  const [sortColumn, setSortColumn] = useState<'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete'>('name')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
   const attendanceStepIndex = stage === 'upload' ? 0 : stage === 'validate' ? 1 : 2
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setDragging(false)
-    setFileSelected(true)
+  const employeeSummary = useMemo(() => {
+    if (!preview?.records.length) return []
+
+    const byEmployee = new Map<string, {
+      employeeId: string
+      employeeName: string
+      count: number
+      present: number
+      absent: number
+      overtime: number
+      incompleteCount: number
+    }>()
+
+    for (const record of preview.records) {
+      const entry = byEmployee.get(record.employeeId) ?? {
+        employeeId: record.employeeId,
+        employeeName: record.employeeName,
+        count: 0,
+        present: 0,
+        absent: 0,
+        overtime: 0,
+        incompleteCount: 0,
+      }
+
+      entry.count += 1
+      if (record.status === 'Present') entry.present += 1
+      if (record.status === 'Absent') entry.absent += 1
+      if (record.status === 'Overtime') entry.overtime += 1
+      if (record.status === 'Incomplete') entry.incompleteCount += 1
+
+      byEmployee.set(record.employeeId, entry)
+    }
+
+    return [...byEmployee.values()]
+  }, [preview])
+
+  const sortedEmployeeSummary = useMemo(() => {
+    const rows = [...employeeSummary]
+
+    rows.sort((a, b) => {
+      let comparison = 0
+
+      switch (sortColumn) {
+        case 'id': {
+          const idA = Number.parseFloat(String(a.employeeId))
+          const idB = Number.parseFloat(String(b.employeeId))
+          comparison = Number.isFinite(idA) && Number.isFinite(idB)
+            ? idA - idB
+            : String(a.employeeId).localeCompare(String(b.employeeId))
+          break
+        }
+        case 'name':
+          comparison = a.employeeName.localeCompare(b.employeeName, undefined, { sensitivity: 'base' })
+          break
+        case 'days':
+          comparison = a.count - b.count
+          break
+        case 'present':
+          comparison = a.present - b.present
+          break
+        case 'absent':
+          comparison = a.absent - b.absent
+          break
+        case 'overtime':
+          comparison = a.overtime - b.overtime
+          break
+        case 'incomplete':
+          comparison = a.incompleteCount - b.incompleteCount
+          break
+        default:
+          comparison = a.employeeName.localeCompare(b.employeeName, undefined, { sensitivity: 'base' })
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+
+    return rows
+  }, [employeeSummary, sortColumn, sortDirection])
+
+  const incompleteEmployees = useMemo(
+    () => sortedEmployeeSummary.filter(employee => employee.incompleteCount > 0),
+    [sortedEmployeeSummary],
+  )
+
+  const completeEmployees = useMemo(
+    () => sortedEmployeeSummary.filter(employee => employee.incompleteCount === 0),
+    [sortedEmployeeSummary],
+  )
+
+  const selectedEmployeeRecords = useMemo(() => {
+    if (!preview || !selectedRow) return []
+
+    return [...preview.records]
+      .filter(record => record.employeeId === selectedRow.employeeId)
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [preview, selectedRow])
+
+  const handleSaveEditedRecord = (nextRecord: AttendanceRecord) => {
+    setPreview(current => {
+      if (!current) return current
+
+      return {
+        ...current,
+        records: current.records.map(record => record.id === nextRecord.id ? { ...record, ...nextRecord } : record),
+      }
+    })
+    setEditingRecord(null)
   }
 
-  const handleFileSelect = () => setFileSelected(true)
+  const handleSort = (column: 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete') => {
+    if (sortColumn === column) {
+      setSortDirection(current => current === 'asc' ? 'desc' : 'asc')
+      return
+    }
+
+    setSortColumn(column)
+    setSortDirection('asc')
+  }
+
+  const getAriaSortState = (column: 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete') => {
+    if (sortColumn !== column) return 'none'
+    return sortDirection === 'asc' ? 'ascending' : 'descending'
+  }
+
+  const handleParseFile = async (file: File) => {
+    setErrorMessage('')
+    setFileName(file.name)
+    setFileSelected(true)
+    setSelectedRow(null)
+    setSortColumn('name')
+    setSortDirection('asc')
+
+    try {
+      const parsed = await parseAttendanceReport(file)
+      if (!parsed.length) {
+        setErrorMessage('No valid attendance records were found in the numbered worksheets.')
+        return
+      }
+
+      setPreview(buildAttendancePreview(parsed))
+      setStage('validate')
+    } catch (error) {
+      console.error('Fingerprint attendance import failed', error)
+      setErrorMessage('The workbook could not be parsed. Please upload a valid fingerprint attendance Excel file.')
+    }
+  }
+
+  const handleDrop = async (event: React.DragEvent) => {
+    event.preventDefault()
+    setDragging(false)
+    const file = event.dataTransfer.files?.[0]
+    if (file) {
+      await handleParseFile(file)
+    }
+  }
+
+  const handleFileInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      await handleParseFile(file)
+    }
+  }
 
   const handleValidate = () => {
+    if (!fileName) {
+      setErrorMessage('Please select an attendance file first.')
+      return
+    }
+
     setValidating(true)
-    setTimeout(() => { setValidating(false); setStage('validate') }, 1800)
+    window.setTimeout(() => {
+      setValidating(false)
+      setStage('validate')
+    }, 500)
   }
 
   const handleImport = () => {
-    setImporting(true)
-    setTimeout(() => { setImporting(false); setStage('success') }, 2000)
-  }
+    if (!preview?.records.length) {
+      setErrorMessage('There are no records to import.')
+      return
+    }
 
-  const rows = filterErrors ? validationRows.filter(r => r.status === 'error') : validationRows
+    setImporting(true)
+    window.setTimeout(() => {
+      upsertAttendanceRecords(preview.records)
+      setImporting(false)
+      setStage('success')
+      showToast({
+        type: 'success',
+        message: 'Attendance imported',
+        description: `${preview.records.length} records were imported from ${fileName}.`,
+      })
+    }, 800)
+  }
 
   if (stage === 'success') {
     return (
@@ -65,10 +337,12 @@ export default function ImportAttendance() {
             <CheckCircle className="text-emerald-600" size={32} />
           </div>
           <h3 className="text-xl font-bold text-slate-800 font-display mb-2">Attendance Imported Successfully</h3>
-          <p className="text-sm text-slate-500 mb-6">245 attendance records imported.<br />45 employees affected.</p>
+          <p className="text-sm text-slate-500 mb-6">{preview?.attendanceRecords ?? 0} attendance records imported.<br />{preview?.employeesFound ?? 0} employees affected.</p>
           <div className="bg-slate-50 rounded-xl p-4 text-left mb-6">
-            <p className="text-xs text-slate-400 font-display mb-1">Payroll Period</p>
-            <p className="text-sm font-semibold text-slate-700 font-display">August 1–15, 2026</p>
+            <p className="text-xs text-slate-400 font-display mb-1">Date Range</p>
+            <p className="text-sm font-semibold text-slate-700 font-display">
+              {preview?.dateRange ? `${preview.dateRange.start} to ${preview.dateRange.end}` : 'Attendance import complete'}
+            </p>
           </div>
           <div className="flex gap-3">
             <button onClick={() => navigate('attendance-records')} className="flex-1 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display">
@@ -87,7 +361,7 @@ export default function ImportAttendance() {
     <div className="p-4">
       <div className="mb-6">
         <h2 className="text-xl font-bold text-slate-800 font-display">Import Attendance</h2>
-        <p className="text-sm text-slate-500 mt-0.5">Upload attendance records from an Excel file</p>
+        <p className="text-sm text-slate-500 mt-0.5">Upload attendance records from a fingerprint Excel workbook</p>
       </div>
 
       <div className="mb-6">
@@ -101,74 +375,46 @@ export default function ImportAttendance() {
 
       {stage === 'upload' && (
         <div className="max-w-2xl mx-auto space-y-5">
-          {/* Drop zone */}
           {!fileSelected ? (
             <div
-              onDragOver={e => { e.preventDefault(); setDragging(true) }}
+              onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
               onDragLeave={() => setDragging(false)}
               onDrop={handleDrop}
-              className={`bg-white rounded-2xl border-2 border-dashed p-16 text-center shadow-sm cursor-pointer transition-colors
-                ${dragging ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'}`}
-              onClick={handleFileSelect}
+              className={`bg-white rounded-2xl border-2 border-dashed p-16 text-center shadow-sm cursor-pointer transition-colors ${dragging ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'}`}
             >
               <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-5">
                 <FileSpreadsheet size={30} className="text-slate-400" />
               </div>
               <p className="text-lg font-bold text-slate-700 font-display mb-1">Drag & Drop Excel File Here</p>
               <p className="text-sm text-slate-400 mb-5">or</p>
-              <button className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg font-display" onClick={e => e.stopPropagation()}>
+              <label className="inline-block bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg font-display cursor-pointer">
                 Select Excel File
-              </button>
+                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileInput} />
+              </label>
               <p className="text-xs text-slate-400 mt-4">Supported formats: .xlsx, .xls</p>
             </div>
           ) : (
             <div className={`bg-white rounded-2xl border border-slate-200 p-2 shadow-sm ${isMobile ? 'p-2' : 'p-6'}`}>
               <div className="flex items-center gap-2">
                 <div className={`bg-emerald-100 rounded-xl flex items-center justify-center shrink-0 ${isMobile ? 'w-8 h-8' : 'w-12 h-12'}`}>
-                  <FileSpreadsheet size={ isMobile ? 18 : 25 } className="text-emerald-600" />
+                  <FileSpreadsheet size={isMobile ? 18 : 25} className="text-emerald-600" />
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-slate-800 font-display">attendance_aug_1_15_2026.xlsx</p>
-                    {isMobile ? (
-                      <div>
-                        <span className="block text-xs text-slate-500">Records: 245</span>
-                        <span className="block text-xs text-slate-500">Size: 2.4 MB</span>
-                        <span className="block text-xs text-emerald-600 font-medium">Ready for validation</span>
-                      </div>
-                    ) : (
-                      <div>
-                        <span className="text-sm text-slate-500">Records: 245</span>
-                        <span className="text-sm text-slate-500"> - </span>
-                        <span className="text-sm text-slate-500">Size: 2.4 MB</span>
-                        <span className="text-sm text-slate-500"> - </span>
-                        <span className="text-sm text-emerald-600 font-medium">Ready for validation</span>
-                      </div>
-                    )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 font-display truncate">{fileName || 'Attendance workbook.xlsx'}</p>
+                  <p className="text-sm text-emerald-600 font-medium">Ready for validation</p>
                 </div>
-                <button onClick={() => setFileSelected(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+                <button onClick={() => { setFileSelected(false); setFileName(''); setErrorMessage(''); setPreview(null) }} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
               </div>
             </div>
           )}
 
-          {/* Template download 
-          <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-700 font-display">Need a template?</p>
-              <p className="text-xs text-slate-400">Download the official attendance import template</p>
-            </div>
-            <button className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700 font-semibold font-display">
-              <Download size={14} /> Download Excel Template
-            </button>
-          </div>
-          */}
+          {errorMessage && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorMessage}</div>
+          )}
 
           {fileSelected && (
             <div className="flex justify-end">
-              <button
-                onClick={handleValidate}
-                disabled={validating}
-                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg font-display disabled:opacity-70"
-              >
+              <button onClick={handleValidate} disabled={validating} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg font-display disabled:opacity-70">
                 {validating ? (
                   <>
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -183,111 +429,289 @@ export default function ImportAttendance() {
         </div>
       )}
 
-      {stage === 'validate' && (
+      {stage === 'validate' && preview && (
         <div className="space-y-5">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-slate-800 font-display">Validate Attendance Import</h3>
+            <h3 className="text-base font-bold text-slate-800 font-display">Attendance Import Preview</h3>
           </div>
 
-          {/* Warning */}
           <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
             <AlertTriangle size={18} className="text-amber-600 shrink-0" />
-            <p className="text-sm text-amber-700 font-medium">Review all errors before importing attendance.</p>
+            <p className="text-sm text-amber-700 font-medium">Review the workbook summary before importing. Weekend attendance is classified as overtime and should not be treated as second shift.</p>
           </div>
 
-          {/* Summary */}
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {[
-              { label: 'Total Records', value: '245', color: 'text-slate-800' },
-              { label: 'Valid Records', value: '242', color: 'text-emerald-600' },
-              { label: 'Errors', value: '3', color: 'text-red-600' },
-              { label: 'Employees', value: '45', color: 'text-slate-800' },
-              { label: 'Duplicates', value: '0', color: 'text-slate-800' },
-              { label: 'Missing Att.', value: '2', color: 'text-amber-600' },
-            ].map(s => (
-              <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm text-center">
-                <p className={`text-xl font-bold font-display ${s.color}`}>{s.value}</p>
-                <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
+              { label: 'Sheets', value: preview.sheetsProcessed },
+              { label: 'Employees', value: preview.employeesFound },
+              { label: 'Records', value: preview.attendanceRecords },
+              { label: 'Regular', value: preview.regularAttendance },
+              { label: 'Weekend OT', value: preview.weekendOvertime },
+              { label: 'Absent', value: preview.absent },
+            ].map(item => (
+              <div key={item.label} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm text-center">
+                <p className="text-xl font-bold font-display text-slate-800">{item.value}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{item.label}</p>
               </div>
             ))}
           </div>
 
-          {/* Table */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-              <p className="text-sm font-semibold text-slate-700 font-display">Validation Results</p>
-              <button
-                onClick={() => setFilterErrors(!filterErrors)}
-                className={`text-xs font-medium px-3 py-1.5 rounded-lg font-display
-                  ${filterErrors ? 'bg-red-100 text-red-700' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-              >
-                {filterErrors ? 'Show All' : 'View Errors (3)'}
-              </button>
+          {preview.dateRange && (
+            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Date Range</p>
+              <p className="mt-2 text-lg font-bold text-slate-800 font-display">{preview.dateRange.start} to {preview.dateRange.end}</p>
             </div>
-            <div className="overflow-x-auto">
-              {!isMobile ? (
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
-                      {['Row', 'Employee ID', 'Employee', 'Date', 'Time In', 'Time Out', 'Status'].map(h => (
-                        <th key={h} className="text-left py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {rows.map(r => (
-                      <tr key={r.row} className={r.status === 'error' ? 'bg-red-50' : 'hover:bg-slate-50'}>
-                        <td className="py-2.5 px-4 font-mono text-xs text-slate-500">{r.row}</td>
-                        <td className="py-2.5 px-4">
-                          <span className={`font-mono text-xs px-2 py-0.5 rounded ${r.status === 'error' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{r.empId}</span>
-                        </td>
-                        <td className="py-2.5 px-4 text-sm text-slate-600">{r.name}</td>
-                        <td className="py-2.5 px-4 text-sm text-slate-600">{r.date}</td>
-                        <td className="py-2.5 px-4 font-mono text-xs text-slate-600">{r.timeIn || '—'}</td>
-                        <td className="py-2.5 px-4 font-mono text-xs text-slate-600">{r.timeOut || '—'}</td>
-                        <td className="py-2.5 px-4">
-                          {r.status === 'error' ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium font-display">{r.error}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">Valid</span>
-                          )}
-                        </td>
-                      </tr>
+          )}
+
+          {preview.warnings.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <p className="font-semibold mb-2">Warnings</p>
+              <ul className="list-disc ml-5 space-y-1">
+                {preview.warnings.map((warning, index) => (
+                  <li key={`${warning}-${index}`}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {incompleteEmployees.length > 0 && (
+            <div className="mb-5 bg-white rounded-xl border border-red-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-4 border-b border-red-100 bg-red-50">
+                <p className="flex items-center gap-2 text-sm font-semibold text-red-700 font-display">
+                  <AlertTriangle size={16} className="shrink-0" />
+                  Incomplete Records
+                </p>
+              </div>
+
+              {isMobile ? (
+                <div className="p-3">
+                  <div className="space-y-3">
+                    {incompleteEmployees.map(employee => (
+                      <button
+                        key={employee.employeeId}
+                        type="button"
+                        onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}
+                        className="w-full rounded-xl border border-red-200 bg-red-50 p-3 text-left transition-colors hover:bg-red-100 active:bg-red-100"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-700 font-display">{employee.employeeName}</p>
+                          <p className="mt-0.5 text-xs text-slate-500">ID: {employee.employeeId}</p>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
+                            Present: {employee.present}
+                          </span>
+                          <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">
+                            Weekend OT: {employee.overtime}
+                          </span>
+                          <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">
+                            Absent: {employee.absent}
+                          </span>
+                          <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">
+                            Incomplete: {employee.incompleteCount}
+                          </span>
+                        </div>
+                      </button>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+                </div>
               ) : (
-                <div className="flex flex-col">
-                  {rows.map(r => (
-                    <button key={r.row} onClick={() => setSelectedRow(r)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-slate-700">{r.name || r.empId}</div>
-                        <div className="text-xs text-slate-400">{r.date} • {r.empId}</div>
-                      </div>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${r.status === 'error' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{r.status === 'error' ? 'Error' : 'Valid'}</span>
-                    </button>
-                  ))}
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-red-100 bg-red-50">
+                        {[
+                          { key: 'id', label: 'ID' },
+                          { key: 'name', label: 'Employee' },
+                          { key: 'present', label: 'Present (Weekdays)' },
+                          { key: 'overtime', label: 'Present (Weekends)' },
+                          { key: 'absent', label: 'Absent' },
+                          { key: 'incomplete', label: 'Incomplete' },
+                        ].map(({ key, label }) => {
+                          const isActive = sortColumn === key
+                          const isAscending = isActive && sortDirection === 'asc'
+
+                          return (
+                            <th
+                              key={key}
+                              role="button"
+                              tabIndex={0}
+                              aria-sort={getAriaSortState(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')}
+                              onClick={() => handleSort(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  handleSort(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')
+                                }
+                              }}
+                              className="cursor-pointer select-none text-left py-2.5 px-4 text-xs font-semibold text-red-700 uppercase tracking-wide font-display hover:bg-red-100"
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                {label}
+                                {isActive && (isAscending ? <ChevronUp size={14} className="text-red-700" /> : <ChevronDown size={14} className="text-red-700" />)}
+                              </span>
+                            </th>
+                          )
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-red-100">
+                      {incompleteEmployees.map(employee => (
+                        <tr key={employee.employeeId} className="bg-red-50 hover:bg-red-100 cursor-pointer" onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}>
+                          <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeId}</td>
+                          <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeName}</td>
+                          <td className="py-2.5 px-4 text-sm text-emerald-700">{employee.present}</td>
+                          <td className="py-2.5 px-4 text-sm text-blue-700">{employee.overtime}</td>
+                          <td className="py-2.5 px-4 text-sm text-red-700">{employee.absent}</td>
+                          <td className="py-2.5 px-4 text-sm font-semibold text-red-700">{employee.incompleteCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
+          )}
+
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-4 py-4 border-b border-slate-100">
+              <p className="text-sm font-semibold text-slate-700 font-display">Previewed Attendance</p>
+            </div>
+
+            {isMobile ? (
+              <div className="p-3">
+                <div className="mb-3 flex items-center gap-2">
+                  <select
+                    value={sortColumn}
+                    onChange={(event) => handleSort(event.target.value as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')}
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display"
+                  >
+                    <option value="id">ID</option>
+                    <option value="name">Employee</option>
+                    <option value="present">Present (Weekdays)</option>
+                    <option value="overtime">Present (Weekends)</option>
+                    <option value="absent">Absent</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setSortDirection(current => current === 'asc' ? 'desc' : 'asc')}
+                    className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    aria-label={sortDirection === 'asc' ? 'Sort descending' : 'Sort ascending'}
+                  >
+                    {sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </button>
+                </div>
+
+                {completeEmployees.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-sm text-slate-500">No attendance records found.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {completeEmployees.map(employee => (
+                      <button
+                        key={employee.employeeId}
+                        type="button"
+                        onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}
+                        className="w-full rounded-xl border border-slate-200 p-3 text-left transition-colors hover:bg-slate-50 active:bg-slate-100"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-700 font-display">{employee.employeeName}</p>
+                          <p className="mt-0.5 text-xs text-slate-400">ID: {employee.employeeId}</p>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
+                            Present: {employee.present}
+                          </span>
+                          <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">
+                            Weekend OT: {employee.overtime}
+                          </span>
+                          <span className="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">
+                            Absent: {employee.absent}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                {completeEmployees.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-sm text-slate-500">No attendance records found.</div>
+                ) : (
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        {[
+                          { key: 'id', label: 'ID' },
+                          { key: 'name', label: 'Employee' },
+                          { key: 'present', label: 'Present (Weekdays)' },
+                          { key: 'overtime', label: 'Present (Weekends)' },
+                          { key: 'absent', label: 'Absent' },
+                        ].map(({ key, label }) => {
+                          const isActive = sortColumn === key
+                          const isAscending = isActive && sortDirection === 'asc'
+
+                          return (
+                            <th
+                              key={key}
+                              role="button"
+                              tabIndex={0}
+                              aria-sort={getAriaSortState(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')}
+                              onClick={() => handleSort(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  handleSort(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')
+                                }
+                              }}
+                              className="cursor-pointer select-none text-left py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display hover:bg-slate-100"
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                {label}
+                                {isActive && (isAscending ? <ChevronUp size={14} className="text-slate-700" /> : <ChevronDown size={14} className="text-slate-700" />)}
+                              </span>
+                            </th>
+                          )
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {completeEmployees.map(employee => (
+                        <tr key={employee.employeeId} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}>
+                          <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeId}</td>
+                          <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeName}</td>
+                          <td className="py-2.5 px-4 text-sm text-emerald-700">{employee.present}</td>
+                          <td className="py-2.5 px-4 text-sm text-blue-700">{employee.overtime}</td>
+                          <td className="py-2.5 px-4 text-sm text-red-700">{employee.absent}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-2 justify-end">
-            <div className="flex gap-2">
-              <button onClick={() => setStage('upload')} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel Import</button>
-            </div>
-            <button
-              onClick={handleImport}
-              disabled={importing}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg font-display disabled:opacity-70"
-            >
+          <div className="flex justify-end gap-3">
+            <button onClick={() => {
+              setStage('upload')
+              setPreview(null)
+              setFileSelected(false)
+              setSelectedRow(null)
+              setSortColumn('name')
+              setSortDirection('asc')
+            }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back</button>
+            <button onClick={handleImport} disabled={importing} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display disabled:opacity-70">
               {importing ? (
-                <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Importing...</>
+                <>
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Importing...
+                </>
               ) : (
-                <>Import Records <ArrowRight size={14} /></>
+                <>Import Attendance</>
               )}
             </button>
           </div>
@@ -295,42 +719,129 @@ export default function ImportAttendance() {
       )}
 
       {selectedRow && (
-        <Modal open={!!selectedRow} title={`Row ${selectedRow.row}`} onClose={() => setSelectedRow(null)}>
-          <div className="w-md space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-xs text-slate-400">Employee ID</p>
-                <p className="text-sm font-medium">{selectedRow.empId}</p>
+        <Modal open={!!selectedRow} title={`${selectedRow.employeeName} (ID: ${selectedRow.employeeId}) — Attendance Detail`} onClose={() => setSelectedRow(null)}>
+          <div className={`${isMobile ? 'w-full max-w-6xl' : 'w-[40vw] max-w-6xl'}`}>
+            {selectedEmployeeRecords.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 p-4 text-sm text-slate-500">No attendance data for this employee.</div>
+            ) : isMobile ? (
+              <div className="space-y-3">
+                {selectedEmployeeRecords.map(record => (
+                  <button
+                    key={`${record.employeeId}-${record.date}`}
+                    type="button"
+                    onClick={() => setSelectedDetailRecord(record)}
+                    className="w-full rounded-xl border border-slate-200 p-3 text-left transition-colors hover:bg-slate-50 active:bg-slate-100"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-700 font-display">{record.date}</p>
+                        <p className="text-xs text-slate-500">{record.day || '—'}</p>
+                      </div>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${record.status === 'Overtime' ? 'bg-blue-100 text-blue-700' : record.status === 'Absent' ? 'bg-red-100 text-red-700' : record.status === 'Incomplete' ? 'bg-amber-100 text-amber-700' : record.status === 'Rest Day' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
+                        {record.status}
+                      </span>
+                    </div>
+                  </button>
+                ))}
               </div>
-              <div>
-                <p className="text-xs text-slate-400">Employee</p>
-                <p className="text-sm font-medium">{selectedRow.name || '—'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Date</p>
-                <p className="text-sm font-medium">{selectedRow.date}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Time In</p>
-                <p className="text-sm font-medium">{selectedRow.timeIn || '—'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Time Out</p>
-                <p className="text-sm font-medium">{selectedRow.timeOut || '—'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Status</p>
-                <p className="text-sm font-medium">{selectedRow.status === 'error' ? 'Error' : 'Valid'}</p>
-              </div>
-            </div>
-            {selectedRow.status === 'error' && (
-              <div>
-                <p className="text-xs text-slate-400">Error</p>
-                <p className="text-sm text-red-700">{selectedRow.error}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50">
+                      <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Date</th>
+                      <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Day</th>
+                      <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Status</th>
+                      <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Time In</th>
+                      <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Time Out</th>
+                      <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {selectedEmployeeRecords.map(record => (
+                      <tr key={`${record.employeeId}-${record.date}`} className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3 text-sm text-slate-600">{record.date}</td>
+                        <td className="py-2.5 px-3 text-sm text-slate-600">{record.day || '—'}</td>
+                        <td className="py-2.5 px-3">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium font-display ${record.status === 'Overtime' ? 'bg-blue-100 text-blue-700' : record.status === 'Absent' ? 'bg-red-100 text-red-700' : record.status === 'Incomplete' ? 'bg-amber-100 text-amber-700' : record.status === 'Rest Day' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {record.status}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-600">{record.firstOnDuty ?? record.timeIn ?? '—'}</td>
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-600">{record.firstOffDuty ?? record.timeOut ?? '—'}</td>
+                        <td className="py-2.5 px-3">
+                          <button
+                            type="button"
+                            onClick={() => setEditingRecord(record)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-green-700 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-600 font-display"
+                          >
+                            <Edit2 size={12} className="shrink-0" />
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
         </Modal>
+      )}
+
+      {selectedDetailRecord && (
+        <Modal open={!!selectedDetailRecord} title={`${selectedDetailRecord.employeeName} — Attendance Detail`} onClose={() => setSelectedDetailRecord(null)}>
+          <div className="w-full max-w-md">
+            <div className="space-y-0">
+              <div className="border-b border-slate-100 pb-3">
+                <p className="text-xs text-slate-400 font-display">Date</p>
+                <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.date}</p>
+              </div>
+              <div className="border-b border-slate-100 py-3">
+                <p className="text-xs text-slate-400 font-display">Day</p>
+                <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.day || '—'}</p>
+              </div>
+              <div className="border-b border-slate-100 py-3">
+                <p className="text-xs text-slate-400 font-display">Status</p>
+                <div className="mt-1">
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${selectedDetailRecord.status === 'Overtime' ? 'bg-blue-100 text-blue-700' : selectedDetailRecord.status === 'Absent' ? 'bg-red-100 text-red-700' : selectedDetailRecord.status === 'Incomplete' ? 'bg-amber-100 text-amber-700' : selectedDetailRecord.status === 'Rest Day' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
+                    {selectedDetailRecord.status}
+                  </span>
+                </div>
+              </div>
+              <div className="border-b border-slate-100 py-3">
+                <p className="text-xs text-slate-400 font-display">Time In</p>
+                <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.firstOnDuty ?? selectedDetailRecord.timeIn ?? '—'}</p>
+              </div>
+              <div className="py-3">
+                <p className="text-xs text-slate-400 font-display">Time Out</p>
+                <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.firstOffDuty ?? selectedDetailRecord.timeOut ?? '—'}</p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDetailRecord(null)
+                  setEditingRecord(selectedDetailRecord)
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-green-700 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-600 font-display"
+              >
+                <Edit2 size={12} className="shrink-0" />
+                Edit
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {editingRecord && (
+        <EditAttendanceRowModal
+          record={editingRecord}
+          onClose={() => setEditingRecord(null)}
+          onSave={(nextRecord) => handleSaveEditedRecord(nextRecord)}
+        />
       )}
     </div>
   )

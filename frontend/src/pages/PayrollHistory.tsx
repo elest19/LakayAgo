@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, Download } from 'lucide-react'
+import { Download } from 'lucide-react'
 import { payrollPeriods } from '../data/mockData'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
@@ -61,7 +61,19 @@ export default function PayrollHistory() {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {payrollPeriods.filter(p => p.status !== 'Attendance Pending').map(pp => (
-                  <tr key={pp.id} className="hover:bg-slate-50">
+                  <tr
+                    key={pp.id}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setSelectedPeriod(pp)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedPeriod(pp)
+                      }
+                    }}
+                  >
                     <td className="py-3.5 px-4">
                       <p className="text-sm font-semibold text-slate-700 font-display">{pp.label}</p>
                       <p className="text-xs text-slate-400 mt-0.5">Pay Date: {pp.payDate}</p>
@@ -75,9 +87,17 @@ export default function PayrollHistory() {
                     </td>
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => setSelectedPeriod(pp)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="View Payroll"><Eye size={14} /></button>
                         {pp.status === 'Finalized' && (
-                          <button className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Download Report"><Download size={14} /></button>
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation()
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                            title="Download Report"
+                            type="button"
+                          >
+                            <Download size={14} />
+                          </button>
                         )}
                       </div>
                     </td>
@@ -87,7 +107,7 @@ export default function PayrollHistory() {
             </table>
           ) : (
             <div className="flex flex-col">
-              {payrollPeriods.filter(p => p.status !== 'Attendance Pending').map(pp => (
+              {payrollPeriods.filter(p => p.status !== 'Pending').map(pp => (
                 <button key={pp.id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-slate-700">{pp.label}</div>

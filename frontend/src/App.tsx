@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react'
-import type { Page, Toast, AppContextType } from './types'
+import type { Page, Toast, AppContextType, InventoryItem, SaleRecord, ExpenseRecord, PayrollPeriod } from './types'
 import useIsMobile from './hooks/isMobile'
 import {
   LayoutDashboard, Users, ClipboardList, Upload, History,
   CalendarDays, Cog, FileText, LogOut, ChevronDown, ChevronRight,
   Bell, Search, Menu, X, CheckCircle, AlertCircle, AlertTriangle, Info,
-  CreditCard, BookOpen, Settings, ClipboardCheck, UserCheck, BarChart3
+  CreditCard, BookOpen, Settings, ClipboardCheck, UserCheck, BarChart3, ShoppingCart, Wallet, Package2
 } from 'lucide-react'
 
 import Login from './pages/Login'
@@ -22,14 +22,29 @@ import LeaveManagement from './pages/LeaveManagement'
 import Reports from './pages/Reports'
 import SettingsPage from './pages/Settings'
 import AuditLogs from './pages/AuditLogs'
+import SalesSummary from './pages/SalesSummary'
+import Sales from './pages/Sales'
+import InventoryCatalog from './pages/InventoryCatalog'
+import Expenses from './pages/Expenses'
 // Use the public copy of the logo (served at /LakayAgo_Logo.jpg)
 import Modal from './components/Modal'
 import isMobile from './hooks/isMobile'
+import { inventoryCatalog, salesRecords as initialSalesRecords, expenseRecords as initialExpenses } from './data/mockData'
 
 const AppContext = createContext<AppContextType>({
   currentPage: 'dashboard',
   navigate: () => {},
   showToast: () => {},
+  inventoryItems: [],
+  setInventoryItems: () => {},
+  salesRecords: [],
+  setSalesRecords: () => {},
+  expenses: [],
+  setExpenses: () => {},
+  activePayrollPeriod: null,
+  setActivePayrollPeriod: () => {},
+  appMode: 'aroo',
+  setAppMode: () => {},
   openEmployee: () => {},
   clearOpenEmployee: () => {},
   openEmployeeId: null,
@@ -71,9 +86,19 @@ const navItems: NavEntry[] = [
     icon: <CreditCard size={18} />,
     items: [
       { id: 'payroll-periods', label: 'Payroll Periods', icon: <CalendarDays size={16} /> },
-      { id: 'payroll-history', label: 'Payroll History', icon: <History size={16} /> },
       { id: 'process-payroll', label: 'Process Payroll', icon: <Cog size={16} /> },
       { id: 'payslips', label: 'Payslips', icon: <FileText size={16} /> },
+    ],
+  },
+  {
+    type: 'group',
+    label: 'Sales & Expenses',
+    icon: <ShoppingCart size={18} />,
+    items: [
+      { id: 'sales-summary', label: 'Summary Report', icon: <BarChart3 size={16} /> },
+      { id: 'sales', label: 'Sales', icon: <Wallet size={16} /> },
+      { id: 'inventory-catalog', label: 'Inventory Catalog', icon: <Package2 size={16} /> },
+      { id: 'expenses', label: 'Expenses', icon: <CreditCard size={16} /> },
     ],
   },
   { id: 'leave-management', label: 'Leave Management', icon: <UserCheck size={18} /> },
@@ -94,6 +119,10 @@ const pageMeta: Record<Page, { title: string; breadcrumbs: string[] }> = {
   'process-payroll': { title: 'Process Payroll', breadcrumbs: ['Payroll', 'Process'] },
   payslips: { title: 'Payslips', breadcrumbs: ['Payroll', 'Payslips'] },
   'leave-management': { title: 'Leave Management', breadcrumbs: ['Leave Management'] },
+  'sales-summary': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Summary Report'] },
+  sales: { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Sales'] },
+  'inventory-catalog': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Inventory Catalog'] },
+  expenses: { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Expenses'] },
   reports: { title: 'Reports', breadcrumbs: ['Reports'] },
   settings: { title: 'Settings', breadcrumbs: ['Settings'] },
   'audit-logs': { title: 'Audit Logs', breadcrumbs: ['Audit Logs'] },
@@ -133,10 +162,15 @@ function ToastContainer({ toasts, removeToast }: { toasts: Toast[]; removeToast:
 }
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<Page>('login')
+  const [currentPage, setCurrentPage] = useState<Page>('dashboard')
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const isMobileView = useIsMobile()
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['Attendance', 'Payroll']))
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>(inventoryCatalog)
+  const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(initialSalesRecords)
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>(initialExpenses)
+  const [activePayrollPeriod, setActivePayrollPeriod] = useState<PayrollPeriod | null>(null)
+  const [appMode, setAppMode] = useState<'aroo' | 'lakayAgo'>('aroo')
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [toasts, setToasts] = useState<Toast[]>([])
   const [profileOpen, setProfileOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
@@ -151,6 +185,10 @@ export default function App() {
     email: 'lakay.ago@restaurant.ph',
     password: 'secret',
   })
+
+  useEffect(() => {
+    console.log('appMode changed:', appMode)
+  }, [appMode])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -227,6 +265,10 @@ export default function App() {
       case 'process-payroll': return <ProcessPayroll />
       case 'payslips': return <Payslips />
       case 'leave-management': return <LeaveManagement />
+      case 'sales-summary': return <SalesSummary />
+      case 'sales': return <Sales />
+      case 'inventory-catalog': return <InventoryCatalog />
+      case 'expenses': return <Expenses />
       case 'reports': return <Reports />
       case 'settings': return <SettingsPage />
       case 'audit-logs': return <AuditLogs />
@@ -277,6 +319,26 @@ export default function App() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-2">
+        {showLabels && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setAppMode(current => current === 'aroo' ? 'lakayAgo' : 'aroo')}
+              className="mb-3 w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left cursor-pointer text-slate-100 bg-green-800 hover:text-white hover:bg-green-600 transition-colors"
+            >
+              <img
+                src={appMode === 'aroo' ? '/assets/aroo-logo.png' : './public/logo.jpg'}
+                alt={appMode === 'aroo' ? 'Lakay Ago logo' : 'Aroo logo'}
+                className="w-6 h-6 object-contain rounded-sm"
+                // TODO: replace with actual logo path
+              />
+              <span className="text-sm font-medium font-display">
+                {appMode === 'aroo' ? 'Switch to Aroo' : 'Switch to Lakay Ago'}
+              </span>
+            </button>
+          </div>
+        )}
+        <div className="mt-3 border-t border-slate-800 pt-3"></div>
         {navItems.map((entry, idx) => {
           if ('type' in entry && entry.type === 'group') {
             const group = entry as { type: 'group' } & NavGroup
@@ -340,7 +402,7 @@ export default function App() {
   }
 
   return (
-    <AppContext.Provider value={{ currentPage, navigate, showToast, openEmployee, clearOpenEmployee, openEmployeeId }}>
+    <AppContext.Provider value={{ currentPage, navigate, showToast, inventoryItems, setInventoryItems, salesRecords, setSalesRecords, expenses, setExpenses, activePayrollPeriod, setActivePayrollPeriod, appMode, setAppMode, openEmployee, clearOpenEmployee, openEmployeeId }}>
       {currentPage === 'login' ? (
         <Login />
       ) : (

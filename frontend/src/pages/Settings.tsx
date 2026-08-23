@@ -4,12 +4,11 @@ import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 
-type Tab = 'payroll' | 'attendance' | 'salary' | 'holidays' | 'users'
+type Tab = 'payroll' | 'attendance' | 'holidays' | 'users'
 
 const tabLabels: { id: Tab; label: string }[] = [
   { id: 'payroll', label: 'Payroll' },
   { id: 'attendance', label: 'Attendance' },
-  { id: 'salary', label: 'Salary Config' },
   { id: 'holidays', label: 'Holidays' },
   { id: 'users', label: 'Users & Roles' },
 ]
@@ -117,69 +116,67 @@ export default function SettingsPage() {
   const saveSummary: Record<Tab, string[]> = {
     payroll: ['Payroll frequency', 'Salary calculation', 'Overtime multipliers', 'Working hours & grace period'],
     attendance: ['Grace period', 'Required daily hours', 'Break duration', 'Overtime threshold'],
-    salary: ['Earnings types', 'Deduction types', 'Salary config updates'],
     holidays: ['Holiday calendar', 'Holiday types', 'Holiday status settings'],
     users: ['User access', 'Role assignments', 'Account status settings'],
   }
 
- const tabChanges = {
-  payroll: [
-    {
-      label: 'Payroll Frequency',
-      from: defaultPayrollSettings.payrollFrequency,
-      to: payrollSettings.payrollFrequency,
-    },
-    {
-      label: 'Salary Calculation',
-      from: defaultPayrollSettings.salaryCalculation,
-      to: payrollSettings.salaryCalculation,
-    },
-    {
-      label: 'Overtime Multiplier (Regular Day)',
-      from: defaultPayrollSettings.overtimeRegular,
-      to: payrollSettings.overtimeRegular,
-    },
-    {
-      label: 'Overtime Multiplier (Rest Day)',
-      from: defaultPayrollSettings.overtimeRest,
-      to: payrollSettings.overtimeRest,
-    },
-    {
-      label: 'Working Hours Per Day',
-      from: defaultPayrollSettings.workingHours,
-      to: payrollSettings.workingHours,
-    },
-    {
-      label: 'Late Grace Period (minutes)',
-      from: defaultPayrollSettings.lateGracePeriod,
-      to: payrollSettings.lateGracePeriod,
-    },
-  ].filter(change => change.from !== change.to),
-
-  attendance: [
-    {
-      label: 'Grace Period (minutes)',
-      from: defaultAttendanceSettings.gracePeriod,
-      to: attendanceSettings.gracePeriod,
-    },
-    {
-      label: 'Required Daily Hours',
-      from: defaultAttendanceSettings.requiredDailyHours,
-      to: attendanceSettings.requiredDailyHours,
-    },
-    {
-      label: 'Break Duration (minutes)',
-      from: defaultAttendanceSettings.breakDuration,
-      to: attendanceSettings.breakDuration,
-    },
-    {
-      label: 'Overtime Threshold (hours)',
-      from: defaultAttendanceSettings.overtimeThreshold,
-      to: attendanceSettings.overtimeThreshold,
-    },
+  const tabChanges = {
+    payroll: [
+      {
+        label: 'Payroll Frequency',
+        from: defaultPayrollSettings.payrollFrequency,
+        to: payrollSettings.payrollFrequency,
+      },
+      {
+        label: 'Salary Calculation',
+        from: defaultPayrollSettings.salaryCalculation,
+        to: payrollSettings.salaryCalculation,
+      },
+      {
+        label: 'Overtime Multiplier (Regular Day)',
+        from: defaultPayrollSettings.overtimeRegular,
+        to: payrollSettings.overtimeRegular,
+      },
+      {
+        label: 'Overtime Multiplier (Rest Day)',
+        from: defaultPayrollSettings.overtimeRest,
+        to: payrollSettings.overtimeRest,
+      },
+      {
+        label: 'Working Hours Per Day',
+        from: defaultPayrollSettings.workingHours,
+        to: payrollSettings.workingHours,
+      },
+      {
+        label: 'Late Grace Period (minutes)',
+        from: defaultPayrollSettings.lateGracePeriod,
+        to: payrollSettings.lateGracePeriod,
+      },
     ].filter(change => change.from !== change.to),
 
-    salary: [],
+    attendance: [
+      {
+        label: 'Grace Period (minutes)',
+        from: defaultAttendanceSettings.gracePeriod,
+        to: attendanceSettings.gracePeriod,
+      },
+      {
+        label: 'Required Daily Hours',
+        from: defaultAttendanceSettings.requiredDailyHours,
+        to: attendanceSettings.requiredDailyHours,
+      },
+      {
+        label: 'Break Duration (minutes)',
+        from: defaultAttendanceSettings.breakDuration,
+        to: attendanceSettings.breakDuration,
+      },
+      {
+        label: 'Overtime Threshold (hours)',
+        from: defaultAttendanceSettings.overtimeThreshold,
+        to: attendanceSettings.overtimeThreshold,
+      },
+    ].filter(change => change.from !== change.to),
+
     holidays: [],
     users: [],
   } as const
@@ -189,7 +186,7 @@ export default function SettingsPage() {
     showToast({
       type: 'success',
       message: 'Settings saved',
-      description: `Changes to ${tabLabels.find(t => t.id === tab)?.label ?? 'this settings section'} were saved successfully.`
+      description: `Changes to ${tabLabels.find(t => t.id === tab)?.label ?? 'this settings section'} were saved successfully.`,
     })
   }
 
@@ -201,31 +198,31 @@ export default function SettingsPage() {
       </div>
 
       {isMobile ? (
-          <div className="border-slate-100 flex flex-wrap gap-1">
-            <select
-              value={tab}
-              onChange={(e) => setTab(e.target.value as Tab)}
-              className="w-full px-2 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-b rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer"
-            >
-              {tabLabels.map(t => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <div className="flex gap-1 mb-6 flex-wrap">
+        <div className="border-slate-100 flex flex-wrap gap-1">
+          <select
+            value={tab}
+            onChange={(e) => setTab(e.target.value as Tab)}
+            className="w-full px-2 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-b rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer"
+          >
             {tabLabels.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`px-4 py-2 text-sm font-medium rounded-lg font-display
-                  ${tab === t.id ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-              >
-                {t.label}
-              </button>
+              <option key={t.id} value={t.id}>{t.label}</option>
             ))}
-          </div>
-        )}
+          </select>
+        </div>
+      ) : (
+        <div className="flex gap-1 mb-6 flex-wrap">
+          {tabLabels.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`px-4 py-2 text-sm font-medium rounded-lg font-display
+                ${tab === t.id ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tab === 'payroll' && (
         <div className="bg-white rounded-t rounded-xl border border-slate-200 p-6 shadow-sm max-w-xl">
@@ -291,61 +288,6 @@ export default function SettingsPage() {
             ))}
           </div>
           <div className="mt-5 flex justify-end">
-            <button onClick={handleSave} className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
-          </div>
-        </div>
-      )}
-
-      {tab === 'salary' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-t rounded-xl border border-slate-200 p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-slate-700 font-display">Earnings Types</p>
-              <button className="flex items-center gap-1 text-xs text-indigo-600 font-medium font-display hover:underline"><Plus size={12} />Add</button>
-            </div>
-            <div className="space-y-2">
-              {earningsTypesList.map(e => {
-                const amount = earningsAmounts[e] ?? 0
-                const suffix = e === 'Overtime' ? ' / per hour' : ''
-                return (
-                  <div key={e} className="flex items-center justify-between py-2 px-3 bg-slate-50 rounded-lg">
-                    <div>
-                      <div className="text-sm text-slate-700 font-display">{e}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">{formatCurrency(amount)}{suffix}</div>
-                    </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => setEditingAmount({ kind: 'earning', key: e, value: amount })} className="p-1 text-slate-400 hover:text-slate-700"><Edit2 size={12} /></button>
-                      <button onClick={() => setDeleteSalaryTarget({ kind: 'earning', key: e })} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={12} /></button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-          <div className="bg-white rounded-t rounded-xl border border-slate-200 p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-slate-700 font-display">Deduction Types</p>
-              <button className="flex items-center gap-1 text-xs text-indigo-600 font-medium font-display hover:underline"><Plus size={12} />Add</button>
-            </div>
-            <div className="space-y-2">
-              {deductionTypesList.map(d => {
-                const amount = deductionAmounts[d] ?? 0
-                return (
-                  <div key={d} className="flex items-center justify-between py-2 px-3 bg-slate-50 rounded-lg">
-                    <div>
-                      <div className="text-sm text-slate-700 font-display">{d}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">{formatCurrency(amount)}</div>
-                    </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => setEditingAmount({ kind: 'deduction', key: d, value: amount })} className="p-1 text-slate-400 hover:text-slate-700"><Edit2 size={12} /></button>
-                      <button onClick={() => setDeleteSalaryTarget({ kind: 'deduction', key: d })} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={12} /></button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-          <div className="md:col-span-2 flex justify-end mt-2">
             <button onClick={handleSave} className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
           </div>
         </div>

@@ -15,6 +15,7 @@ const statusColor: Record<Status, string> = {
   'Rest Day': 'bg-slate-100 text-slate-500',
   Holiday: 'bg-blue-100 text-blue-700',
   Incomplete: 'bg-amber-100 text-amber-700',
+  Overtime: 'bg-blue-100 text-blue-700',
 }
 
 function EditAttendanceModal({ record, onClose, onSave }: { record: AttendanceRecord; onClose: () => void; onSave: () => void }) {
@@ -182,12 +183,12 @@ export default function AttendanceRecords() {
 
       {/* Table / Mobile list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto w-full">
           {!isMobile ? (
-            <table>
+            <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Employee', 'Employee ID', 'Date', 'Time In', 'Time Out', 'Late', 'Undertime', 'Overtime', 'Status', 'Actions'].map(h => (
+                  {['Employee', 'Employee ID', 'Date', 'Day', 'Status', 'Time In', 'Time Out', 'Time In', 'Time Out', 'Actions'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -207,20 +208,14 @@ export default function AttendanceRecords() {
                     </td>
                     <td className="py-3 px-4"><span className="font-mono text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{rec.employeeId}</span></td>
                     <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{rec.date}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.timeIn || '—'}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.timeOut || '—'}</td>
-                    <td className="py-3 px-4 font-mono text-xs">
-                      <span className={rec.lateMinutes > 0 ? 'text-amber-600' : 'text-slate-300'}>{rec.lateMinutes > 0 ? `${rec.lateMinutes} min` : '—'}</span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-xs">
-                      <span className={rec.undertimeMinutes > 0 ? 'text-orange-600' : 'text-slate-300'}>{rec.undertimeMinutes > 0 ? `${rec.undertimeMinutes} min` : '—'}</span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-xs">
-                      <span className={rec.overtimeHours > 0 ? 'text-blue-600' : 'text-slate-300'}>{rec.overtimeHours > 0 ? `${rec.overtimeHours} hr` : '—'}</span>
-                    </td>
+                    <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{rec.day || '—'}</td>
                     <td className="py-3 px-4">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${statusColor[rec.status]}`}>{rec.status}</span>
                     </td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.firstOnDuty ?? rec.timeIn ?? '—'}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.firstOffDuty ?? rec.timeOut ?? '—'}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.overtimeCheckIn ?? '—'}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.overtimeCheckOut ?? '—'}</td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1"> 
                         <button onClick={() => setEditing(rec)} className="p-1 px-3 rounded-lg text-sm text-slate-100 border bg-green-700 hover:text-slate-200 hover:bg-green-600" title="Edit">Edit</button>
@@ -256,12 +251,15 @@ export default function AttendanceRecords() {
                       </div>
 
                       {/* Time In / Time Out */}
-                      <div className="flex-shrink-0 text-right">
+                      <div className="shrink-0 text-right">
                         <div className="text-xs text-slate-500">
-                          <span className="text-slate-400">In:</span> {rec.timeIn || '—'}
+                          <span className="text-slate-400">First In:</span> {rec.firstOnDuty ?? rec.timeIn ?? '—'}
                         </div>
                         <div className="text-xs text-slate-500">
-                          <span className="text-slate-400">Out:</span> {rec.timeOut || '—'}
+                          <span className="text-slate-400">First Out:</span> {rec.firstOffDuty ?? rec.timeOut ?? '—'}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          <span className="text-slate-400">OT:</span> {rec.overtimeCheckIn ?? '—'} / {rec.overtimeCheckOut ?? '—'}
                         </div>
                       </div>
                     </div>

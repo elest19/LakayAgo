@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Search, Eye, Download, Printer, X, Building2 } from 'lucide-react'
+import { Search, Download, Printer, X, Building2 } from 'lucide-react'
 import { employees } from '../data/mockData'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
@@ -162,7 +162,19 @@ export default function Payslips() {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {filtered.map(p => (
-                  <tr key={p.emp.id} className="hover:bg-slate-50">
+                  <tr
+                    key={p.emp.id}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setViewing(p)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setViewing(p)
+                      }
+                    }}
+                  >
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2.5">
                         <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
@@ -181,12 +193,7 @@ export default function Payslips() {
                     <td className="py-3 px-4">
                       <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{p.status}</span>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => setViewing(p)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="View"><Eye size={14} /></button>
-                        {/* <button className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Print"><Printer size={14} /></button> */}
-                      </div>
-                    </td>
+                    <td className="py-3 px-4" />
                   </tr>
                 ))}
               </tbody>
