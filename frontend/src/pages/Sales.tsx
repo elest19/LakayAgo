@@ -215,7 +215,7 @@ export default function Sales() {
     setDeleteSaleTarget(sale)
   }
 
-  const tableHeaders = ['Item', 'Cost', 'Number of Sales', 'Discount', 'Category', 'Sale Created', 'Created By', 'Sale Updated', 'Updated By', 'Actions']
+  const tableHeaders = ['Item', 'Cost', 'No. of Sales', 'Discount', 'Category', 'Sale Created', 'Created By']
 
   const renderTable = () => (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -232,13 +232,25 @@ export default function Sales() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredSales.length === 0 ? (
+                {filteredSales.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">No sales records found.</td>
                 </tr>
               ) : (
                 filteredSales.map(sale => (
-                  <tr key={sale.id} className="hover:bg-slate-50">
+                  <tr
+                    key={sale.id}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setSelectedSale(sale)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedSale(sale)
+                      }
+                    }}
+                  >
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display ">{sale.item}</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{formatCurrency(sale.cost)}</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-600 text-center">{sale.numberOfSales}</td>
@@ -246,14 +258,6 @@ export default function Sales() {
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{sale.category}</td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(sale.createdAt).toLocaleDateString()}</td>
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{sale.createdBy}</td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(sale.updatedAt).toLocaleDateString()}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 text-center">{sale.updatedBy}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex justify-center gap-2">
-                        <button type="button" onClick={() => openEditSale(sale)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-white bg-green-700 hover:bg-green-600 text-xs font-medium font-display">Edit</button>
-                        <button type="button" onClick={() => handleDelete(sale)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-white bg-red-700 hover:bg-red-600 text-xs font-medium font-display">Delete</button>
-                      </div>
-                    </td>
                   </tr>
                 ))
               )}

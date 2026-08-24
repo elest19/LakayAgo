@@ -202,7 +202,7 @@ export default function SettingsPage() {
           <select
             value={tab}
             onChange={(e) => setTab(e.target.value as Tab)}
-            className="w-full px-2 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-b rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer"
+            className="w-md px-2 py-2.5 mb-5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer"
           >
             {tabLabels.map(t => (
               <option key={t.id} value={t.id}>{t.label}</option>
@@ -305,14 +305,26 @@ export default function SettingsPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Date', 'Holiday', 'Type', 'Status', 'Actions'].map(h => (
+                  {['Date', 'Holiday', 'Type', 'Status'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {holidayList.map((h, i) => (
-                  <tr key={`${h.date}-${h.holiday}`} className="hover:bg-slate-50">
+                  <tr
+                    key={`${h.date}-${h.holiday}`}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setSelectedHoliday(h)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedHoliday(h)
+                      }
+                    }}
+                  >
                     <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{h.date}</td>
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{h.holiday}</td>
                     <td className="py-3 px-4">
@@ -320,12 +332,6 @@ export default function SettingsPage() {
                     </td>
                     <td className="py-3 px-4">
                       <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{h.status}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex gap-1">
-                        <button onClick={() => setEditingHoliday({ index: i, item: h })} className="p-1.5 text-slate-400 hover:text-slate-700"><Edit2 size={13} /></button>
-                        <button onClick={() => setDeleteTarget({ kind: 'holiday', index: i, item: h })} className="p-1.5 text-slate-400 hover:text-red-600"><Trash2 size={13} /></button>
-                      </div>
                     </td>
                   </tr>
                 ))}
@@ -339,17 +345,11 @@ export default function SettingsPage() {
                     <div className="text-sm font-medium text-slate-700">{h.holiday}</div>
                     <div className="text-xs text-slate-400">{h.date} • {h.type}</div>
                   </button>
-                  <div className="flex gap-1">
-                    <button onClick={() => setEditingHoliday({ index: i, item: h })} className="p-1.5 text-slate-400 hover:text-slate-700"><Edit2 size={13} /></button>
-                    <button onClick={() => setDeleteTarget({ kind: 'holiday', index: i, item: h })} className="p-1.5 text-slate-400 hover:text-red-600"><Trash2 size={13} /></button>
-                  </div>
                 </div>
               ))}
             </div>
           )}
-          <div className="flex justify-end p-4 border-t border-slate-100">
-            <button onClick={handleSave} className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
-          </div>
+          {/* Holidays do not use the global Save Changes button here; actions are per-item in the modal */}
         </div>
       )}
 
@@ -365,14 +365,26 @@ export default function SettingsPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['User', 'Email', 'Role', 'Status', 'Actions'].map(h => (
-                    <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">{h}</th>
-                  ))}
+                  {['User', 'Email', 'Role', 'Status'].map(h => (
+                        <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">{h}</th>
+                      ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {userList.map((u, i) => (
-                  <tr key={`${u.email}-${u.name}`} className="hover:bg-slate-50">
+                  <tr
+                    key={`${u.email}-${u.name}`}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setSelectedUser(u)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedUser(u)
+                      }
+                    }}
+                  >
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
@@ -387,12 +399,6 @@ export default function SettingsPage() {
                     </td>
                     <td className="py-3 px-4">
                       <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{u.status}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex gap-1">
-                        <button onClick={() => setEditingUser({ index: i, item: u })} className="p-1.5 text-slate-400 hover:text-slate-700"><Edit2 size={13} /></button>
-                        <button onClick={() => setDeleteTarget({ kind: 'user', index: i, item: u })} className="p-1.5 text-slate-400 hover:text-red-600"><Trash2 size={13} /></button>
-                      </div>
                     </td>
                   </tr>
                 ))}
@@ -423,9 +429,6 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
-          <div className="flex justify-end p-4 border-t border-slate-100">
-            <button onClick={handleSave} className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
-          </div>
         </div>
       )}
 
@@ -507,7 +510,7 @@ export default function SettingsPage() {
       {editingHoliday && (
         <Modal open={!!editingHoliday} title="Edit Holiday" onClose={() => setEditingHoliday(null)}>
           <div className="w-full p-2">
-            <div className="space-y-4">
+            <div className="w-md space-y-4">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Holiday Name</label>
                 <input
@@ -701,7 +704,7 @@ export default function SettingsPage() {
       {selectedHoliday && (
         <Modal open={!!selectedHoliday} title={selectedHoliday.holiday || selectedHoliday.label || 'Holiday'} onClose={() => setSelectedHoliday(null)}>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="w-md grid grid-cols-2 gap-3">
               <div>
                 <p className="text-xs text-slate-400">Date</p>
                 <p className="text-sm font-medium">{selectedHoliday.date}</p>
@@ -715,6 +718,11 @@ export default function SettingsPage() {
               <p className="text-xs text-slate-400">Status</p>
               <p className="text-sm font-medium">{selectedHoliday.status}</p>
             </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <button onClick={() => setSelectedHoliday(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
+            <button onClick={() => { setSelectedHoliday(null); setEditingHoliday({ index: holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date), item: selectedHoliday }) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
+            <button onClick={() => { setSelectedHoliday(null); setDeleteTarget({ kind: 'holiday', index: holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date), item: selectedHoliday }) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Delete</button>
           </div>
         </Modal>
       )}
@@ -735,6 +743,11 @@ export default function SettingsPage() {
             <div>
               <p className="text-xs text-slate-400">Status</p>
               <p className="text-sm font-medium">{selectedUser.status}</p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button onClick={() => setSelectedUser(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
+              <button onClick={() => { setSelectedUser(null); setEditingUser({ index: userList.findIndex(it => it.email === selectedUser.email), item: selectedUser }) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
+              <button onClick={() => { setSelectedUser(null); setDeleteTarget({ kind: 'user', index: userList.findIndex(it => it.email === selectedUser.email), item: selectedUser }) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Delete</button>
             </div>
           </div>
         </Modal>

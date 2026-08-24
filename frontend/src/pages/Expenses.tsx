@@ -144,7 +144,7 @@ export default function Expenses() {
     setDeleteExpenseTarget(expense)
   }
 
-  const tableHeaders = ['Expense', 'Amount', 'Created_At', 'Created_By', 'Updated_At', 'Updated_By', 'Actions']
+  const tableHeaders = ['Expense', 'Amount', 'Created_At', 'Created_By', 'Updated_At', 'Updated_By']
 
   const renderTable = () => (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -163,23 +163,29 @@ export default function Expenses() {
             <tbody className="divide-y divide-slate-50">
               {filteredExpenses.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">No expenses recorded.</td>
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">No expenses recorded.</td>
                 </tr>
               ) : (
                 filteredExpenses.map(expense => (
-                  <tr key={expense.id} className="hover:bg-slate-50">
+                  <tr
+                    key={expense.id}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setSelectedExpense(expense)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedExpense(expense)
+                      }
+                    }}
+                  >
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{expense.expense}</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{formatCurrency(expense.amount)}</td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(expense.createdAt).toLocaleDateString()}</td>
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{expense.createdBy}</td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(expense.updatedAt).toLocaleDateString()}</td>
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{expense.updatedBy}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex justify-center gap-2">
-                        <button type="button" onClick={() => openEdit(expense)} className="px-3 py-1.5 rounded-lg border border-slate-200 bg-green-700 text-white hover:bg-green-800 text-xs font-medium font-display">Edit</button>
-                        <button type="button" onClick={() => handleDelete(expense)} className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-700 text-white hover:bg-red-800 text-xs font-medium font-display">Delete</button>
-                      </div>
-                    </td>
                   </tr>
                 ))
               )}

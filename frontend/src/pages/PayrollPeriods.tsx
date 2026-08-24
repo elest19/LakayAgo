@@ -113,7 +113,7 @@ export default function PayrollPeriods() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    {['Payroll Period', 'Employees', 'Attendance', 'Gross Payroll', 'Deductions', 'Net Payroll', 'Status', 'Actions'].map(h => (
+                    {['Payroll Period', 'Employees', 'Attendance', 'Gross Payroll', 'Deductions', 'Net Payroll', 'Status'].map(h => (
                       <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -149,22 +149,6 @@ export default function PayrollPeriods() {
                       <td className="py-3.5 px-4">
                         <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display whitespace-nowrap ${statusColor[pp.status]}`}>{pp.status}</span>
                       </td>
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1">
-                          {pp.status !== 'Finalized' && pp.status !== 'Pending' ? (
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                setActivePayrollPeriod(pp)
-                                navigate('process-payroll')
-                              }}
-                              className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 font-display"
-                            >
-                              Continue <ArrowRight size={12} />
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -194,7 +178,7 @@ export default function PayrollPeriods() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    {['Payroll Period', 'Employees', 'Gross Payroll', 'Deductions', 'Net Payroll', 'Status', 'Actions'].map(h => (
+                    {['Payroll Period', 'Employees', 'Gross Payroll', 'Deductions', 'Net Payroll', 'Status'].map(h => (
                       <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -225,22 +209,6 @@ export default function PayrollPeriods() {
                       <td className="py-3.5 px-4">
                         <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[pp.status] || 'bg-slate-100 text-slate-500'}`}>{pp.status}</span>
                       </td>
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1">
-                          {pp.status === 'Finalized' && (
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation()
-                              }}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-                              title="Download Report"
-                              type="button"
-                            >
-                              <Download size={14} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -267,9 +235,9 @@ export default function PayrollPeriods() {
 
       {selectedPeriod && (
         <Modal open={!!selectedPeriod} title={`Payroll Date: ${selectedPeriod.label}`} onClose={() => setSelectedPeriod(null)}>
-          <div className="w-full p-3">
+          <div className="p-3">
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="w-md grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-slate-400">Type</p>
                   <p className="text-sm font-medium">{selectedPeriod.payrollType}</p>
@@ -296,7 +264,7 @@ export default function PayrollPeriods() {
                 </div>
               </div>
             </div>
-            {selectedPeriod.status !== 'Finalized' ? (
+            {selectedPeriod.status === 'Pending' ? null : selectedPeriod.status !== 'Finalized' ? (
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={() => {
@@ -310,10 +278,12 @@ export default function PayrollPeriods() {
               </div>
             ) : (
               <div className="mt-6 flex justify-end">
-                <button 
-                className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display" 
-                title="Download Report">
-                  <Download size={14} />Download Payroll 
+                <button
+                  className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display"
+                  title="Download Report"
+                >
+                  <Download size={14} />
+                  Download Payroll
                 </button>
               </div>
             )}

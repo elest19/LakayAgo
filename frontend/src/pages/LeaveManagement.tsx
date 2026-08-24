@@ -150,7 +150,7 @@ export default function LeaveManagement() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    {['Employee', 'Leave Type', 'Start Date', 'End Date', 'Days', 'Reason', 'Status', 'Actions'].map(h => (
+                    {['Employee', 'Leave Type', 'Start Date', 'End Date', 'Days', 'Reason', 'Status'].map(h => (
                       <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -195,36 +195,7 @@ export default function LeaveManagement() {
                         <td className="py-3 px-4">
                           <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[leave.status]}`}>{leave.status}</span>
                         </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-1">
-                            {leave.status === 'Pending' && (
-                              <>
-                                <button
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    setActionModal({ leave, action: 'Approve' })
-                                  }}
-                                  className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
-                                  title="Approve"
-                                  type="button"
-                                >
-                                  <CheckCircle size={14} />
-                                </button>
-                                <button
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    setActionModal({ leave, action: 'Reject' })
-                                  }}
-                                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
-                                  title="Reject"
-                                  type="button"
-                                >
-                                  <XCircle size={14} />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
+                        <td className="py-3 px-4">{/* Actions moved into detail modal */}</td>
                       </tr>
                     )
                   })}

@@ -158,7 +158,7 @@ export default function Payslips() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Employee', 'Payroll Period', 'Gross Pay', 'Deductions', 'Net Pay', 'Status', 'Actions'].map(h => (
+                  {['Employee', 'Payroll Period', 'Gross Pay', 'Deductions', 'Net Pay', 'Status'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -196,7 +196,7 @@ export default function Payslips() {
                     <td className="py-3 px-4">
                       <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{p.status}</span>
                     </td>
-                    <td className="py-3 px-4" />
+                    {/* Actions column removed; view via row click */}
                   </tr>
                 ))}
               </tbody>

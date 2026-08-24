@@ -238,7 +238,7 @@ export default function KitchenCatalog() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Item Name', 'Department', 'Stock', 'Created_At', 'Created_By', 'Updated_At', 'Updated_By', 'Actions'].map(column => (
+                {['Item Name', 'Department', 'Stock', 'Created_At', 'Created_By', 'Updated_At', 'Updated_By'].map(column => (
                   <th key={column} className="text-center py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">
                     {column}
                   </th>
@@ -248,11 +248,23 @@ export default function KitchenCatalog() {
             <tbody className="divide-y divide-slate-50">
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">No kitchen items found.</td>
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">No kitchen items found.</td>
                 </tr>
               ) : (
                 filteredItems.map(item => (
-                  <tr key={item.id} className="hover:bg-slate-50">
+                  <tr
+                    key={item.id}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setSelectedItem(item)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedItem(item)
+                      }
+                    }}
+                  >
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.itemName}</td>
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.department}</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{item.stock}</td>
@@ -260,12 +272,6 @@ export default function KitchenCatalog() {
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.createdBy}</td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(item.updatedAt).toLocaleDateString()}</td>
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.updatedBy}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex justify-center gap-2">
-                        <button type="button" onClick={() => openEdit(item)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-white bg-green-700 hover:bg-green-600 text-xs font-medium font-display">Edit</button>
-                        <button type="button" onClick={() => setDeleteItemTarget(item)} className="px-3 py-1.5 rounded-lg border border-red-200 text-white bg-red-700 hover:bg-red-600 text-xs font-medium font-display">Delete</button>
-                      </div>
-                    </td>
                   </tr>
                 ))
               )}
@@ -602,6 +608,10 @@ export default function KitchenCatalog() {
                 <p className="text-xs text-slate-400">Updated By</p>
                 <p className="text-sm font-medium">{selectedItem.updatedBy}</p>
               </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => { setSelectedItem(null); openEdit(selectedItem) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
+              <button type="button" onClick={() => { setSelectedItem(null); setDeleteItemTarget(selectedItem) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Delete</button>
             </div>
           </div>
         </Modal>

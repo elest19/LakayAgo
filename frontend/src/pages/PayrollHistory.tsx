@@ -54,7 +54,7 @@ export default function PayrollHistory() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Payroll Period', 'Employees', 'Gross Payroll', 'Deductions', 'Net Payroll', 'Status', 'Actions'].map(h => (
+                  {['Payroll Period', 'Employees', 'Gross Payroll', 'Deductions', 'Net Payroll', 'Status'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -85,22 +85,7 @@ export default function PayrollHistory() {
                     <td className="py-3.5 px-4">
                       <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[pp.status] || 'bg-slate-100 text-slate-500'}`}>{pp.status}</span>
                     </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-1">
-                        {pp.status === 'Finalized' && (
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation()
-                            }}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-                            title="Download Report"
-                            type="button"
-                          >
-                            <Download size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
+                    <td className="py-3.5 px-4">{/* Actions moved into detail modal */}</td>
                   </tr>
                 ))}
               </tbody>
@@ -146,6 +131,12 @@ export default function PayrollHistory() {
               <p className="text-xs text-slate-400">Pay Date</p>
               <p className="text-sm font-medium">{selectedPeriod.payDate}</p>
             </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <button onClick={() => setSelectedPeriod(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
+            {selectedPeriod.status === 'Finalized' && (
+              <button onClick={() => { /* preserve download behavior */ }} className="px-3 py-2 text-sm text-slate-700 bg-slate-100 rounded-lg">Download</button>
+            )}
           </div>
         </Modal>
       )}

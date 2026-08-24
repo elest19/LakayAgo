@@ -107,7 +107,7 @@ export default function AuditLogs() {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {filtered.map(log => (
-                  <tr key={log.id} className="hover:bg-slate-50">
+                  <tr key={log.id} className="hover:bg-slate-50 group cursor-pointer" role="button" tabIndex={0} onClick={() => setSelectedLog(log)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLog(log) } }}>
                     <td className="py-3 px-4 whitespace-nowrap">
                       <p className="text-xs font-mono text-slate-600">{log.dateTime}</p>
                     </td>

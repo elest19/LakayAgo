@@ -269,7 +269,7 @@ export default function InventoryCatalog() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Item', 'Cost', 'Stock', 'Category', 'Kitchen', 'Created_At', 'Created_By', 'Updated_At', 'Updated_By', 'Actions'].map(column => (
+                {['Item', 'Cost', 'Stock', 'Category', 'Kitchen', 'Created_At', 'Created_By', 'Updated_At', 'Updated_By'].map(column => (
                   <th key={column} className="text-center py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">
                     {column}
                   </th>
@@ -279,14 +279,26 @@ export default function InventoryCatalog() {
             <tbody className="divide-y divide-slate-50">
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">No items found.</td>
+                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">No items found.</td>
                 </tr>
               ) : (
                 items.map(item => {
                   const linkedKitchen = kitchenStock.find(kitchenItem => kitchenItem.id === item.linkedKitchenItemId)
 
                   return (
-                    <tr key={item.id} className="hover:bg-slate-50">
+                    <tr
+                      key={item.id}
+                      className="hover:bg-slate-50 group cursor-pointer"
+                      onClick={() => setSelectedItem(item)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setSelectedItem(item)
+                        }
+                      }}
+                    >
                       <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.item}</td>
                       <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{formatCurrency(item.cost)}</td>
                       <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{item.stock}</td>
@@ -296,12 +308,6 @@ export default function InventoryCatalog() {
                       <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.createdBy}</td>
                       <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(item.updatedAt).toLocaleDateString()}</td>
                       <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.updatedBy}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex justify-center gap-2">
-                          <button type="button" onClick={() => openEdit(item)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-white bg-green-700 hover:bg-green-600 text-xs font-medium font-display">Edit</button>
-                          <button type="button" onClick={() => handleDelete(item)} className="px-3 py-1.5 rounded-lg border border-red-200 text-white bg-red-700 hover:bg-red-600 text-xs font-medium font-display">Delete</button>
-                        </div>
-                      </td>
                     </tr>
                   )
                 })
