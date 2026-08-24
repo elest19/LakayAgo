@@ -1,11 +1,13 @@
+import { useMemo } from 'react'
 import { useApp } from '../App'
+import useIsMobile from '../hooks/isMobile'
 import {
   Users, UserCheck, AlertTriangle, Clock, TrendingUp, TrendingDown,
-  ArrowRight, CheckCircle2, Circle, FileText, Activity
+  ArrowRight, CheckCircle2, Circle, FileText, Activity, DollarSign, ReceiptText
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer
+  Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts'
 import { monthlyPayrollData, deptPayrollData, overtimeData } from '../data/mockData'
 
@@ -70,8 +72,96 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   )
 }
 
+// --- date helpers (current month window, used for the Sales & Expense summary) ---
+const toStartOfDay = (date: Date) => {
+  const next = new Date(date)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+const toEndOfDay = (date: Date) => {
+  const next = new Date(date)
+  next.setHours(23, 59, 59, 999)
+  return next
+}
+
+const isWithinRange = (value: string, start: Date, end: Date) => {
+  const parsed = new Date(value)
+  return parsed >= start && parsed <= end
+}
+
+const EXPENSE_COLORS = ['#14b8a6', '#0ea5e9', '#8b5cf6', '#f59e0b', '#ef4444', '#10b981']
+
 export default function Dashboard() {
-  const { navigate } = useApp()
+  const { navigate, inventoryItems, salesRecords, expenses } = useApp()
+  const isMobile = useIsMobile()
+
+  const monthStart = useMemo(() => toStartOfDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), [])
+  const monthEnd = useMemo(() => toEndOfDay(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)), [])
+
+  const filteredSales = useMemo(
+    () => salesRecords.filter(sale => isWithinRange(sale.createdAt, monthStart, monthEnd)),
+    [salesRecords, monthStart, monthEnd],
+  )
+
+  const filteredExpenses = useMemo(
+    () => expenses.filter(expense => isWithinRange(expense.createdAt, monthStart, monthEnd)),
+    [expenses, monthStart, monthEnd],
+  )
+
+  const itemSummary = useMemo(() => {
+    return inventoryItems.map(item => {
+      const matches = filteredSales.filter(sale => sale.item === item.item)
+      const grandTotalSale = matches.reduce((sum, sale) => sum + sale.cost * sale.numberOfSales, 0)
+      const orderDiscount = matches.reduce((sum, sale) => sum + sale.discount, 0)
+      const netSale = Math.max(grandTotalSale - orderDiscount, 0)
+
+      return { item: item.item, grandTotalSale, netSale, orderDiscount }
+    })
+  }, [filteredSales, inventoryItems])
+
+  const totalGrandSales = useMemo(
+    () => itemSummary.reduce((sum, item) => sum + item.grandTotalSale, 0),
+    [itemSummary],
+  )
+
+  const totalNetSales = useMemo(
+    () => itemSummary.reduce((sum, item) => sum + item.netSale, 0),
+    [itemSummary],
+  )
+
+  const totalOrderDiscount = useMemo(
+    () => itemSummary.reduce((sum, item) => sum + item.orderDiscount, 0),
+    [itemSummary],
+  )
+
+  const totalExpenses = useMemo(
+    () => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0),
+    [filteredExpenses],
+  )
+
+  const salesChartData = useMemo(
+    () => itemSummary.map(item => ({ name: item.item, grandTotalSale: item.grandTotalSale, netSale: item.netSale, orderDiscount: item.orderDiscount })),
+    [itemSummary],
+  )
+
+  const expenseBreakdown = useMemo(() => {
+    const grouped = filteredExpenses.reduce<Record<string, number>>((acc, expense) => {
+      acc[expense.expense] = (acc[expense.expense] ?? 0) + expense.amount
+      return acc
+    }, {})
+
+    return Object.entries(grouped)
+      .map(([expense, amount]) => ({ name: expense, amount }))
+      .sort((a, b) => b.amount - a.amount)
+  }, [filteredExpenses])
+
+  const summaryCards = [
+    { label: 'Grand Total Sale', value: fmt(totalGrandSales), icon: <DollarSign size={18} className="text-indigo-600" />, color: 'bg-indigo-50' },
+    { label: 'Net Sale', value: fmt(totalNetSales), icon: <TrendingUp size={18} className="text-emerald-600" />, color: 'bg-emerald-50' },
+    { label: 'Order Discount', value: fmt(totalOrderDiscount), icon: <ReceiptText size={18} className="text-amber-600" />, color: 'bg-amber-50' },
+    { label: 'Expense Total', value: fmt(totalExpenses), icon: <TrendingDown size={18} className="text-red-500" />, color: 'bg-red-50' },
+  ]
 
   return (
     <div className="p-6 space-y-6">
@@ -97,7 +187,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Middle row */}
+      {/* Sales & Expense Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Payroll Period Progress */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -156,10 +246,9 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-        
       </div>
 
-      {/* Bottom row */}
+      {/* Middle row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Monthly Payroll Chart */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -201,6 +290,97 @@ export default function Dashboard() {
           <p className="text-xs text-slate-500 mt-2">Aug: <span className="font-semibold text-amber-600 font-display">164 hrs</span> — highest this year</p>
         </div>
       </div>  
+      
+
+      {/* Bottom row */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-slate-800 font-display">Sales &amp; Expense Summary</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Current month overview</p>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {summaryCards.map(card => (
+            <StatCard key={card.label} label={card.label} value={card.value} icon={card.icon} color={card.color} />
+          ))}
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Grand Total Sales by Item</p>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={salesChartData} barSize={20}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
+                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={value => `₱${(value / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(value) => [`${Number(value).toLocaleString()} sales`, 'Sales']} labelFormatter={(label) => `${label}`} />
+                  <Bar dataKey="grandTotalSale" name="Sales" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Net Sales by Item</p>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={salesChartData} barSize={20}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
+                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={value => `₱${(value / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(value) => [`${Number(value).toLocaleString()} sales`, 'Sales']} labelFormatter={(label) => `Item: ${label}`} />
+                  <Bar dataKey="netSale" fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Order Discount by Item</p>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={salesChartData} barSize={20}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
+                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={value => `₱${(value / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(value) => fmt(Number(Array.isArray(value) ? value[0] : value))} />
+                  <Bar dataKey="orderDiscount" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Expense Distribution</p>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={expenseBreakdown}
+                    dataKey="amount"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={38}
+                    outerRadius={68}
+                    paddingAngle={2}
+                  >
+                    {expenseBreakdown.map((entry, index) => (
+                      <Cell
+                        key={`${entry.name}-${index}`}
+                        fill={EXPENSE_COLORS[index % EXPENSE_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => fmt(Number(Array.isArray(value) ? value[0] : value))} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} formatter={(value) => <span className="text-xs text-slate-600">{value}</span>} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
