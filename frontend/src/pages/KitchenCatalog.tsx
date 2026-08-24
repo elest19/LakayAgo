@@ -45,7 +45,7 @@ interface TransferFormState {
 
 const emptyTransferForm: TransferFormState = {
   itemName: '',
-  department: 'Kitchen',
+  department: 'Production',
   quantity: '',
 }
 
@@ -111,7 +111,7 @@ export default function KitchenCatalog() {
     setEditingItem(item)
     setForm({
       itemName: item.itemName,
-      department: 'Kitchen',
+      department: item.department,
       stock: String(item.stock),
     })
     setFormErrors({})
@@ -194,7 +194,7 @@ export default function KitchenCatalog() {
       return
     }
 
-    const success = transferToKitchen(transferPreview.itemName, Number(transferPreview.quantity), 'Kitchen')
+    const success = transferToKitchen(transferPreview.itemName, Number(transferPreview.quantity), 'Production')
     if (success) {
       setShowTransferModal(false)
       setTransferPreview(null)
@@ -219,7 +219,7 @@ export default function KitchenCatalog() {
       return
     }
 
-    const success = kitchenSelfProduce(selfProducePreview.itemName, Number(selfProducePreview.quantity), 'Kitchen')
+    const success = kitchenSelfProduce(selfProducePreview.itemName, Number(selfProducePreview.quantity), selfProducePreview.department)
     if (success) {
       setShowSelfProduceModal(false)
       setSelfProducePreview(null)
