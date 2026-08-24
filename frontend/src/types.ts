@@ -13,6 +13,8 @@ export type Page =
   | 'sales-summary'
   | 'sales'
   | 'inventory-catalog'
+  | 'production-catalog'
+  | 'kitchen-catalog'
   | 'expenses'
   | 'reports'
   | 'settings'
@@ -147,6 +149,8 @@ export interface InventoryItem {
   item: string
   cost: number
   category: InventoryCategory
+  stock: number
+  linkedKitchenItemId: string | null
   createdAt: string
   createdBy: string
   updatedAt: string
@@ -164,6 +168,41 @@ export interface SaleRecord {
   createdBy: string
   updatedAt: string
   updatedBy: string
+}
+
+export interface ProductionItem {
+  id: string
+  itemName: string
+  department: string
+  stock: number
+  createdAt: string
+  createdBy: string
+  updatedAt: string
+  updatedBy: string
+}
+
+export interface KitchenItem {
+  id: string
+  itemName: string
+  department: string
+  stock: number
+  createdAt: string
+  createdBy: string
+  updatedAt: string
+  updatedBy: string
+}
+
+export type StockTransactionType = 'TRANSFER' | 'SELF_PRODUCE' | 'SALE'
+
+export interface StockTransaction {
+  id: string
+  itemName: string
+  type: StockTransactionType
+  quantity: number
+  from: 'production' | 'kitchen' | null
+  to: 'kitchen' | 'menu' | null
+  timestamp: string
+  performedBy: string
 }
 
 export interface ExpenseRecord {
@@ -189,10 +228,18 @@ export interface AppContextType {
   showToast: (toast: Omit<Toast, 'id'>) => void
   inventoryItems: InventoryItem[]
   setInventoryItems: React.Dispatch<React.SetStateAction<InventoryItem[]>>
+  productionStock: ProductionItem[]
+  setProductionStock: React.Dispatch<React.SetStateAction<ProductionItem[]>>
+  kitchenStock: KitchenItem[]
+  setKitchenStock: React.Dispatch<React.SetStateAction<KitchenItem[]>>
   salesRecords: SaleRecord[]
   setSalesRecords: React.Dispatch<React.SetStateAction<SaleRecord[]>>
   expenses: ExpenseRecord[]
   setExpenses: React.Dispatch<React.SetStateAction<ExpenseRecord[]>>
+  stockTransactions: StockTransaction[]
+  transferToKitchen: (itemName: string, qty: number, department: string) => boolean
+  kitchenSelfProduce: (itemName: string, qty: number, department: string) => boolean
+  sellMenuItem: (itemName: string, qty: number) => boolean
   activePayrollPeriod: PayrollPeriod | null
   setActivePayrollPeriod: React.Dispatch<React.SetStateAction<PayrollPeriod | null>>
   appMode: 'aroo' | 'lakayAgo'

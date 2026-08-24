@@ -152,12 +152,12 @@ export const auditLogs: AuditLog[] = [
 ]
 
 export const inventoryCatalog: InventoryItem[] = [
-  { id: 'INV-001', item: 'Adobo Rice Bowl', cost: 135, category: 'Menu Item', createdAt: '2026-08-01T09:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:00:00Z', updatedBy: 'Admin' },
-  { id: 'INV-002', item: 'Bicol Express', cost: 190, category: 'Menu Item', createdAt: '2026-08-01T09:05:00Z', createdBy: 'Admin', updatedAt: '2026-08-07T10:00:00Z', updatedBy: 'Admin' },
-  { id: 'INV-003', item: 'Chicken BBQ Platter', cost: 260, category: 'Menu Item', createdAt: '2026-08-02T11:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-02T11:00:00Z', updatedBy: 'Admin' },
-  { id: 'INV-004', item: 'Soft Drinks', cost: 45, category: 'Others', createdAt: '2026-08-02T12:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-02T12:00:00Z', updatedBy: 'Admin' },
-  { id: 'INV-005', item: 'Bottled Water', cost: 25, category: 'Others', createdAt: '2026-08-03T08:30:00Z', createdBy: 'Admin', updatedAt: '2026-08-03T08:30:00Z', updatedBy: 'Admin' },
-  { id: 'INV-006', item: 'Fresh Lumpia', cost: 95, category: 'Menu Item', createdAt: '2026-08-03T09:10:00Z', createdBy: 'Admin', updatedAt: '2026-08-08T09:40:00Z', updatedBy: 'Admin' },
+  { id: 'INV-001', item: 'Adobo Rice Bowl', cost: 135, category: 'Menu Item', stock: 20, linkedKitchenItemId: 'KIT-001', createdAt: '2026-08-01T09:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:00:00Z', updatedBy: 'Admin' },
+  { id: 'INV-002', item: 'Bicol Express', cost: 190, category: 'Menu Item', stock: 16, linkedKitchenItemId: 'KIT-002', createdAt: '2026-08-01T09:05:00Z', createdBy: 'Admin', updatedAt: '2026-08-07T10:00:00Z', updatedBy: 'Admin' },
+  { id: 'INV-003', item: 'Chicken BBQ Platter', cost: 260, category: 'Menu Item', stock: 14, linkedKitchenItemId: 'KIT-003', createdAt: '2026-08-02T11:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-02T11:00:00Z', updatedBy: 'Admin' },
+  { id: 'INV-004', item: 'Soft Drinks', cost: 45, category: 'Others', stock: 40, linkedKitchenItemId: null, createdAt: '2026-08-02T12:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-02T12:00:00Z', updatedBy: 'Admin' },
+  { id: 'INV-005', item: 'Bottled Water', cost: 25, category: 'Others', stock: 50, linkedKitchenItemId: null, createdAt: '2026-08-03T08:30:00Z', createdBy: 'Admin', updatedAt: '2026-08-03T08:30:00Z', updatedBy: 'Admin' },
+  { id: 'INV-006', item: 'Fresh Lumpia', cost: 95, category: 'Menu Item', stock: 18, linkedKitchenItemId: 'KIT-004', createdAt: '2026-08-03T09:10:00Z', createdBy: 'Admin', updatedAt: '2026-08-08T09:40:00Z', updatedBy: 'Admin' },
 ]
 
 export const salesRecords: SaleRecord[] = [

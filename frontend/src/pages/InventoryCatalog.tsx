@@ -15,21 +15,62 @@ const formatCurrency = (value: number) =>
 interface ProductFormState {
   item: string
   cost: string
+  stock: string
   category: InventoryCategory
+  linkedKitchenItemId: string
 }
 
 const emptyForm: ProductFormState = {
   item: '',
   cost: '',
+  stock: '',
   category: 'Menu Item',
+  linkedKitchenItemId: '',
 }
 
-const getValidationErrors = (form: ProductFormState) => {
+const getValidationErrors = (
+  form: ProductFormState,
+  inventoryItems: { item: string; id?: string }[],
+  kitchenItems: { id: string; itemName: string; stock: number }[],
+  editingItemId?: string,
+) => {
   const errors: Partial<Record<keyof ProductFormState, string>> = {}
-  const itemName = form.item.trim()
+  const selectedKitchenItem = form.linkedKitchenItemId
+    ? kitchenItems.find(item => item.id === form.linkedKitchenItemId)
+    : null
 
-  if (!itemName) {
-    errors.item = 'Item name is required.'
+  const effectiveItemName = selectedKitchenItem ? selectedKitchenItem.itemName.trim() : form.item.trim()
+  const effectiveStockValue = selectedKitchenItem ? String(selectedKitchenItem.stock) : form.stock
+
+  if (!['Menu Item', 'Others'].includes(form.category)) {
+    errors.category = 'Category is invalid.'
+  }
+
+  if (form.category === 'Menu Item') {
+    if (!form.linkedKitchenItemId) {
+      errors.linkedKitchenItemId = 'Choose a linked kitchen item for menu items.'
+    } else if (!selectedKitchenItem) {
+      errors.linkedKitchenItemId = 'The selected kitchen item is invalid.'
+    }
+  } else if (form.category === 'Others' && selectedKitchenItem) {
+    // Derived from the kitchen link; skip manual validation.
+  } else {
+    if (!effectiveItemName) {
+      errors.item = 'Item name is required.'
+    } else if (
+      inventoryItems.some(item => item.item.toLowerCase() === effectiveItemName.toLowerCase() && item.id !== editingItemId)
+    ) {
+      errors.item = 'An item with this name already exists.'
+    }
+
+    if (effectiveStockValue === '' || effectiveStockValue.trim() === '') {
+      errors.stock = 'Stock is required.'
+    } else {
+      const parsed = Number(effectiveStockValue)
+      if (Number.isNaN(parsed) || parsed < 0) {
+        errors.stock = 'Stock must be a valid non-negative number.'
+      }
+    }
   }
 
   if (form.cost === '' || form.cost.trim() === '') {
@@ -41,15 +82,24 @@ const getValidationErrors = (form: ProductFormState) => {
     }
   }
 
-  if (!['Menu Item', 'Others'].includes(form.category)) {
-    errors.category = 'Category is invalid.'
+  if (form.category === 'Others' && !form.linkedKitchenItemId && !effectiveItemName) {
+    errors.item = 'Item name is required.'
+  }
+
+  if (form.category === 'Others' && !form.linkedKitchenItemId) {
+    const parsedStock = Number(effectiveStockValue)
+    if (effectiveStockValue === '' || effectiveStockValue.trim() === '') {
+      errors.stock = 'Stock is required.'
+    } else if (Number.isNaN(parsedStock) || parsedStock < 0) {
+      errors.stock = 'Stock must be a valid non-negative number.'
+    }
   }
 
   return errors
 }
 
 export default function InventoryCatalog() {
-  const { inventoryItems, setInventoryItems, showToast } = useApp()
+  const { inventoryItems, setInventoryItems, kitchenStock, showToast } = useApp()
   const isMobile = useIsMobile()
   const [search, setSearch] = useState('')
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
@@ -80,29 +130,85 @@ export default function InventoryCatalog() {
     setShowAddModal(true)
   }
 
+  const selectedKitchenItem = form.linkedKitchenItemId
+    ? kitchenStock.find(item => item.id === form.linkedKitchenItemId) ?? null
+    : null
+
+  const isKitchenLinkedSelection = Boolean(selectedKitchenItem)
+  const isManualEntryAllowed = form.category === 'Others' && !form.linkedKitchenItemId
+  const resolvedItemName = isKitchenLinkedSelection ? selectedKitchenItem!.itemName : form.item
+  const resolvedStockValue = isKitchenLinkedSelection ? String(selectedKitchenItem!.stock) : form.stock
+
   const openEdit = (item: InventoryItem) => {
     setEditingItem(item)
     setForm({
       item: item.item,
       cost: String(item.cost),
+      stock: String(item.stock),
       category: item.category,
+      linkedKitchenItemId: item.linkedKitchenItemId ?? '',
     })
     setFormErrors({})
     setPreviewProduct(null)
     setShowAddModal(true)
   }
 
+  const handleKitchenLinkChange = (nextValue: string) => {
+    const kitchenItem = nextValue ? kitchenStock.find(item => item.id === nextValue) ?? null : null
+
+    setForm(prev => {
+      const nextCategory = prev.category
+
+      if (kitchenItem) {
+        return {
+          ...prev,
+          linkedKitchenItemId: kitchenItem.id,
+          item: kitchenItem.itemName,
+          stock: String(kitchenItem.stock),
+        }
+      }
+
+      return {
+        ...prev,
+        linkedKitchenItemId: '',
+        item: nextCategory === 'Others' ? '' : prev.item,
+        stock: nextCategory === 'Others' ? '' : prev.stock,
+      }
+    })
+
+    setFormErrors({})
+  }
+
+  const handleCategoryChange = (nextCategory: InventoryCategory) => {
+    setForm(prev => {
+      const nextLinkedKitchenId = nextCategory === 'Menu Item' ? '' : prev.linkedKitchenItemId
+      const shouldResetManualFields = nextCategory === 'Menu Item' || prev.linkedKitchenItemId === ''
+
+      return {
+        ...prev,
+        category: nextCategory,
+        linkedKitchenItemId: nextLinkedKitchenId,
+        item: shouldResetManualFields ? '' : prev.item,
+        stock: shouldResetManualFields ? '' : prev.stock,
+      }
+    })
+    setPreviewProduct(null)
+    setFormErrors({})
+  }
+
   const handleProceed = () => {
-    const nextErrors = getValidationErrors(form)
+    const nextErrors = getValidationErrors(form, inventoryItems, kitchenStock, editingItem?.id)
     if (Object.keys(nextErrors).length > 0) {
       setFormErrors(nextErrors)
       return
     }
 
     setPreviewProduct({
-      item: form.item.trim(),
+      item: resolvedItemName.trim(),
       cost: form.cost,
+      stock: resolvedStockValue,
       category: form.category,
+      linkedKitchenItemId: form.linkedKitchenItemId,
     })
   }
 
@@ -118,6 +224,8 @@ export default function InventoryCatalog() {
         item: previewProduct.item,
         cost: Number(previewProduct.cost),
         category: previewProduct.category,
+        stock: Number(previewProduct.stock),
+        linkedKitchenItemId: previewProduct.category === 'Menu Item' ? previewProduct.linkedKitchenItemId : null,
         updatedAt: new Date().toISOString(),
         updatedBy: 'Admin',
       }
@@ -130,6 +238,8 @@ export default function InventoryCatalog() {
         item: previewProduct.item,
         cost: Number(previewProduct.cost),
         category: previewProduct.category,
+        stock: Number(previewProduct.stock),
+        linkedKitchenItemId: previewProduct.category === 'Menu Item' ? previewProduct.linkedKitchenItemId : null,
         createdAt: new Date().toISOString(),
         createdBy: 'Admin',
         updatedAt: new Date().toISOString(),
@@ -159,7 +269,7 @@ export default function InventoryCatalog() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Item', 'Cost', 'Category', 'Created_At', 'Created_By', 'Updated_At', 'Updated_By', 'Actions'].map(column => (
+                {['Item', 'Cost', 'Stock', 'Category', 'Kitchen', 'Created_At', 'Created_By', 'Updated_At', 'Updated_By', 'Actions'].map(column => (
                   <th key={column} className="text-center py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">
                     {column}
                   </th>
@@ -169,26 +279,32 @@ export default function InventoryCatalog() {
             <tbody className="divide-y divide-slate-50">
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">No items found.</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">No items found.</td>
                 </tr>
               ) : (
-                items.map(item => (
-                  <tr key={item.id} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.item}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{formatCurrency(item.cost)}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.category}</td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(item.createdAt).toLocaleDateString()}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.createdBy}</td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(item.updatedAt).toLocaleDateString()}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.updatedBy}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex justify-center gap-2">
-                        <button type="button" onClick={() => openEdit(item)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-white bg-green-700 hover:bg-green-600 text-xs font-medium font-display">Edit</button>
-                        <button type="button" onClick={() => handleDelete(item)} className="px-3 py-1.5 rounded-lg border border-red-200 text-white bg-red-700 hover:bg-red-600 text-xs font-medium font-display">Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                items.map(item => {
+                  const linkedKitchen = kitchenStock.find(kitchenItem => kitchenItem.id === item.linkedKitchenItemId)
+
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-50">
+                      <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.item}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{formatCurrency(item.cost)}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{item.stock}</td>
+                      <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.category}</td>
+                      <td className="py-3 px-4 text-xs text-slate-600 text-center">{linkedKitchen ? linkedKitchen.itemName : '—'}</td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(item.createdAt).toLocaleDateString()}</td>
+                      <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.createdBy}</td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(item.updatedAt).toLocaleDateString()}</td>
+                      <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.updatedBy}</td>
+                      <td className="py-3 px-4">
+                        <div className="flex justify-center gap-2">
+                          <button type="button" onClick={() => openEdit(item)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-white bg-green-700 hover:bg-green-600 text-xs font-medium font-display">Edit</button>
+                          <button type="button" onClick={() => handleDelete(item)} className="px-3 py-1.5 rounded-lg border border-red-200 text-white bg-red-700 hover:bg-red-600 text-xs font-medium font-display">Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -252,9 +368,13 @@ export default function InventoryCatalog() {
           <div className="w-md">
             <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Item</label>
             <input
-              value={form.item}
-              onChange={e => setForm(prev => ({ ...prev, item: e.target.value }))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              value={resolvedItemName}
+              onChange={e => {
+                if (!isManualEntryAllowed) return
+                setForm(prev => ({ ...prev, item: e.target.value }))
+              }}
+              disabled={!isManualEntryAllowed}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200"
               placeholder="Enter item name"
             />
             {formErrors.item && <p className="mt-1 text-xs text-red-600">{formErrors.item}</p>}
@@ -278,16 +398,50 @@ export default function InventoryCatalog() {
           </div>
 
           <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Stock</label>
+            <input
+              value={resolvedStockValue}
+              onChange={e => {
+                if (!isManualEntryAllowed) return
+                const value = e.target.value
+                if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                  setForm(prev => ({ ...prev, stock: value }))
+                }
+              }}
+              disabled={!isManualEntryAllowed}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200"
+              placeholder="0"
+              inputMode="decimal"
+            />
+            {formErrors.stock && <p className="mt-1 text-xs text-red-600">{formErrors.stock}</p>}
+          </div>
+
+          <div>
             <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Category</label>
             <select
               value={form.category}
-              onChange={e => setForm(prev => ({ ...prev, category: e.target.value as InventoryCategory }))}
+              onChange={e => handleCategoryChange(e.target.value as InventoryCategory)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             >
               <option value="Menu Item">Menu Item</option>
               <option value="Others">Others</option>
             </select>
             {formErrors.category && <p className="mt-1 text-xs text-red-600">{formErrors.category}</p>}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Kitchen Link</label>
+            <select
+              value={form.linkedKitchenItemId}
+              onChange={e => handleKitchenLinkChange(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="">Select Item from Kitchen Catalog</option>
+              {kitchenStock.map(item => (
+                <option key={item.id} value={item.id}>{item.itemName}</option>
+              ))}
+            </select>
+            {formErrors.linkedKitchenItemId && <p className="mt-1 text-xs text-red-600">{formErrors.linkedKitchenItemId}</p>}
           </div>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -303,15 +457,25 @@ export default function InventoryCatalog() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-slate-200 p-3">
               <p className="text-xs text-slate-500">Item</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{previewProduct?.item}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{previewProduct ? previewProduct.item : ''}</p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
               <p className="text-xs text-slate-500">Cost</p>
               <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{previewProduct ? formatCurrency(Number(previewProduct.cost)) : ''}</p>
             </div>
-            <div className="rounded-lg border border-slate-200 p-3 sm:col-span-2">
+            <div className="rounded-lg border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Stock</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{previewProduct ? previewProduct.stock : ''}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 p-3">
               <p className="text-xs text-slate-500">Category</p>
               <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{previewProduct?.category}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 p-3 sm:col-span-2">
+              <p className="text-xs text-slate-500">Linked Kitchen Item</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800 font-display">
+                {previewProduct?.linkedKitchenItemId ? kitchenStock.find(item => item.id === previewProduct.linkedKitchenItemId)?.itemName ?? 'Unknown kitchen item' : 'None'}
+              </p>
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -330,8 +494,16 @@ export default function InventoryCatalog() {
                 <p className="text-sm font-medium">{formatCurrency(selectedItem.cost)}</p>
               </div>
               <div>
+                <p className="text-xs text-slate-400">Stock</p>
+                <p className="text-sm font-medium">{selectedItem.stock}</p>
+              </div>
+              <div>
                 <p className="text-xs text-slate-400">Category</p>
                 <p className="text-sm font-medium">{selectedItem.category}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Kitchen Link</p>
+                <p className="text-sm font-medium">{selectedItem.linkedKitchenItemId ? kitchenStock.find(item => item.id === selectedItem.linkedKitchenItemId)?.itemName ?? 'Unknown item' : 'None'}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Created</p>

@@ -70,7 +70,7 @@ const getSaleValidationErrors = (form: SaleFormState) => {
 }
 
 export default function Sales() {
-  const { inventoryItems, salesRecords, setSalesRecords, showToast } = useApp()
+  const { inventoryItems, salesRecords, setSalesRecords, showToast, sellMenuItem } = useApp()
   const isMobile = useIsMobile()
   const [search, setSearch] = useState('')
   const [selectedItemFilter, setSelectedItemFilter] = useState('All Items')
@@ -250,6 +250,7 @@ export default function Sales() {
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{sale.updatedBy}</td>
                     <td className="py-3 px-4">
                       <div className="flex justify-center gap-2">
+                        <button type="button" onClick={() => { sellMenuItem(sale.item, sale.numberOfSales) }} className="px-3 py-1.5 rounded-lg border border-slate-200 text-white bg-indigo-600 hover:bg-indigo-700 text-xs font-medium font-display">Sell</button>
                         <button type="button" onClick={() => openEditSale(sale)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-white bg-green-700 hover:bg-green-600 text-xs font-medium font-display">Edit</button>
                         <button type="button" onClick={() => handleDelete(sale)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-white bg-red-700 hover:bg-red-600 text-xs font-medium font-display">Delete</button>
                       </div>

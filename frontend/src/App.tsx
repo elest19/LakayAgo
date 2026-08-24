@@ -1,11 +1,23 @@
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react'
-import type { Page, Toast, AppContextType, InventoryItem, SaleRecord, ExpenseRecord, PayrollPeriod } from './types'
+import type {
+  Page,
+  Toast,
+  AppContextType,
+  InventoryItem,
+  SaleRecord,
+  ExpenseRecord,
+  PayrollPeriod,
+  ProductionItem,
+  KitchenItem,
+  StockTransaction,
+} from './types'
 import useIsMobile from './hooks/isMobile'
 import {
   LayoutDashboard, Users, ClipboardList, Upload, History,
   CalendarDays, Cog, FileText, LogOut, ChevronDown, ChevronRight,
   Bell, Search, Menu, X, CheckCircle, AlertCircle, AlertTriangle, Info,
-  CreditCard, BookOpen, Settings, ClipboardCheck, UserCheck, BarChart3, ShoppingCart, Wallet, Package2
+  CreditCard, BookOpen, Settings, ClipboardCheck, UserCheck, BarChart3, ShoppingCart, Wallet, Package2,
+  Factory, CookingPot,
 } from 'lucide-react'
 
 import Login from './pages/Login'
@@ -25,6 +37,8 @@ import AuditLogs from './pages/AuditLogs'
 import SalesSummary from './pages/SalesSummary.tsx'
 import Sales from './pages/Sales'
 import InventoryCatalog from './pages/InventoryCatalog'
+import ProductionCatalog from './pages/ProductionCatalog'
+import KitchenCatalog from './pages/KitchenCatalog'
 import Expenses from './pages/Expenses'
 // Use the public copy of the logo (served at /LakayAgo_Logo.jpg)
 import Modal from './components/Modal'
@@ -37,10 +51,18 @@ const AppContext = createContext<AppContextType>({
   showToast: () => {},
   inventoryItems: [],
   setInventoryItems: () => {},
+  productionStock: [],
+  setProductionStock: () => {},
+  kitchenStock: [],
+  setKitchenStock: () => {},
   salesRecords: [],
   setSalesRecords: () => {},
   expenses: [],
   setExpenses: () => {},
+  stockTransactions: [],
+  transferToKitchen: () => false,
+  kitchenSelfProduce: () => false,
+  sellMenuItem: () => false,
   activePayrollPeriod: null,
   setActivePayrollPeriod: () => {},
   appMode: 'lakayAgo',
@@ -99,6 +121,8 @@ const navItems: NavEntry[] = [
       { id: 'sales-summary', label: 'Summary Report', icon: <BarChart3 size={16} /> },
       { id: 'sales', label: 'Sales', icon: <Wallet size={16} /> },
       { id: 'inventory-catalog', label: 'Inventory Catalog', icon: <Package2 size={16} /> },
+      { id: 'production-catalog', label: 'Production Catalog', icon: <Factory size={16} /> },
+      { id: 'kitchen-catalog', label: 'Kitchen Catalog', icon: <CookingPot size={16} /> },
       { id: 'expenses', label: 'Expenses', icon: <CreditCard size={16} /> },
     ],
   },
@@ -123,6 +147,8 @@ const pageMeta: Record<Page, { title: string; breadcrumbs: string[] }> = {
   'sales-summary': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Summary Report'] },
   sales: { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Sales'] },
   'inventory-catalog': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Inventory Catalog'] },
+  'kitchen-catalog': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Kitchen Catalog'] },
+  'production-catalog': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Production Catalog'] },
   expenses: { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Expenses'] },
   reports: { title: 'Reports', breadcrumbs: ['Reports'] },
   settings: { title: 'Settings', breadcrumbs: ['Settings'] },
@@ -167,8 +193,20 @@ export default function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const isMobileView = useIsMobile()
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>(inventoryCatalog)
+  const [productionStock, setProductionStock] = useState<ProductionItem[]>([
+    { id: 'PRO-001', itemName: 'Chicken', department: 'Production', stock: 40, createdAt: '2026-08-01T09:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:00:00Z', updatedBy: 'Admin' },
+    { id: 'PRO-002', itemName: 'Rice', department: 'Production', stock: 60, createdAt: '2026-08-01T09:10:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:10:00Z', updatedBy: 'Admin' },
+    { id: 'PRO-003', itemName: 'Vegetables', department: 'Production', stock: 35, createdAt: '2026-08-01T09:15:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:15:00Z', updatedBy: 'Admin' },
+  ])
+  const [kitchenStock, setKitchenStock] = useState<KitchenItem[]>([
+    { id: 'KIT-001', itemName: 'Adobo Rice Bowl', department: 'Kitchen', stock: 20, createdAt: '2026-08-01T09:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:00:00Z', updatedBy: 'Admin' },
+    { id: 'KIT-002', itemName: 'Bicol Express', department: 'Kitchen', stock: 16, createdAt: '2026-08-01T09:05:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:05:00Z', updatedBy: 'Admin' },
+    { id: 'KIT-003', itemName: 'Chicken BBQ Platter', department: 'Kitchen', stock: 14, createdAt: '2026-08-01T09:10:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:10:00Z', updatedBy: 'Admin' },
+    { id: 'KIT-004', itemName: 'Fresh Lumpia', department: 'Kitchen', stock: 18, createdAt: '2026-08-01T09:15:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:15:00Z', updatedBy: 'Admin' },
+  ])
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(initialSalesRecords)
   const [expenses, setExpenses] = useState<ExpenseRecord[]>(initialExpenses)
+  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([])
   const [activePayrollPeriod, setActivePayrollPeriod] = useState<PayrollPeriod | null>(null)
   const [appMode, setAppMode] = useState<'aroo' | 'lakayAgo'>('lakayAgo')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -238,6 +276,214 @@ export default function App() {
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id))
   }, [])
+
+  const transferToKitchen = useCallback((itemName: string, qty: number, department: string): boolean => {
+    const trimmedName = itemName.trim()
+    const trimmedDepartment = department.trim()
+    const parsedQty = Number(qty)
+
+    if (!trimmedName) {
+      showToast({ type: 'error', message: 'Missing item name', description: 'Please enter a production item name.' })
+      return false
+    }
+
+    if (!trimmedDepartment) {
+      showToast({ type: 'error', message: 'Missing department', description: 'Please select or enter the department.' })
+      return false
+    }
+
+    if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
+      showToast({ type: 'error', message: 'Invalid quantity', description: 'Transfer quantity must be a positive number.' })
+      return false
+    }
+
+    const source = productionStock.find(item => item.itemName.toLowerCase() === trimmedName.toLowerCase() && item.department.toLowerCase() === trimmedDepartment.toLowerCase())
+
+    if (!source) {
+      showToast({ type: 'error', message: 'Production stock not found', description: `${trimmedName} is not available in ${trimmedDepartment}.` })
+      return false
+    }
+
+    if (source.stock < parsedQty) {
+      showToast({ type: 'error', message: 'Insufficient production stock', description: `${trimmedName} only has ${source.stock} units available.` })
+      return false
+    }
+
+    const timestamp = new Date().toISOString()
+    const nextTransaction: StockTransaction = {
+      id: `TXN-${Date.now()}`,
+      itemName: source.itemName,
+      type: 'TRANSFER',
+      quantity: parsedQty,
+      from: 'production',
+      to: 'kitchen',
+      timestamp,
+      performedBy: 'Admin',
+    }
+
+    setProductionStock(prev => prev.map(item => item.id === source.id ? { ...item, stock: item.stock - parsedQty, updatedAt: timestamp, updatedBy: 'Admin' } : item))
+    setKitchenStock(prev => {
+      const existing = prev.find(item => item.itemName.toLowerCase() === trimmedName.toLowerCase() && item.department.toLowerCase() === trimmedDepartment.toLowerCase())
+
+      if (existing) {
+        return prev.map(item => item.id === existing.id ? { ...item, stock: item.stock + parsedQty, updatedAt: timestamp, updatedBy: 'Admin' } : item)
+      }
+
+      const newItem: KitchenItem = {
+        id: `KIT-${Date.now()}`,
+        itemName: trimmedName,
+        department: trimmedDepartment,
+        stock: parsedQty,
+        createdAt: timestamp,
+        createdBy: 'Admin',
+        updatedAt: timestamp,
+        updatedBy: 'Admin',
+      }
+
+      return [newItem, ...prev]
+    })
+    setStockTransactions(prev => [nextTransaction, ...prev])
+    showToast({ type: 'success', message: 'Transferred to kitchen', description: `${parsedQty} ${trimmedName} moved from production to kitchen.` })
+    return true
+  }, [productionStock, showToast])
+
+  const kitchenSelfProduce = useCallback((itemName: string, qty: number, department: string): boolean => {
+    const trimmedName = itemName.trim()
+    const trimmedDepartment = department.trim()
+    const parsedQty = Number(qty)
+
+    if (!trimmedName) {
+      showToast({ type: 'error', message: 'Missing item name', description: 'Please enter a kitchen item name.' })
+      return false
+    }
+
+    if (!trimmedDepartment) {
+      showToast({ type: 'error', message: 'Missing department', description: 'Please enter a department for the item.' })
+      return false
+    }
+
+    if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
+      showToast({ type: 'error', message: 'Invalid quantity', description: 'Self-produced quantity must be a positive number.' })
+      return false
+    }
+
+    const timestamp = new Date().toISOString()
+    const nextTransaction: StockTransaction = {
+      id: `TXN-${Date.now()}`,
+      itemName: trimmedName,
+      type: 'SELF_PRODUCE',
+      quantity: parsedQty,
+      from: null,
+      to: 'kitchen',
+      timestamp,
+      performedBy: 'Admin',
+    }
+
+    setKitchenStock(prev => {
+      const existing = prev.find(item => item.itemName.toLowerCase() === trimmedName.toLowerCase() && item.department.toLowerCase() === trimmedDepartment.toLowerCase())
+
+      if (existing) {
+        return prev.map(item => item.id === existing.id ? { ...item, stock: item.stock + parsedQty, updatedAt: timestamp, updatedBy: 'Admin' } : item)
+      }
+
+      const newItem: KitchenItem = {
+        id: `KIT-${Date.now()}`,
+        itemName: trimmedName,
+        department: trimmedDepartment,
+        stock: parsedQty,
+        createdAt: timestamp,
+        createdBy: 'Admin',
+        updatedAt: timestamp,
+        updatedBy: 'Admin',
+      }
+
+      return [newItem, ...prev]
+    })
+
+    setStockTransactions(prev => [nextTransaction, ...prev])
+    showToast({ type: 'success', message: 'Kitchen stock updated', description: `${parsedQty} ${trimmedName} was added to kitchen inventory.` })
+    return true
+  }, [showToast])
+
+  const sellMenuItem = useCallback((itemName: string, qty: number): boolean => {
+    const trimmedName = itemName.trim()
+    const parsedQty = Number(qty)
+
+    if (!trimmedName) {
+      showToast({ type: 'error', message: 'Missing menu item', description: 'Please select a menu item before selling.' })
+      return false
+    }
+
+    if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
+      showToast({ type: 'error', message: 'Invalid quantity', description: 'Sale quantity must be a positive number.' })
+      return false
+    }
+
+    const menuItem = inventoryItems.find(item => item.item.toLowerCase() === trimmedName.toLowerCase())
+
+    if (!menuItem) {
+      showToast({ type: 'error', message: 'Menu item not found', description: `${trimmedName} is not available in the menu catalog.` })
+      return false
+    }
+
+    if (menuItem.stock < parsedQty) {
+      showToast({ type: 'error', message: 'Insufficient menu stock', description: `${trimmedName} only has ${menuItem.stock} units available.` })
+      return false
+    }
+
+    if (menuItem.category === 'Menu Item') {
+      if (!menuItem.linkedKitchenItemId) {
+        showToast({ type: 'error', message: 'Unlinked menu item', description: `${trimmedName} is not linked to any kitchen stock.` })
+        return false
+      }
+
+      const kitchenItem = kitchenStock.find(item => item.id === menuItem.linkedKitchenItemId)
+      if (!kitchenItem) {
+        showToast({ type: 'error', message: 'Kitchen stock missing', description: `${trimmedName} references a kitchen item that no longer exists.` })
+        return false
+      }
+
+      if (kitchenItem.stock < parsedQty) {
+        showToast({ type: 'error', message: 'Insufficient kitchen stock', description: `${trimmedName} only has ${kitchenItem.stock} units in kitchen stock.` })
+        return false
+      }
+
+      const timestamp = new Date().toISOString()
+      const nextTransaction: StockTransaction = {
+        id: `TXN-${Date.now()}`,
+        itemName: trimmedName,
+        type: 'SALE',
+        quantity: parsedQty,
+        from: 'kitchen',
+        to: 'menu',
+        timestamp,
+        performedBy: 'Admin',
+      }
+
+      setInventoryItems(prev => prev.map(item => item.id === menuItem.id ? { ...item, stock: item.stock - parsedQty, updatedAt: timestamp, updatedBy: 'Admin' } : item))
+      setKitchenStock(prev => prev.map(item => item.id === kitchenItem.id ? { ...item, stock: item.stock - parsedQty, updatedAt: timestamp, updatedBy: 'Admin' } : item))
+      setStockTransactions(prev => [nextTransaction, ...prev])
+      showToast({ type: 'success', message: 'Menu item sold', description: `${parsedQty} ${trimmedName} sold and both menu and kitchen stock were reduced.` })
+      return true
+    }
+
+    const timestamp = new Date().toISOString()
+    const nextTransaction: StockTransaction = {
+      id: `TXN-${Date.now()}`,
+      itemName: trimmedName,
+      type: 'SALE',
+      quantity: parsedQty,
+      from: 'kitchen',
+      to: 'menu',
+      timestamp,
+      performedBy: 'Admin',
+    }
+
+    setInventoryItems(prev => prev.map(item => item.id === menuItem.id ? { ...item, stock: item.stock - parsedQty, updatedAt: timestamp, updatedBy: 'Admin' } : item))
+    setStockTransactions(prev => [nextTransaction, ...prev])
+    showToast({ type: 'success', message: 'Menu item sold', description: `${parsedQty} ${trimmedName} sold from menu stock.` })
+    return true
+  }, [inventoryItems, kitchenStock, showToast])
 
   const toggleAppMode = useCallback((nextMode: 'aroo' | 'lakayAgo') => {
     if (isMobileView) {
@@ -337,6 +583,8 @@ export default function App() {
       case 'sales-summary': return <SalesSummary />
       case 'sales': return <Sales />
       case 'inventory-catalog': return <InventoryCatalog />
+      case 'production-catalog': return <ProductionCatalog />
+      case 'kitchen-catalog': return <KitchenCatalog />
       case 'expenses': return <Expenses />
       case 'reports': return <Reports />
       case 'settings': return <SettingsPage />
@@ -471,7 +719,33 @@ export default function App() {
   }
 
   return (
-    <AppContext.Provider value={{ currentPage, navigate, showToast, inventoryItems, setInventoryItems, salesRecords, setSalesRecords, expenses, setExpenses, activePayrollPeriod, setActivePayrollPeriod, appMode, setAppMode, logoSrc, openEmployee, clearOpenEmployee, openEmployeeId }}>
+    <AppContext.Provider value={{
+      currentPage,
+      navigate,
+      showToast,
+      inventoryItems,
+      setInventoryItems,
+      productionStock,
+      setProductionStock,
+      kitchenStock,
+      setKitchenStock,
+      salesRecords,
+      setSalesRecords,
+      expenses,
+      setExpenses,
+      stockTransactions,
+      transferToKitchen,
+      kitchenSelfProduce,
+      sellMenuItem,
+      activePayrollPeriod,
+      setActivePayrollPeriod,
+      appMode,
+      setAppMode,
+      logoSrc,
+      openEmployee,
+      clearOpenEmployee,
+      openEmployeeId,
+    }}>
       <>
         {currentPage === 'login' ? (
           <Login />
