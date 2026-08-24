@@ -3,7 +3,7 @@ import { Lock, Mail } from 'lucide-react'
 import { useApp } from '../App'
 
 export default function LoginPage() {
-  const { showToast, navigate } = useApp()
+  const { showToast, navigate, logoSrc } = useApp()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -19,10 +19,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-      <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-6">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6 text-slate-800">
+      <div className="max-w-md w-full bg-white border border-slate-200 rounded-xl shadow-lg p-6">
         <div className="flex flex-col items-center text-center mb-6">
-          <img src="/logo.jpg" alt="Lakay Ago" className="w-16 h-16 object-contain rounded-lg mb-3" />
+          <img src={logoSrc} alt="Brand logo" className="w-16 h-16 object-contain rounded-lg mb-3" />
           <h2 className="text-lg font-semibold text-slate-800">Sign in to your account</h2>
         </div>
         <form onSubmit={submit} className="space-y-4">

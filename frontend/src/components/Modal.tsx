@@ -59,7 +59,6 @@ export default function Modal({
       className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
-      onClick={onClose}
     >
       {/* Backdrop */}
       <div

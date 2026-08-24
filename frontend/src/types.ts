@@ -34,10 +34,13 @@ export interface Employee {
   contactNumber: string
   address: string
   dateOfBirth: string
-  salaryType: 'Monthly' | 'Daily'
+  salaryType: 'Monthly' | 'Bi-Monthly' | 'Daily'
   allowance: number
-  paymentMethod: 'Bank Transfer' | 'Cash' | 'Check'
+  paymentMethod: string
   supervisor: string
+  sss?: number
+  philHealth?: number
+  pagibig?: number
 }
 
 export interface AttendanceRecord {
@@ -194,6 +197,7 @@ export interface AppContextType {
   setActivePayrollPeriod: React.Dispatch<React.SetStateAction<PayrollPeriod | null>>
   appMode: 'aroo' | 'lakayAgo'
   setAppMode: React.Dispatch<React.SetStateAction<'aroo' | 'lakayAgo'>>
+  logoSrc: string
 
   // new
   openEmployee?: (id: string) => void

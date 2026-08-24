@@ -60,7 +60,7 @@ export default function PayrollHistory() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {payrollPeriods.filter(p => p.status !== 'Attendance Pending').map(pp => (
+                {payrollPeriods.filter(p => p.status !== 'Pending').map(pp => (
                   <tr
                     key={pp.id}
                     className="hover:bg-slate-50 group cursor-pointer"

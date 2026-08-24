@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Search, Upload, Eye, Edit2, ChevronLeft, ChevronRight, X, AlertCircle } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Search, Upload, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react'
 import { attendanceRecords as allRecords } from '../data/mockData'
 import type { AttendanceRecord } from '../types'
 import { useApp } from '../App'
@@ -18,81 +18,26 @@ const statusColor: Record<Status, string> = {
   Overtime: 'bg-blue-100 text-blue-700',
 }
 
-function EditAttendanceModal({ record, onClose, onSave }: { record: AttendanceRecord; onClose: () => void; onSave: () => void }) {
-  const [timeIn, setTimeIn] = useState(record.timeIn)
-  const [timeOut, setTimeOut] = useState(record.timeOut)
-  const [status, setStatus] = useState(record.status)
-  const [notes, setNotes] = useState('')
-
-  return (
-    <Modal open={true} title="Edit Attendance" onClose={onClose}>
-      <div className="bg-white w-full">
-        <div className="py-2 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Employee</label>
-              <input value={record.employeeName} readOnly className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500 outline-none" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Date</label>
-              <input value={record.date} readOnly className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500 outline-none" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time In</label>
-              <input value={timeIn} onChange={e => setTimeIn(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time Out</label>
-              <input value={timeOut} onChange={e => setTimeOut(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Status</label>
-              <select value={status} onChange={e => setStatus(e.target.value as any)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display">
-                {(['Present', 'Absent', 'Leave', 'Rest Day', 'Holiday', 'Incomplete'] as Status[]).map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-          </div>
-          {/* Calculated values */}
-          <div className="bg-slate-50 rounded-xl p-4 grid grid-cols-3 gap-3">
-            {[
-              { label: 'Late', value: `${record.lateMinutes} min`, color: 'text-amber-600' },
-              { label: 'Undertime', value: `${record.undertimeMinutes} min`, color: 'text-orange-600' },
-              { label: 'Overtime', value: `${record.overtimeHours} hrs`, color: 'text-blue-600' },
-            ].map(f => (
-              <div key={f.label} className="text-center">
-                <p className="text-xs text-slate-400 font-display">{f.label}</p>
-                <p className={`text-sm font-bold font-mono ${f.color}`}>{f.value}</p>
-              </div>
-            ))}
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Notes</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Optional notes about this correction..." className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 resize-none" />
-          </div>
-          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            <AlertCircle size={14} className="text-amber-600 shrink-0" />
-            <p className="text-xs text-amber-700">Attendance changes may affect payroll calculations.</p>
-          </div>
-        </div>
-        <div className="py-2 border-t border-slate-100 flex gap-3 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
-          <button onClick={onSave} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
+// Inline edit modal is now rendered inside the selected record modal to follow the
+// row-click → read-only detail modal pattern. We'll manage edit state per selected record.
 
 export default function AttendanceRecords() {
   const { navigate, showToast } = useApp()
   const isMobile = useIsMobile()
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editTimeIn, setEditTimeIn] = useState('')
+  const [editTimeOut, setEditTimeOut] = useState('')
+  const [editStatus, setEditStatus] = useState<Status>('Present')
+  const [editNotes, setEditNotes] = useState('')
+  const [isDirty, setIsDirty] = useState(false)
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
   const [search, setSearch] = useState('')
   const [dept, setDept] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [period, setPeriod] = useState('August 1–15, 2026')
   const [page, setPage] = useState(1)
-  const [editing, setEditing] = useState<AttendanceRecord | null>(null)
+  
   const PER_PAGE = 8
 
   const filtered = allRecords.filter(r => {
@@ -105,6 +50,32 @@ export default function AttendanceRecords() {
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE)
   const pageData = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+
+  useEffect(() => {
+    if (selectedRecord) {
+      setEditTimeIn(selectedRecord.timeIn || '')
+      setEditTimeOut(selectedRecord.timeOut || '')
+      setEditStatus(selectedRecord.status)
+      setEditNotes('')
+      setIsDirty(false)
+      setIsEditing(false)
+    } else {
+      setIsEditing(false)
+      setIsDirty(false)
+    }
+  }, [selectedRecord])
+
+  useEffect(() => {
+    function handler(e: BeforeUnloadEvent) {
+      e.preventDefault()
+      e.returnValue = ''
+      return ''
+    }
+    if (isEditing && isDirty) {
+      window.addEventListener('beforeunload', handler)
+      return () => window.removeEventListener('beforeunload', handler)
+    }
+  }, [isEditing, isDirty])
 
   return (
     <div className="p-4">
@@ -188,20 +159,18 @@ export default function AttendanceRecords() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Employee', 'Employee ID', 'Date', 'Day', 'Status', 'Time In', 'Time Out', 'Time In', 'Time Out', 'Actions'].map(h => (
+                  {['Employee', 'Employee ID', 'Date', 'Day', 'Status', 'Time In', 'Time Out', 'Time In', 'Time Out'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {pageData.map(rec => (
-                  <tr key={rec.id} className={`hover:bg-slate-50 ${rec.status === 'Incomplete' ? 'bg-amber-50/50' : ''}`}>
+                  <tr key={rec.id} onClick={() => setSelectedRecord(rec)} className={`hover:bg-slate-50 cursor-pointer ${rec.status === 'Incomplete' ? 'bg-amber-50/50' : ''}`}>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                          <span className="text-indigo-700 text-[10px] font-bold font-display">
-                            {rec.employeeName.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                          </span>
+                          <span className="text-indigo-700 text-[10px] font-bold font-display">{rec.employeeName.split(' ').map(n => n[0]).join('').slice(0, 2)}</span>
                         </div>
                         <span className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{rec.employeeName}</span>
                       </div>
@@ -216,11 +185,6 @@ export default function AttendanceRecords() {
                     <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.firstOffDuty ?? rec.timeOut ?? '—'}</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.overtimeCheckIn ?? '—'}</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.overtimeCheckOut ?? '—'}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-1"> 
-                        <button onClick={() => setEditing(rec)} className="p-1 px-3 rounded-lg text-sm text-slate-100 border bg-green-700 hover:text-slate-200 hover:bg-green-600" title="Edit">Edit</button>
-                      </div>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -288,111 +252,136 @@ export default function AttendanceRecords() {
         </div>
       </div>
 
-      {editing && (
-        <EditAttendanceModal
-          record={editing}
-          onClose={() => setEditing(null)}
-          onSave={() => {
-            setEditing(null)
-            showToast({ type: 'success', message: 'Attendance updated', description: 'Attendance record has been corrected successfully.' })
-          }}
-        />
-      )}
+      {/* Inline editing handled inside the selected record modal now */}
+
 
       {selectedRecord && (
         <Modal
           open={!!selectedRecord}
           title={`Attendance`}
-          onClose={() => setSelectedRecord(null)}
+          onClose={() => {
+            if (isEditing && isDirty) {
+              setShowDiscardConfirm(true)
+              return
+            }
+            setSelectedRecord(null)
+          }}
         >
-              <div className="flex items-start justify-between border-b pb-2 border-slate-100">
+          {/* Header */}
+          <div className="flex items-start justify-between border-b pb-2 border-slate-100">
+            <div className="w-md">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 font-display">Employee</p>
+              <h3 className="text-lg font-bold text-slate-800 font-display">{selectedRecord.employeeName}</h3>
+            </div>
+            <div className="w-md text-right">
+              <span className={`text-xs px-2 py-1 rounded-full font-medium font-display ${statusColor[selectedRecord.status]}`}>{selectedRecord.status}</span>
+            </div>
+          </div>
+
+          {/* Initialize edit fields when record opens */}
+          {/* eslint-disable-next-line react-hooks/rules-of-hooks */}
+          {null}
+          
+          <div className="grid grid-cols-2 gap-4 pt-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Employee ID</label>
+              <p className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-700">{selectedRecord.employeeId}</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Date</label>
+              <p className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-700">{selectedRecord.date}</p>
+            </div>
+
+            {!isEditing ? (
+              <>
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 font-display">
-                    Employee
-                  </p>
-                  <h3 className="text-lg font-bold text-slate-800 font-display">
-                    {selectedRecord.employeeName}
-                  </h3>
+                  <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time In</label>
+                  <p className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-700">{selectedRecord.timeIn || '—'}</p>
                 </div>
-                <span
-                  className={`text-xs px-2 py-1 rounded-full font-medium font-display ${statusColor[selectedRecord.status]}`}
-                >
-                  {selectedRecord.status}
-                </span>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time Out</label>
+                  <p className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-700">{selectedRecord.timeOut || '—'}</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time In</label>
+                  <input value={editTimeIn} onChange={e => { setEditTimeIn(e.target.value); setIsDirty(true) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time Out</label>
+                  <input value={editTimeOut} onChange={e => { setEditTimeOut(e.target.value); setIsDirty(true) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="bg-slate-50 rounded-xl p-4 grid grid-cols-3 gap-3">
+            <div className="text-center">
+              <p className="text-xs text-slate-400 font-display">Late</p>
+              <p className="text-sm font-bold font-mono text-amber-600">{selectedRecord.lateMinutes > 0 ? `${selectedRecord.lateMinutes} min` : '—'}</p>
+            </div>
+
+            <div className="text-center">
+              <p className="text-xs text-slate-400 font-display">Undertime</p>
+              <p className="text-sm font-bold font-mono text-orange-600">{selectedRecord.undertimeMinutes > 0 ? `${selectedRecord.undertimeMinutes} min` : '—'}</p>
+            </div>
+
+            <div className="text-center">
+              <p className="text-xs text-slate-400 font-display">Overtime</p>
+              <p className="text-sm font-bold font-mono text-blue-600">{selectedRecord.overtimeHours > 0 ? `${selectedRecord.overtimeHours} hr` : '—'}</p>
+            </div>
+          </div>
+
+          {/* Footer actions */}
+          <div className="flex justify-end gap-3">
+            {!isEditing ? (
+              <button onClick={() => {
+                // initialize edit fields
+                setEditTimeIn(selectedRecord.timeIn || '')
+                setEditTimeOut(selectedRecord.timeOut || '')
+                setEditStatus(selectedRecord.status)
+                setEditNotes('')
+                setIsDirty(false)
+                setIsEditing(true)
+              }} className="px-4 py-2 text-sm font-medium bg-green-700 hover:bg-green-600 text-slate-100 rounded-lg font-display">Edit</button>
+            ) : (
+              <>
+                <button onClick={() => {
+                  if (isDirty) { setShowDiscardConfirm(true); return }
+                  setIsEditing(false)
+                }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                <button onClick={() => {
+                  // save changes to mock data
+                  const idx = allRecords.findIndex(r => r.id === selectedRecord.id)
+                    if (idx !== -1) {
+                      Object.assign(allRecords[idx], { timeIn: editTimeIn || '', timeOut: editTimeOut || '', status: editStatus })
+                      setSelectedRecord({ ...selectedRecord, timeIn: editTimeIn || '', timeOut: editTimeOut || '', status: editStatus })
+                    setIsEditing(false)
+                    setIsDirty(false)
+                    showToast({ type: 'success', message: 'Attendance updated', description: 'Attendance record has been corrected successfully.' })
+                  }
+                }} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">Save Changes</button>
+              </>
+            )}
+          </div>
+
+          {/* Discard confirmation modal */}
+          {showDiscardConfirm && (
+            <Modal open={true} title="You have unsaved changes" onClose={() => setShowDiscardConfirm(false)}>
+              <div className="bg-white w-full p-4">
+                <p className="text-sm text-slate-600 mb-6">You have unsaved changes. Do you want to discard them?</p>
+                <div className="flex gap-3 justify-end">
+                  <button onClick={() => setShowDiscardConfirm(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Keep editing</button>
+                  <button onClick={() => { setShowDiscardConfirm(false); setIsEditing(false); setIsDirty(false); setSelectedRecord(null) }} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">Discard changes</button>
+                </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4 pt-2">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1 font-display">
-                    Employee ID
-                  </label>
-                  <p className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-700">
-                    {selectedRecord.employeeId}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1 font-display">
-                    Date
-                  </label>
-                  <p className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-700">
-                    {selectedRecord.date}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1 font-display">
-                    Time In
-                  </label>
-                  <p className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-700">
-                    {selectedRecord.timeIn || '—'}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1 font-display">
-                    Time Out
-                  </label>
-                  <p className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-700">
-                    {selectedRecord.timeOut || '—'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="bg-slate-50 rounded-xl p-4 grid grid-cols-3 gap-3">
-                <div className="text-center">
-                  <p className="text-xs text-slate-400 font-display">Late</p>
-                  <p className="text-sm font-bold font-mono text-amber-600">
-                    {selectedRecord.lateMinutes > 0 ? `${selectedRecord.lateMinutes} min` : '—'}
-                  </p>
-                </div>
-
-                <div className="text-center">
-                  <p className="text-xs text-slate-400 font-display">Undertime</p>
-                  <p className="text-sm font-bold font-mono text-orange-600">
-                    {selectedRecord.undertimeMinutes > 0 ? `${selectedRecord.undertimeMinutes} min` : '—'}
-                  </p>
-                </div>
-
-                <div className="text-center">
-                  <p className="text-xs text-slate-400 font-display">Overtime</p>
-                  <p className="text-sm font-bold font-mono text-blue-600">
-                    {selectedRecord.overtimeHours > 0 ? `${selectedRecord.overtimeHours} hr` : '—'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setEditing(selectedRecord)
-                    setSelectedRecord(null)
-                  }}
-                  className="px-4 py-2 text-sm font-medium bg-green-700 hover:bg-green-600 text-slate-100 rounded-lg font-display"
-                >
-                  Edit
-                </button>
-              </div>
+            </Modal>
+          )}
         </Modal>
       )}
     </div>

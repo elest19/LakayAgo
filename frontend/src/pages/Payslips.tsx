@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Search, Download, Printer, X, Building2 } from 'lucide-react'
 import { employees } from '../data/mockData'
+import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 
@@ -17,12 +18,14 @@ const payslipData = employees.slice(0, 12).map((emp, i) => ({
 }))
 
 function PayslipDetailModal({ item, onClose }: { item: typeof payslipData[0]; onClose: () => void }) {
+  const { logoSrc } = useApp()
+
   return (
     <Modal open={true} title={`Payslip — ${item.emp.firstName} ${item.emp.lastName}`} onClose={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-h-[70vh] overflow-y-auto">
         {/* Payslip header */}
         <div className="flex items-center bg-indigo-600 rounded-t-2xl px-8 py-3 text-white"> 
-          <img src="/logo.jpg" alt="Lakay Ago" className="w-12 h-12 mr-2 mb-1" />
+          <img src={logoSrc} alt="Brand logo" className="w-12 h-12 mr-2 mb-1" />
           <p className="text-xl text-indigo-200 font-display uppercase tracking-widest">Employee Payslip</p>
         </div>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext } from 'react'
+import { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react'
 import type { Page, Toast, AppContextType, InventoryItem, SaleRecord, ExpenseRecord, PayrollPeriod } from './types'
 import useIsMobile from './hooks/isMobile'
 import {
@@ -22,7 +22,7 @@ import LeaveManagement from './pages/LeaveManagement'
 import Reports from './pages/Reports'
 import SettingsPage from './pages/Settings'
 import AuditLogs from './pages/AuditLogs'
-import SalesSummary from './pages/SalesSummary'
+import SalesSummary from './pages/SalesSummary.tsx'
 import Sales from './pages/Sales'
 import InventoryCatalog from './pages/InventoryCatalog'
 import Expenses from './pages/Expenses'
@@ -43,8 +43,9 @@ const AppContext = createContext<AppContextType>({
   setExpenses: () => {},
   activePayrollPeriod: null,
   setActivePayrollPeriod: () => {},
-  appMode: 'aroo',
+  appMode: 'lakayAgo',
   setAppMode: () => {},
+  logoSrc: '/logo.jpg',
   openEmployee: () => {},
   clearOpenEmployee: () => {},
   openEmployeeId: null,
@@ -143,7 +144,7 @@ function ToastContainer({ toasts, removeToast }: { toasts: Toast[]; removeToast:
   }
 
   return (
-    <div className="fixed inset-x-3 bottom-4 z-[999] flex flex-col gap-3 sm:right-6 sm:left-auto sm:w-[22rem] sm:max-w-sm sm:bottom-6">
+    <div className="fixed inset-x-3 bottom-4 z-999 flex flex-col gap-3 sm:right-6 sm:left-auto sm:w-88 sm:max-w-sm sm:bottom-6">
       {toasts.map(t => (
         <div key={t.id} className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex items-start gap-3 p-4 toast-enter">
           <div className="mt-0.5 shrink-0">{icons[t.type]}</div>
@@ -169,13 +170,16 @@ export default function App() {
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(initialSalesRecords)
   const [expenses, setExpenses] = useState<ExpenseRecord[]>(initialExpenses)
   const [activePayrollPeriod, setActivePayrollPeriod] = useState<PayrollPeriod | null>(null)
-  const [appMode, setAppMode] = useState<'aroo' | 'lakayAgo'>('aroo')
+  const [appMode, setAppMode] = useState<'aroo' | 'lakayAgo'>('lakayAgo')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const themeToggleRef = useRef<HTMLButtonElement>(null)
+  const logoSrc = appMode === 'aroo' ? '/Aroo_Logo.jpg' : '/logo.jpg'
   const [toasts, setToasts] = useState<Toast[]>([])
   const [profileOpen, setProfileOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifMounted, setNotifMounted] = useState(false)
   const [notifVisible, setNotifVisible] = useState(false)
+  const [showModeConfirmation, setShowModeConfirmation] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [profileForm, setProfileForm] = useState({
     firstName: 'Eduardo',
@@ -187,8 +191,14 @@ export default function App() {
   })
 
   useEffect(() => {
+    const favicon = document.querySelector("link[rel='icon']") as HTMLLinkElement | null
+    const appleIcon = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement | null
+
+    if (favicon) favicon.href = logoSrc
+    if (appleIcon) appleIcon.href = logoSrc
+    document.title = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
     console.log('appMode changed:', appMode)
-  }, [appMode])
+  }, [appMode, logoSrc])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -227,6 +237,65 @@ export default function App() {
 
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
+
+  const toggleAppMode = useCallback((nextMode: 'aroo' | 'lakayAgo') => {
+    if (isMobileView) {
+      setMobileSidebarOpen(false)
+    }
+
+    if (!themeToggleRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setAppMode(nextMode)
+      setShowModeConfirmation(true)
+      return
+    }
+
+    const rect = themeToggleRef.current.getBoundingClientRect()
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    const radius = Math.hypot(
+      Math.max(x, window.innerWidth - x),
+      Math.max(y, window.innerHeight - y),
+    )
+
+    const overlay = document.createElement('div')
+    overlay.style.position = 'fixed'
+    overlay.style.inset = '0'
+    overlay.style.zIndex = '9999'
+    overlay.style.pointerEvents = 'none'
+    overlay.style.background = '#16a34a'
+    overlay.style.clipPath = `circle(0px at ${x}px ${y}px)`
+    overlay.style.opacity = '1'
+    document.body.appendChild(overlay)
+
+    setAppMode(nextMode)
+
+    const expand = overlay.animate(
+      {
+        clipPath: [
+          `circle(0px at ${x}px ${y}px)`,
+          `circle(${radius}px at ${x}px ${y}px)`,
+        ],
+      },
+      {
+        duration: isMobileView ? 800 : 1000,
+        easing: 'ease-in-out',
+        fill: 'forwards',
+      },
+    )
+
+    expand.onfinish = () => {
+      setShowModeConfirmation(true)
+
+      const fade = overlay.animate(
+        { opacity: [1, 0] },
+        { duration: isMobileView ? 500 : 800, easing: 'ease-out', fill: 'forwards' },
+      )
+
+      fade.onfinish = () => {
+        overlay.remove()
+      }
+    }
   }, [])
 
   const toggleGroup = (label: string) => {
@@ -304,10 +373,10 @@ export default function App() {
       ) : (
         <div className={`flex items-center gap-3 px-4 py-5 border-b border-slate-800 ${showLabels ? '' : 'justify-center'}`}>
           <div className="flex items-center gap-3">
-                <img src="/logo.jpg" alt="Lakay Ago" className="w-12 h-12 object-contain rounded-sm" />
+                <img src={logoSrc} alt={appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'} className="w-12 h-12 object-contain rounded-sm" />
                 <div className="flex flex-col">
                   <span className="text-base font-bold text-white leading-tight font-display">
-                    Lakay Ago
+                    {appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'}
                   </span>
                   <span className="text-xs text-slate-400 leading-tight">
                     Attendance & Payroll
@@ -322,18 +391,18 @@ export default function App() {
         {showLabels && (
           <div>
             <button
+              ref={themeToggleRef}
               type="button"
-              onClick={() => setAppMode(current => current === 'aroo' ? 'lakayAgo' : 'aroo')}
+              onClick={() => toggleAppMode(appMode === 'aroo' ? 'lakayAgo' : 'aroo')}
               className="mb-3 w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left cursor-pointer text-slate-100 bg-green-800 hover:text-white hover:bg-green-600 transition-colors"
             >
               <img
-                src={appMode === 'aroo' ? '/assets/aroo-logo.png' : './public/logo.jpg'}
+                src={logoSrc}
                 alt={appMode === 'aroo' ? 'Lakay Ago logo' : 'Aroo logo'}
                 className="w-6 h-6 object-contain rounded-sm"
-                // TODO: replace with actual logo path
               />
               <span className="text-sm font-medium font-display">
-                {appMode === 'aroo' ? 'Switch to Aroo' : 'Switch to Lakay Ago'}
+                {appMode === 'aroo' ? 'Switch to Lakay Ago' : 'Switch to Aroo'}
               </span>
             </button>
           </div>
@@ -402,13 +471,12 @@ export default function App() {
   }
 
   return (
-    <AppContext.Provider value={{ currentPage, navigate, showToast, inventoryItems, setInventoryItems, salesRecords, setSalesRecords, expenses, setExpenses, activePayrollPeriod, setActivePayrollPeriod, appMode, setAppMode, openEmployee, clearOpenEmployee, openEmployeeId }}>
-      {currentPage === 'login' ? (
-        <Login />
-      ) : (
-        <>
-          <div className="flex h-screen overflow-hidden bg-slate-50">
-            {/* Desktop Sidebar */}
+    <AppContext.Provider value={{ currentPage, navigate, showToast, inventoryItems, setInventoryItems, salesRecords, setSalesRecords, expenses, setExpenses, activePayrollPeriod, setActivePayrollPeriod, appMode, setAppMode, logoSrc, openEmployee, clearOpenEmployee, openEmployeeId }}>
+      <>
+        {currentPage === 'login' ? (
+          <Login />
+        ) : (
+          <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-800">
             {!isMobileView && (
               <aside className="flex flex-col bg-slate-900 shrink-0 transition-all duration-300 ease-in-out w-60">
                 <SidebarContent />
@@ -427,7 +495,6 @@ export default function App() {
                   aria-hidden="true"
                 />
 
-                {/* Drawer */}
                 <aside
                   className={`fixed right-0 top-0 bottom-0 z-50 w-60 bg-slate-900 flex flex-col will-change-transform transition-transform duration-300 ease-in-out ${
                     mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full'
@@ -438,10 +505,8 @@ export default function App() {
               </>
             )}
 
-            {/* Main content */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
               <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-3.5 flex items-center gap-4 shrink-0 z-30">
-                {/* Top Header */}
                 {!isMobileView ? (
                   <div>
                     <h1 className="text-base font-bold text-slate-800 leading-tight font-display">{meta.title}</h1>
@@ -456,10 +521,10 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
-                    <img src="/logo.jpg" alt="Lakay Ago" className="w-12 h-12 object-contain rounded-sm" />
+                    <img src={logoSrc} alt={appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'} className="w-12 h-12 object-contain rounded-sm" />
                     <div className="flex flex-col">
                       <span className="text-base font-bold text-slate-800 leading-tight font-display">
-                        Lakay Ago
+                        {appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'}
                       </span>
                       <span className="text-xs text-slate-500 leading-tight">
                         Attendance & Payroll System
@@ -470,7 +535,6 @@ export default function App() {
 
                 <div className="flex-1" />
                 <div className="flex items-center gap-3">
-                  {/* Notifications */}
                   <div className="relative">
                     <button
                       onClick={() => { setNotifOpen(!notifOpen); setProfileOpen(false) }}
@@ -526,156 +590,186 @@ export default function App() {
                 </div>
               </header>
 
-              {/* Page Content */}
               <main className="flex-1 overflow-y-auto">
                 {renderPage()}
               </main>
             </div>
-            
-            <Modal open={profileOpen} title="Profile" onClose={() => { 
-              setProfileOpen(false); 
-              setIsEditingProfile(false) 
-            }}>
-              <div className="flex items-start justify-between gap-3 w-full">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center">
-                    <span className="text-white text-sm font-bold font-display">EM</span>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-800">
-                      {profileForm.firstName} {profileForm.lastName}
-                    </p>
-                    <p className="text-xs text-slate-500">{profileForm.email}</p>
-                  </div>
-                </div>
-              </div>
-
-              <form className="mt-4 space-y-4" onSubmit={e => { e.preventDefault(); setIsEditingProfile(false) }}>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col text-sm">
-                    <span className="text-slate-600 mb-1">First Name</span>
-                    <input
-                      value={profileForm.firstName}
-                      onChange={e => setProfileForm(p => ({ ...p, firstName: e.target.value }))}
-                      disabled={!isEditingProfile}
-                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </label>
-
-                  <label className="flex flex-col text-sm">
-                    <span className="text-slate-600 mb-1">Last Name</span>
-                    <input
-                      value={profileForm.lastName}
-                      onChange={e => setProfileForm(p => ({ ...p, lastName: e.target.value }))}
-                      disabled={!isEditingProfile}
-                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col text-sm">
-                    <span className="text-slate-600 mb-1">Contact Number</span>
-                    <input
-                      value={profileForm.contactNumber}
-                      onChange={e => setProfileForm(p => ({ ...p, contactNumber: e.target.value }))}
-                      disabled={!isEditingProfile}
-                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="flex flex-col text-sm">
-                    <span className="text-slate-600 mb-1">Role</span>
-
-                    <select
-                      value={profileForm.role}
-                      onChange={e =>
-                        setProfileForm(p => ({ ...p, role: e.target.value }))
-                      }
-                      disabled={!isEditingProfile}
-                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                    >
-                      <option value="Super Admin">Super Admin</option>
-                      <option value="Admin">Admin</option>
-                    </select>
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col text-sm">
-                    <span className="text-slate-600 mb-1">Email</span>
-                    <input
-                      type="email"
-                      value={profileForm.email}
-                      onChange={e => setProfileForm(p => ({ ...p, email: e.target.value }))}
-                      disabled={!isEditingProfile}
-                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="flex flex-col text-sm">
-                    <span className="text-slate-600 mb-1">Password</span>
-                    <input
-                      type="password"
-                      value={profileForm.password}
-                      onChange={e => setProfileForm(p => ({ ...p, password: e.target.value }))}
-                      disabled={!isEditingProfile}
-                      className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </label>
-                </div>
-
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { navigate('login'); setProfileOpen(false); showToast({ type: 'info', message: 'Signed out' }) }}
-                      className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
-                    >
-                      Sign Out
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isEditingProfile && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProfileForm({
-                            firstName: 'Eduardo',
-                            lastName: 'Mendoza',
-                            contactNumber: '+63 912 345 6789',
-                            role: 'Super Admin',
-                            email: 'eduardo.mendoza@company.ph',
-                            password: 'secret',
-                          })
-                          setIsEditingProfile(false)
-                        }}
-                        className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingProfile(prev => !prev)}
-                      title="Toggle edit"
-                      className="rounded-md px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 shadow-sm cursor-pointer"
-                    >
-                      {isEditingProfile ? 'Save Changes' : 'Edit'}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </Modal>
-
-            <ToastContainer toasts={toasts} removeToast={removeToast} />
-
-            {/* Close dropdowns on outside click */}
-            {(profileOpen || notifOpen) && (
-              <div className="fixed inset-0 z-40" onClick={() => { setProfileOpen(false); setNotifOpen(false) }} />
-            )}
           </div>
-        </>
-      )}
+        )}
+
+        <Modal
+          open={showModeConfirmation}
+          onClose={() => setShowModeConfirmation(false)}
+        >
+          <div className="w-[min(24rem,80vw)] px-1 py-3 text-center">
+            <div className="mb-4 flex justify-center">
+              <img
+                src={logoSrc}
+                alt={appMode === 'aroo' ? 'Aroo logo' : 'Lakay Ago logo'}
+                className="h-64 w-64 min-h-16 min-w-16 rounded-lg object-contain"
+              />
+            </div>
+            <div className="mt-2">
+              <p className="text-sm font-medium text-slate-500 font-display">
+                You are now in
+              </p>
+
+              <p className="mt-1 text-2xl font-bold text-slate-800 font-display">
+                {appMode === 'aroo'
+                  ? 'Aroo Management System'
+                  : 'Lakay Ago Management System'}
+              </p>
+            </div>
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setShowModeConfirmation(false)}
+                className="w-md rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 font-display"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </Modal>
+
+        <Modal open={profileOpen} title="Profile" onClose={() => {
+          setProfileOpen(false)
+          setIsEditingProfile(false)
+        }}>
+          <div className="flex items-start justify-between gap-3 w-full">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center">
+                <span className="text-white text-sm font-bold font-display">EM</span>
+              </div>
+              <div>
+                <p className="font-semibold text-slate-800">
+                  {profileForm.firstName} {profileForm.lastName}
+                </p>
+                <p className="text-xs text-slate-500">{profileForm.email}</p>
+              </div>
+            </div>
+          </div>
+
+          <form className="mt-4 space-y-4" onSubmit={e => { e.preventDefault(); setIsEditingProfile(false) }}>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col text-sm">
+                <span className="text-slate-600 mb-1">First Name</span>
+                <input
+                  value={profileForm.firstName}
+                  onChange={e => setProfileForm(p => ({ ...p, firstName: e.target.value }))}
+                  disabled={!isEditingProfile}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="flex flex-col text-sm">
+                <span className="text-slate-600 mb-1">Last Name</span>
+                <input
+                  value={profileForm.lastName}
+                  onChange={e => setProfileForm(p => ({ ...p, lastName: e.target.value }))}
+                  disabled={!isEditingProfile}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col text-sm">
+                <span className="text-slate-600 mb-1">Contact Number</span>
+                <input
+                  value={profileForm.contactNumber}
+                  onChange={e => setProfileForm(p => ({ ...p, contactNumber: e.target.value }))}
+                  disabled={!isEditingProfile}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="flex flex-col text-sm">
+                <span className="text-slate-600 mb-1">Role</span>
+                <select
+                  value={profileForm.role}
+                  onChange={e => setProfileForm(p => ({ ...p, role: e.target.value }))}
+                  disabled={!isEditingProfile}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <option value="Super Admin">Super Admin</option>
+                  <option value="Admin">Admin</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col text-sm">
+                <span className="text-slate-600 mb-1">Email</span>
+                <input
+                  type="email"
+                  value={profileForm.email}
+                  onChange={e => setProfileForm(p => ({ ...p, email: e.target.value }))}
+                  disabled={!isEditingProfile}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="flex flex-col text-sm">
+                <span className="text-slate-600 mb-1">Password</span>
+                <input
+                  type="password"
+                  value={profileForm.password}
+                  onChange={e => setProfileForm(p => ({ ...p, password: e.target.value }))}
+                  disabled={!isEditingProfile}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { navigate('login'); setProfileOpen(false); showToast({ type: 'info', message: 'Signed out' }) }}
+                  className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
+                >
+                  Sign Out
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                {isEditingProfile && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileForm({
+                        firstName: 'Eduardo',
+                        lastName: 'Mendoza',
+                        contactNumber: '+63 912 345 6789',
+                        role: 'Super Admin',
+                        email: 'eduardo.mendoza@company.ph',
+                        password: 'secret',
+                      })
+                      setIsEditingProfile(false)
+                    }}
+                    className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsEditingProfile(prev => !prev)}
+                  title="Toggle edit"
+                  className="rounded-md px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 shadow-sm cursor-pointer"
+                >
+                  {isEditingProfile ? 'Save Changes' : 'Edit'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </Modal>
+
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
+
+        {(profileOpen || notifOpen) && (
+          <div className="fixed inset-0 z-40" onClick={() => { setProfileOpen(false); setNotifOpen(false) }} />
+        )}
+      </>
     </AppContext.Provider>
   )
 }

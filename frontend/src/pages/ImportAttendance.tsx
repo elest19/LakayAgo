@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { Upload, FileSpreadsheet, X, CheckCircle, AlertTriangle, ArrowRight, ChevronUp, ChevronDown, Edit2 } from 'lucide-react'
 import { useApp } from '../App'
 import { upsertAttendanceRecords } from '../data/mockData'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 import WorkflowStepper from '../components/WorkflowStepper'
-import { deriveAttendanceStatus, parseAttendanceReport, type FingerprintAttendanceSummary, type NormalizedAttendanceRecord } from '../utils/fingerprintAttendanceParser'
+import { AnimatePresence, motion } from 'motion/react'
+import { deriveAttendanceStatus, dispatchAttendanceReport, type FingerprintAttendanceSummary, type NormalizedAttendanceRecord } from '../utils/fingerprintAttendanceParser'
 import type { AttendanceRecord } from '../types'
 
 const buildAttendancePreview = (records: NormalizedAttendanceRecord[]): FingerprintAttendanceSummary => {
@@ -30,8 +31,9 @@ const buildAttendancePreview = (records: NormalizedAttendanceRecord[]): Fingerpr
       lateMinutes: 0,
       undertimeMinutes: 0,
       overtimeHours: record.is_weekend ? 1 : 0,
+      // Treat weekend present records as Present (so counts reflect weekend attendance as present)
       status: normalizedStatus === 'present'
-        ? (record.is_weekend ? 'Overtime' : 'Present')
+        ? 'Present'
         : normalizedStatus === 'absent'
           ? 'Absent'
           : normalizedStatus === 'incomplete'
@@ -52,7 +54,8 @@ const buildAttendancePreview = (records: NormalizedAttendanceRecord[]): Fingerpr
     employeesFound: new Set(attendanceRecords.map(record => record.employeeId)).size,
     attendanceRecords: attendanceRecords.length,
     regularAttendance: attendanceRecords.filter(record => record.status === 'Present').length,
-    weekendOvertime: attendanceRecords.filter(record => record.status === 'Overtime').length,
+    // Count weekend attendance records that are present (previously labeled Overtime)
+    weekendOvertime: attendanceRecords.filter(record => (record.day === 'SAT' || record.day === 'SUN') && record.status === 'Present').length,
     absent: attendanceRecords.filter(record => record.status === 'Absent').length,
     dateRange,
     warnings: [],
@@ -75,7 +78,7 @@ function EditAttendanceRowModal({ record, onClose, onSave }: { record: Attendanc
   return (
     <Modal open={true} title="Edit Attendance" onClose={onClose}>
       <div className="space-y-4 py-2">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="w-md grid gap-4 sm:grid-cols-2">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Employee</label>
             <input value={draft.employeeName} readOnly className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500 outline-none" />
@@ -116,8 +119,17 @@ function EditAttendanceRowModal({ record, onClose, onSave }: { record: Attendanc
 }
 
 export default function ImportAttendance() {
-  const { navigate, showToast } = useApp()
+  const { navigate, showToast, appMode } = useApp()
+  const mapWeekendStatusDisplay = (status: AttendanceRecord['status'], day?: string) => {
+    const isWeekend = day === 'SAT' || day === 'SUN'
+    // Weekend present records are stored as 'Present' now; display them as 'Present (WE)'
+    if (isWeekend && status === 'Present') return 'Present (WE)'
+    // Fallback: if any genuine 'Overtime' exists, keep showing 'Overtime'
+    return status
+  }
   const isMobile = useIsMobile()
+  const [showPreviewSection, setShowPreviewSection] = useState(true)
+  const [showIncompleteSection, setShowIncompleteSection] = useState(true)
   const [selectedRow, setSelectedRow] = useState<{ employeeId: string; employeeName: string } | null>(null)
   const [selectedDetailRecord, setSelectedDetailRecord] = useState<AttendanceRecord | null>(null)
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null)
@@ -133,6 +145,29 @@ export default function ImportAttendance() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
   const attendanceStepIndex = stage === 'upload' ? 0 : stage === 'validate' ? 1 : 2
+
+  const prevAppModeRef = useRef(appMode)
+
+  useEffect(() => {
+    if (prevAppModeRef.current !== appMode) {
+      // Only reset when switching modes while on the validation/preview step
+      if (stage === 'validate') {
+        setStage('upload')
+        setFileName('')
+        setFileSelected(false)
+        setPreview(null)
+        setErrorMessage('')
+        showToast({
+          type: 'info',
+          message: 'Import reset',
+          description: 'Switching between Aroo and Lakay Ago clears the current preview since they use different file formats.',
+        })
+      }
+    }
+
+    prevAppModeRef.current = appMode
+    // Intentionally only watch appMode — we only react to mode switches
+  }, [appMode])
 
   const employeeSummary = useMemo(() => {
     if (!preview?.records.length) return []
@@ -161,6 +196,9 @@ export default function ImportAttendance() {
       entry.count += 1
       if (record.status === 'Present') entry.present += 1
       if (record.status === 'Absent') entry.absent += 1
+      // Count weekend-present records as weekend attendance (previously counted as 'Overtime')
+      if ((record.day === 'SAT' || record.day === 'SUN') && record.status === 'Present') entry.overtime += 1
+      // Preserve counting of any genuine 'Overtime' status (if present)
       if (record.status === 'Overtime') entry.overtime += 1
       if (record.status === 'Incomplete') entry.incompleteCount += 1
 
@@ -267,9 +305,11 @@ export default function ImportAttendance() {
     setSortDirection('asc')
 
     try {
-      const parsed = await parseAttendanceReport(file)
+      const parsed = await dispatchAttendanceReport(file, appMode)
       if (!parsed.length) {
-        setErrorMessage('No valid attendance records were found in the numbered worksheets.')
+        setErrorMessage(appMode === 'aroo'
+          ? 'No valid attendance records were found in the workbook. Ensure the Att.log report sheet is present.'
+          : 'No valid attendance records were found in the numbered worksheets.')
         return
       }
 
@@ -476,110 +516,145 @@ export default function ImportAttendance() {
 
           {incompleteEmployees.length > 0 && (
             <div className="mb-5 bg-white rounded-xl border border-red-200 shadow-sm overflow-hidden">
-              <div className="px-4 py-4 border-b border-red-100 bg-red-50">
+              <div className="px-4 py-4 border-b border-red-100 bg-red-50 flex items-center justify-between">
                 <p className="flex items-center gap-2 text-sm font-semibold text-red-700 font-display">
                   <AlertTriangle size={16} className="shrink-0" />
                   Incomplete Records
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setShowIncompleteSection(s => !s)}
+                  className="px-3 py-1.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display"
+                >
+                  {showIncompleteSection ? 'Hide' : 'Show'}
+                </button>
               </div>
 
-              {isMobile ? (
-                <div className="p-3">
-                  <div className="space-y-3">
-                    {incompleteEmployees.map(employee => (
-                      <button
-                        key={employee.employeeId}
-                        type="button"
-                        onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}
-                        className="w-full rounded-xl border border-red-200 bg-red-50 p-3 text-left transition-colors hover:bg-red-100 active:bg-red-100"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-slate-700 font-display">{employee.employeeName}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">ID: {employee.employeeId}</p>
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
-                            Present: {employee.present}
-                          </span>
-                          <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">
-                            Weekend OT: {employee.overtime}
-                          </span>
-                          <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">
-                            Absent: {employee.absent}
-                          </span>
-                          <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">
-                            Incomplete: {employee.incompleteCount}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-red-100 bg-red-50">
-                        {[
-                          { key: 'id', label: 'ID' },
-                          { key: 'name', label: 'Employee' },
-                          { key: 'present', label: 'Present (Weekdays)' },
-                          { key: 'overtime', label: 'Present (Weekends)' },
-                          { key: 'absent', label: 'Absent' },
-                          { key: 'incomplete', label: 'Incomplete' },
-                        ].map(({ key, label }) => {
-                          const isActive = sortColumn === key
-                          const isAscending = isActive && sortDirection === 'asc'
-
-                          return (
-                            <th
-                              key={key}
-                              role="button"
-                              tabIndex={0}
-                              aria-sort={getAriaSortState(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')}
-                              onClick={() => handleSort(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault()
-                                  handleSort(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')
-                                }
-                              }}
-                              className="cursor-pointer select-none text-left py-2.5 px-4 text-xs font-semibold text-red-700 uppercase tracking-wide font-display hover:bg-red-100"
+              <AnimatePresence initial={false}>
+                {showIncompleteSection && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.28, ease: 'easeInOut' }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    {isMobile ? (
+                      <div className="p-3">
+                        <div className="space-y-3">
+                          {incompleteEmployees.map(employee => (
+                            <button
+                              key={employee.employeeId}
+                              type="button"
+                              onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}
+                              className="w-full rounded-xl border border-red-200 bg-red-50 p-3 text-left transition-colors hover:bg-red-100 active:bg-red-100"
                             >
-                              <span className="inline-flex items-center gap-1.5">
-                                {label}
-                                {isActive && (isAscending ? <ChevronUp size={14} className="text-red-700" /> : <ChevronDown size={14} className="text-red-700" />)}
-                              </span>
-                            </th>
-                          )
-                        })}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-red-100">
-                      {incompleteEmployees.map(employee => (
-                        <tr key={employee.employeeId} className="bg-red-50 hover:bg-red-100 cursor-pointer" onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}>
-                          <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeId}</td>
-                          <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeName}</td>
-                          <td className="py-2.5 px-4 text-sm text-emerald-700">{employee.present}</td>
-                          <td className="py-2.5 px-4 text-sm text-blue-700">{employee.overtime}</td>
-                          <td className="py-2.5 px-4 text-sm text-red-700">{employee.absent}</td>
-                          <td className="py-2.5 px-4 text-sm font-semibold text-red-700">{employee.incompleteCount}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-700 font-display">{employee.employeeName}</p>
+                                <p className="mt-0.5 text-xs text-slate-500">ID: {employee.employeeId}</p>
+                              </div>
+
+                              <div className="mt-3 flex flex-wrap justify-end gap-2">
+                                <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
+                                  Present: {employee.present}
+                                </span>
+                                <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">
+                                  Weekend OT: {employee.overtime}
+                                </span>
+                                <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">
+                                  Absent: {employee.absent}
+                                </span>
+                                <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">
+                                  Incomplete: {employee.incompleteCount}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b border-red-100 bg-red-50">
+                              {[
+                                { key: 'id', label: 'ID' },
+                                { key: 'name', label: 'Employee' },
+                                { key: 'present', label: 'Present (Weekdays)' },
+                                { key: 'overtime', label: 'Present (Weekends)' },
+                                { key: 'absent', label: 'Absent' },
+                                { key: 'incomplete', label: 'Incomplete' },
+                              ].map(({ key, label }) => {
+                                const isActive = sortColumn === key
+                                const isAscending = isActive && sortDirection === 'asc'
+
+                                return (
+                                  <th
+                                    key={key}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-sort={getAriaSortState(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')}
+                                    onClick={() => handleSort(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault()
+                                        handleSort(key as 'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete')
+                                      }
+                                    }}
+                                    className="cursor-pointer select-none text-left py-2.5 px-4 text-xs font-semibold text-red-700 uppercase tracking-wide font-display hover:bg-red-100"
+                                  >
+                                    <span className="inline-flex items-center gap-1.5">
+                                      {label}
+                                      {isActive && (isAscending ? <ChevronUp size={14} className="text-red-700" /> : <ChevronDown size={14} className="text-red-700" />)}
+                                    </span>
+                                  </th>
+                                )
+                              })}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-red-100">
+                            {incompleteEmployees.map(employee => (
+                              <tr key={employee.employeeId} className="bg-red-50 hover:bg-red-100 cursor-pointer" onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}>
+                                <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeId}</td>
+                                <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeName}</td>
+                                <td className="py-2.5 px-4 text-sm text-emerald-700">{employee.present}</td>
+                                <td className="py-2.5 px-4 text-sm text-blue-700">{employee.overtime}</td>
+                                <td className="py-2.5 px-4 text-sm text-red-700">{employee.absent}</td>
+                                <td className="py-2.5 px-4 text-sm font-semibold text-red-700">{employee.incompleteCount}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 py-4 border-b border-slate-100">
+            <div className="px-4 py-4 border-b border-slate-100 flex items-center justify-between">
               <p className="text-sm font-semibold text-slate-700 font-display">Previewed Attendance</p>
+              <button
+                type="button"
+                onClick={() => setShowPreviewSection(s => !s)}
+                className="px-3 py-1.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display"
+              >
+                {showPreviewSection ? 'Hide' : 'Show'}
+              </button>
             </div>
 
-            {isMobile ? (
+            <AnimatePresence initial={false}>
+              {showPreviewSection && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.28, ease: 'easeInOut' }}
+                  style={{ overflow: 'hidden' }}
+                >
+              {showPreviewSection && (isMobile ? (
               <div className="p-3">
                 <div className="mb-3 flex items-center gap-2">
                   <select
@@ -692,10 +767,16 @@ export default function ImportAttendance() {
                   </table>
                 )}
               </div>
-            )}
+            ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end items-center gap-3">
+            {incompleteEmployees.length > 0 && (
+              <p className="text-sm text-red-600 mr-2">Resolve incomplete records before importing</p>
+              )}
             <button onClick={() => {
               setStage('upload')
               setPreview(null)
@@ -704,7 +785,7 @@ export default function ImportAttendance() {
               setSortColumn('name')
               setSortDirection('asc')
             }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back</button>
-            <button onClick={handleImport} disabled={importing} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display disabled:opacity-70">
+            <button onClick={handleImport} disabled={importing || incompleteEmployees.length > 0} title={incompleteEmployees.length > 0 ? 'Resolve incomplete records before importing' : undefined} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display disabled:opacity-70">
               {importing ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -720,7 +801,7 @@ export default function ImportAttendance() {
 
       {selectedRow && (
         <Modal open={!!selectedRow} title={`${selectedRow.employeeName} (ID: ${selectedRow.employeeId}) — Attendance Detail`} onClose={() => setSelectedRow(null)}>
-          <div className={`${isMobile ? 'w-full max-w-6xl' : 'w-[40vw] max-w-6xl'}`}>
+          <div className={`${isMobile ? 'w-full' : 'w-[40vw] max-w-6xl'}`}>
             {selectedEmployeeRecords.length === 0 ? (
               <div className="rounded-lg border border-slate-200 p-4 text-sm text-slate-500">No attendance data for this employee.</div>
             ) : isMobile ? (
@@ -737,9 +818,26 @@ export default function ImportAttendance() {
                         <p className="text-sm font-semibold text-slate-700 font-display">{record.date}</p>
                         <p className="text-xs text-slate-500">{record.day || '—'}</p>
                       </div>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${record.status === 'Overtime' ? 'bg-blue-100 text-blue-700' : record.status === 'Absent' ? 'bg-red-100 text-red-700' : record.status === 'Incomplete' ? 'bg-amber-100 text-amber-700' : record.status === 'Rest Day' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
-                        {record.status}
-                      </span>
+                      {(() => {
+                        const isWeekendPresent = (record.day === 'SAT' || record.day === 'SUN') && record.status === 'Present'
+                        const cls = isWeekendPresent
+                          ? 'bg-violet-100 text-violet-700'
+                          : record.status === 'Overtime'
+                            ? 'bg-blue-100 text-blue-700'
+                            : record.status === 'Absent'
+                              ? 'bg-red-100 text-red-700'
+                              : record.status === 'Incomplete'
+                                ? 'bg-amber-100 text-amber-700'
+                                : record.status === 'Rest Day'
+                                  ? 'bg-slate-100 text-slate-600'
+                                  : 'bg-emerald-100 text-emerald-700'
+
+                        return (
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${cls}`}>
+                            {mapWeekendStatusDisplay(record.status, record.day)}
+                          </span>
+                        )
+                      })()}
                     </div>
                   </button>
                 ))}
@@ -763,9 +861,22 @@ export default function ImportAttendance() {
                         <td className="py-2.5 px-3 text-sm text-slate-600">{record.date}</td>
                         <td className="py-2.5 px-3 text-sm text-slate-600">{record.day || '—'}</td>
                         <td className="py-2.5 px-3">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium font-display ${record.status === 'Overtime' ? 'bg-blue-100 text-blue-700' : record.status === 'Absent' ? 'bg-red-100 text-red-700' : record.status === 'Incomplete' ? 'bg-amber-100 text-amber-700' : record.status === 'Rest Day' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {record.status}
-                          </span>
+                          {(() => {
+                            const isWeekendPresent = (record.day === 'SAT' || record.day === 'SUN') && record.status === 'Present'
+                            const cls = isWeekendPresent
+                              ? 'bg-violet-100 text-violet-700'
+                              : record.status === 'Overtime'
+                                ? 'bg-blue-100 text-blue-700'
+                                : record.status === 'Absent'
+                                  ? 'bg-red-100 text-red-700'
+                                  : record.status === 'Incomplete'
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : record.status === 'Rest Day'
+                                      ? 'bg-slate-100 text-slate-600'
+                                      : 'bg-emerald-100 text-emerald-700'
+
+                            return <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium font-display ${cls}`}>{mapWeekendStatusDisplay(record.status, record.day)}</span>
+                          })()}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-xs text-slate-600">{record.firstOnDuty ?? record.timeIn ?? '—'}</td>
                         <td className="py-2.5 px-3 font-mono text-xs text-slate-600">{record.firstOffDuty ?? record.timeOut ?? '—'}</td>
@@ -804,9 +915,22 @@ export default function ImportAttendance() {
               <div className="border-b border-slate-100 py-3">
                 <p className="text-xs text-slate-400 font-display">Status</p>
                 <div className="mt-1">
-                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${selectedDetailRecord.status === 'Overtime' ? 'bg-blue-100 text-blue-700' : selectedDetailRecord.status === 'Absent' ? 'bg-red-100 text-red-700' : selectedDetailRecord.status === 'Incomplete' ? 'bg-amber-100 text-amber-700' : selectedDetailRecord.status === 'Rest Day' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
-                    {selectedDetailRecord.status}
-                  </span>
+                  {(() => {
+                    const isWeekendPresent = (selectedDetailRecord.day === 'SAT' || selectedDetailRecord.day === 'SUN') && selectedDetailRecord.status === 'Present'
+                    const cls = isWeekendPresent
+                      ? 'bg-violet-100 text-violet-700'
+                      : selectedDetailRecord.status === 'Overtime'
+                        ? 'bg-blue-100 text-blue-700'
+                        : selectedDetailRecord.status === 'Absent'
+                          ? 'bg-red-100 text-red-700'
+                          : selectedDetailRecord.status === 'Incomplete'
+                            ? 'bg-amber-100 text-amber-700'
+                            : selectedDetailRecord.status === 'Rest Day'
+                              ? 'bg-slate-100 text-slate-600'
+                              : 'bg-emerald-100 text-emerald-700'
+
+                    return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${cls}`}>{mapWeekendStatusDisplay(selectedDetailRecord.status, selectedDetailRecord.day)}</span>
+                  })()}
                 </div>
               </div>
               <div className="border-b border-slate-100 py-3">
