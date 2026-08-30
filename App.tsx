@@ -267,7 +267,6 @@ export default function App() {
     if (favicon) favicon.href = logoSrc
     if (appleIcon) appleIcon.href = logoSrc
     document.title = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
-    console.log('appMode changed:', appMode)
   }, [appMode, logoSrc])
 
   useEffect(() => {
