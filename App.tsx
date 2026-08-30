@@ -517,63 +517,82 @@ export default function App() {
   }, [inventoryItems, kitchenStock, showToast])
 
   const toggleAppMode = useCallback((nextMode: 'aroo' | 'lakayAgo') => {
-    if (isMobileView) {
-      setMobileSidebarOpen(false)
-    }
+  if (isMobileView) {
+    setMobileSidebarOpen(false)
+  }
 
-    if (!themeToggleRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setAppMode(nextMode)
-      setShowModeConfirmation(true)
-      return
-    }
-
-    const rect = themeToggleRef.current.getBoundingClientRect()
-    const x = rect.left + rect.width / 2
-    const y = rect.top + rect.height / 2
-    const radius = Math.hypot(
-      Math.max(x, window.innerWidth - x),
-      Math.max(y, window.innerHeight - y),
-    )
-
-    const overlay = document.createElement('div')
-    overlay.style.position = 'fixed'
-    overlay.style.inset = '0'
-    overlay.style.zIndex = '9999'
-    overlay.style.pointerEvents = 'none'
-    overlay.style.background = '#16a34a'
-    overlay.style.clipPath = `circle(0px at ${x}px ${y}px)`
-    overlay.style.opacity = '1'
-    document.body.appendChild(overlay)
-
+  // Respect reduced-motion preference
+  if (
+    !themeToggleRef.current ||
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) {
     setAppMode(nextMode)
+    setShowModeConfirmation(true)
+    return
+  }
 
-    const expand = overlay.animate(
+  const rect = themeToggleRef.current.getBoundingClientRect()
+
+  const x = rect.left + rect.width / 2
+  const y = rect.top + rect.height / 2
+
+  const radius = Math.hypot(
+    Math.max(x, window.innerWidth - x),
+    Math.max(y, window.innerHeight - y)
+  )
+
+  // Create the transition overlay
+  const overlay = document.createElement('div')
+
+  Object.assign(overlay.style, {
+    position: 'fixed',
+    inset: '0',
+    zIndex: '99999',
+    pointerEvents: 'none',
+    background: '#16a34a',
+    clipPath: `circle(0px at ${x}px ${y}px)`,
+    willChange: 'clip-path, opacity',
+  })
+
+  document.body.appendChild(overlay)
+
+  // Start the new theme underneath the overlay
+  setAppMode(nextMode)
+
+  // Expand the green circle
+  const expand = overlay.animate(
+    {
+      clipPath: [
+        `circle(0px at ${x}px ${y}px)`,
+        `circle(${radius}px at ${x}px ${y}px)`,
+      ],
+    },
+    {
+      duration: isMobileView ? 800 : 1000,
+      easing: 'ease-in-out',
+      fill: 'forwards',
+    }
+  )
+
+  expand.onfinish = () => {
+    setShowModeConfirmation(true)
+
+    const fade = overlay.animate(
       {
-        clipPath: [
-          `circle(0px at ${x}px ${y}px)`,
-          `circle(${radius}px at ${x}px ${y}px)`,
-        ],
+        opacity: [1, 0],
       },
       {
-        duration: isMobileView ? 800 : 1000,
-        easing: 'ease-in-out',
+        duration: isMobileView ? 500 : 800,
+        easing: 'ease-out',
         fill: 'forwards',
-      },
+      }
     )
 
-    expand.onfinish = () => {
-      setShowModeConfirmation(true)
-
-      const fade = overlay.animate(
-        { opacity: [1, 0] },
-        { duration: isMobileView ? 500 : 800, easing: 'ease-out', fill: 'forwards' },
-      )
-
-      fade.onfinish = () => {
-        overlay.remove()
-      }
+    fade.onfinish = () => {
+      overlay.remove()
     }
-  }, [])
+  }
+}, [isMobileView])
 
   const toggleGroup = (label: string) => {
     setExpandedGroups(prev => {
