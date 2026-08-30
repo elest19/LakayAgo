@@ -517,82 +517,173 @@ export default function App() {
   }, [inventoryItems, kitchenStock, showToast])
 
   const toggleAppMode = useCallback((nextMode: 'aroo' | 'lakayAgo') => {
-  if (isMobileView) {
-    setMobileSidebarOpen(false)
-  }
-
-  // Respect reduced-motion preference
-  if (
-    !themeToggleRef.current ||
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  ) {
-    setAppMode(nextMode)
-    setShowModeConfirmation(true)
-    return
-  }
-
-  const rect = themeToggleRef.current.getBoundingClientRect()
-
-  const x = rect.left + rect.width / 2
-  const y = rect.top + rect.height / 2
-
-  const radius = Math.hypot(
-    Math.max(x, window.innerWidth - x),
-    Math.max(y, window.innerHeight - y)
-  )
-
-  // Create the transition overlay
-  const overlay = document.createElement('div')
-
-  Object.assign(overlay.style, {
-    position: 'fixed',
-    inset: '0',
-    zIndex: '99999',
-    pointerEvents: 'none',
-    background: '#16a34a',
-    clipPath: `circle(0px at ${x}px ${y}px)`,
-    willChange: 'clip-path, opacity',
-  })
-
-  document.body.appendChild(overlay)
-
-  // Start the new theme underneath the overlay
-  setAppMode(nextMode)
-
-  // Expand the green circle
-  const expand = overlay.animate(
-    {
-      clipPath: [
-        `circle(0px at ${x}px ${y}px)`,
-        `circle(${radius}px at ${x}px ${y}px)`,
-      ],
-    },
-    {
-      duration: isMobileView ? 800 : 1000,
-      easing: 'ease-in-out',
-      fill: 'forwards',
+    if (isMobileView) {
+      setMobileSidebarOpen(false)
     }
-  )
 
-  expand.onfinish = () => {
-    setShowModeConfirmation(true)
+    // Respect reduced-motion preferences
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setAppMode(nextMode)
+      setShowModeConfirmation(true)
+      return
+    }
 
-    const fade = overlay.animate(
+    const button = themeToggleRef.current
+
+    if (!button) {
+      setAppMode(nextMode)
+      setShowModeConfirmation(true)
+      return
+    }
+
+    const rect = button.getBoundingClientRect()
+
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+
+    const radius = Math.hypot(
+      Math.max(x, window.innerWidth - x),
+      Math.max(y, window.innerHeight - y)
+    )
+
+    /*
+    * Firefox has noticeably different rendering performance for
+    * full-screen clip-path animations.
+    *
+    * Use a transform-based circular overlay in Firefox.
+    * Chrome/Edge/Brave keep the original clip-path animation.
+    */
+    const isFirefox = /firefox/i.test(navigator.userAgent)
+
+    const overlay = document.createElement('div')
+
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      left: '0',
+      top: '0',
+      width: '1px',
+      height: '1px',
+      zIndex: '99999',
+      pointerEvents: 'none',
+      background: '#16a34a',
+      willChange: isFirefox ? 'transform, opacity' : 'clip-path, opacity',
+    })
+
+    /*
+    * Firefox fallback:
+    *
+    * Create a huge circle centered on the switch button and
+    * scale it from almost nothing to a size that covers the
+    * entire viewport.
+    */
+    if (isFirefox) {
+      overlay.style.left = `${x}px`
+      overlay.style.top = `${y}px`
+
+      const circleSize = radius * 2
+
+      overlay.style.width = `${circleSize}px`
+      overlay.style.height = `${circleSize}px`
+      overlay.style.borderRadius = '50%'
+      overlay.style.transform = 'translate(-50%, -50%) scale(0)'
+      overlay.style.transformOrigin = 'center center'
+
+      document.body.appendChild(overlay)
+
+      const expand = overlay.animate(
+        {
+          transform: [
+            'translate(-50%, -50%) scale(0)',
+            'translate(-50%, -50%) scale(1)',
+          ],
+        },
+        {
+          duration: isMobileView ? 800 : 1000,
+          easing: 'ease-in-out',
+          fill: 'forwards',
+        }
+      )
+
+      expand.onfinish = () => {
+        setAppMode(nextMode)
+        setShowModeConfirmation(true)
+
+        /*
+        * Wait for React to render the new theme before
+        * removing the overlay.
+        */
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const fade = overlay.animate(
+              {
+                opacity: [1, 0],
+              },
+              {
+                duration: isMobileView ? 500 : 800,
+                easing: 'ease-out',
+                fill: 'forwards',
+              }
+            )
+
+            fade.onfinish = () => {
+              overlay.remove()
+            }
+          })
+        })
+      }
+
+      return
+    }
+
+    /*
+    * Chromium / other browsers:
+    * Keep the original clip-path circle animation.
+    */
+    Object.assign(overlay.style, {
+      inset: '0',
+      width: '',
+      height: '',
+      background: '#16a34a',
+      clipPath: `circle(0px at ${x}px ${y}px)`,
+    })
+
+    document.body.appendChild(overlay)
+
+    setAppMode(nextMode)
+
+    const expand = overlay.animate(
       {
-        opacity: [1, 0],
+        clipPath: [
+          `circle(0px at ${x}px ${y}px)`,
+          `circle(${radius}px at ${x}px ${y}px)`,
+        ],
       },
       {
-        duration: isMobileView ? 500 : 800,
-        easing: 'ease-out',
+        duration: isMobileView ? 800 : 1000,
+        easing: 'ease-in-out',
         fill: 'forwards',
       }
     )
 
-    fade.onfinish = () => {
-      overlay.remove()
+    expand.onfinish = () => {
+      setShowModeConfirmation(true)
+
+      const fade = overlay.animate(
+        {
+          opacity: [1, 0],
+        },
+        {
+          duration: isMobileView ? 500 : 800,
+          easing: 'ease-out',
+          fill: 'forwards',
+        }
+      )
+
+      fade.onfinish = () => {
+        overlay.remove()
+      }
     }
-  }
-}, [isMobileView])
+  }, [isMobileView])
 
   const toggleGroup = (label: string) => {
     setExpandedGroups(prev => {
