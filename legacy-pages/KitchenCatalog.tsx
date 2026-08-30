@@ -1,0 +1,622 @@
+'use client'
+import { useMemo, useState } from 'react'
+import { Search, Pencil, Plus, Trash2 } from 'lucide-react'
+import { useApp } from '../App'
+import Modal from '../components/Modal'
+import useIsMobile from '../hooks/isMobile'
+import type { KitchenItem } from '../types'
+
+interface KitchenFormState {
+  itemName: string
+  department: string
+  stock: string
+}
+
+const emptyForm: KitchenFormState = {
+  itemName: '',
+  department: 'Kitchen',
+  stock: '',
+}
+
+const getValidationErrors = (form: KitchenFormState) => {
+  const errors: Partial<Record<keyof KitchenFormState, string>> = {}
+  const itemName = form.itemName.trim()
+
+  if (!itemName) {
+    errors.itemName = 'Item name is required.'
+  }
+
+  if (form.stock === '' || form.stock.trim() === '') {
+    errors.stock = 'Stock is required.'
+  } else {
+    const parsed = Number(form.stock)
+    if (Number.isNaN(parsed) || parsed < 0) {
+      errors.stock = 'Stock must be a valid non-negative number.'
+    }
+  }
+
+  return errors
+}
+
+interface TransferFormState {
+  itemName: string
+  department: string
+  quantity: string
+}
+
+const emptyTransferForm: TransferFormState = {
+  itemName: '',
+  department: 'Production',
+  quantity: '',
+}
+
+const getTransferValidationErrors = (form: TransferFormState) => {
+  const errors: Partial<Record<keyof TransferFormState, string>> = {}
+  const itemName = form.itemName.trim()
+
+  if (!itemName) {
+    errors.itemName = 'Item name is required.'
+  }
+
+  if (form.quantity === '' || form.quantity.trim() === '') {
+    errors.quantity = 'Quantity is required.'
+  } else {
+    const parsed = Number(form.quantity)
+    if (Number.isNaN(parsed) || parsed <= 0) {
+      errors.quantity = 'Quantity must be a valid positive number.'
+    }
+  }
+
+  return errors
+}
+
+export default function KitchenCatalog() {
+  const { productionStock, kitchenStock, setKitchenStock, transferToKitchen, kitchenSelfProduce, showToast } = useApp()
+  const isMobile = useIsMobile()
+  const [search, setSearch] = useState('')
+  const [selectedItem, setSelectedItem] = useState<KitchenItem | null>(null)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [showTransferModal, setShowTransferModal] = useState(false)
+  const [showSelfProduceModal, setShowSelfProduceModal] = useState(false)
+  const [editingItem, setEditingItem] = useState<KitchenItem | null>(null)
+  const [form, setForm] = useState<KitchenFormState>(emptyForm)
+  const [formErrors, setFormErrors] = useState<Partial<Record<keyof KitchenFormState, string>>>({})
+  const [previewItem, setPreviewItem] = useState<KitchenFormState | null>(null)
+  const [deleteItemTarget, setDeleteItemTarget] = useState<KitchenItem | null>(null)
+  const [transferForm, setTransferForm] = useState<TransferFormState>(emptyTransferForm)
+  const [transferErrors, setTransferErrors] = useState<Partial<Record<keyof TransferFormState, string>>>({})
+  const [transferPreview, setTransferPreview] = useState<TransferFormState | null>(null)
+  const [selfProduceForm, setSelfProduceForm] = useState<TransferFormState>(emptyTransferForm)
+  const [selfProduceErrors, setSelfProduceErrors] = useState<Partial<Record<keyof TransferFormState, string>>>({})
+  const [selfProducePreview, setSelfProducePreview] = useState<TransferFormState | null>(null)
+
+  const filteredItems = useMemo(
+    () => kitchenStock.filter(item => item.itemName.toLowerCase().includes(search.toLowerCase())),
+    [kitchenStock, search],
+  )
+
+  const resetForm = () => {
+    setForm(emptyForm)
+    setFormErrors({})
+    setPreviewItem(null)
+    setEditingItem(null)
+  }
+
+  const openCreate = () => {
+    resetForm()
+    setForm(prev => ({ ...prev, department: 'Kitchen' }))
+    setShowAddModal(true)
+  }
+
+  const openEdit = (item: KitchenItem) => {
+    setEditingItem(item)
+    setForm({
+      itemName: item.itemName,
+      department: item.department,
+      stock: String(item.stock),
+    })
+    setFormErrors({})
+    setPreviewItem(null)
+    setShowAddModal(true)
+  }
+
+  const handleProceed = () => {
+    const nextErrors = getValidationErrors(form)
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors)
+      return
+    }
+
+    setPreviewItem({
+      itemName: form.itemName.trim(),
+      department: form.department.trim(),
+      stock: form.stock,
+    })
+  }
+
+  const handleConfirm = () => {
+    if (!previewItem) {
+      showToast({ type: 'error', message: 'Unable to save kitchen item', description: 'The preview data is missing.' })
+      return
+    }
+
+    const parsedStock = Number(previewItem.stock)
+    if (Number.isNaN(parsedStock) || parsedStock < 0) {
+      showToast({ type: 'error', message: 'Invalid stock value', description: 'Please enter a valid non-negative stock value.' })
+      return
+    }
+
+    if (editingItem) {
+      const updatedItem: KitchenItem = {
+        ...editingItem,
+        itemName: previewItem.itemName,
+        department: previewItem.department,
+        stock: parsedStock,
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'Admin',
+      }
+
+      setKitchenStock(prev => prev.map(item => (item.id === editingItem.id ? updatedItem : item)))
+      showToast({ type: 'success', message: 'Kitchen item updated', description: `${updatedItem.itemName} has been updated.` })
+    } else {
+      const newItem: KitchenItem = {
+        id: `KIT-${Date.now()}`,
+        itemName: previewItem.itemName,
+        department: previewItem.department,
+        stock: parsedStock,
+        createdAt: new Date().toISOString(),
+        createdBy: 'Admin',
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'Admin',
+      }
+
+      setKitchenStock(prev => [newItem, ...prev])
+      showToast({ type: 'success', message: 'Kitchen item added', description: `${newItem.itemName} is now in kitchen inventory.` })
+    }
+
+    setShowAddModal(false)
+    setPreviewItem(null)
+    resetForm()
+  }
+
+  const handleTransferProceed = () => {
+    const nextErrors = getTransferValidationErrors(transferForm)
+    if (Object.keys(nextErrors).length > 0) {
+      setTransferErrors(nextErrors)
+      return
+    }
+
+    setTransferPreview({ ...transferForm })
+  }
+
+  const handleTransferConfirm = () => {
+    if (!transferPreview) {
+      showToast({ type: 'error', message: 'Transfer preview missing', description: 'Please review the transfer details before confirming.' })
+      return
+    }
+
+    const success = transferToKitchen(transferPreview.itemName, Number(transferPreview.quantity), 'Production')
+    if (success) {
+      setShowTransferModal(false)
+      setTransferPreview(null)
+      setTransferForm(emptyTransferForm)
+      setTransferErrors({})
+    }
+  }
+
+  const handleSelfProduceProceed = () => {
+    const nextErrors = getTransferValidationErrors(selfProduceForm)
+    if (Object.keys(nextErrors).length > 0) {
+      setSelfProduceErrors(nextErrors)
+      return
+    }
+
+    setSelfProducePreview({ ...selfProduceForm })
+  }
+
+  const handleSelfProduceConfirm = () => {
+    if (!selfProducePreview) {
+      showToast({ type: 'error', message: 'Production preview missing', description: 'Please review the self-production details before confirming.' })
+      return
+    }
+
+    const success = kitchenSelfProduce(selfProducePreview.itemName, Number(selfProducePreview.quantity), selfProducePreview.department)
+    if (success) {
+      setShowSelfProduceModal(false)
+      setSelfProducePreview(null)
+      setSelfProduceForm(emptyTransferForm)
+      setSelfProduceErrors({})
+    }
+  }
+
+  const renderTable = () => (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+        <h3 className="text-sm font-semibold text-slate-700 font-display">Kitchen Inventory</h3>
+      </div>
+      {!isMobile ? (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                {['Item Name', 'Department', 'Stock', 'Created_At', 'Created_By', 'Updated_At', 'Updated_By'].map(column => (
+                  <th key={column} className="text-center py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {filteredItems.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">No kitchen items found.</td>
+                </tr>
+              ) : (
+                filteredItems.map(item => (
+                  <tr
+                    key={item.id}
+                    className="hover:bg-slate-50 group cursor-pointer"
+                    onClick={() => setSelectedItem(item)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedItem(item)
+                      }
+                    }}
+                  >
+                    <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.itemName}</td>
+                    <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.department}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{item.stock}</td>
+                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(item.createdAt).toLocaleDateString()}</td>
+                    <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.createdBy}</td>
+                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(item.updatedAt).toLocaleDateString()}</td>
+                    <td className="py-3 px-4 text-sm text-slate-600 text-center">{item.updatedBy}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="flex flex-col">
+          {filteredItems.length === 0 ? (
+            <div className="p-4 text-sm text-slate-400">No kitchen items found.</div>
+          ) : (
+            filteredItems.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setSelectedItem(item)}
+                className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3"
+              >
+                <div>
+                  <div className="text-sm font-semibold text-slate-700 font-display">{item.itemName}</div>
+                  <div className="text-xs text-slate-400">{item.department}</div>
+                </div>
+                <div className="text-sm font-mono text-slate-700">{item.stock}</div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800 font-display">Kitchen Catalog</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Manage kitchen items and stock movement</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setShowTransferModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
+            Transfer from Production
+          </button>
+          <button type="button" onClick={openCreate} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
+            <Plus size={16} /> Self-produce / Add Item
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 shadow-sm">
+        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+          <Search size={14} className="text-slate-400 shrink-0" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search kitchen item..."
+            className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400"
+          />
+        </div>
+      </div>
+
+      {renderTable()}
+
+      <Modal open={showAddModal} title={editingItem ? 'Edit Kitchen Item' : 'Add Kitchen Item'} onClose={() => { setShowAddModal(false); resetForm(); }}>
+        <div className="space-y-4 w-full">
+          <div className="w-md">
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Item Name</label>
+            <input
+              value={form.itemName}
+              onChange={e => setForm(prev => ({ ...prev, itemName: e.target.value }))}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              placeholder="Enter item name"
+            />
+            {formErrors.itemName && <p className="mt-1 text-xs text-red-600">{formErrors.itemName}</p>}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Department</label>
+            <input
+              value={form.department}
+              readOnly
+              disabled
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none bg-slate-50 text-slate-600 cursor-not-allowed"
+            />
+            {formErrors.department && <p className="mt-1 text-xs text-red-600">{formErrors.department}</p>}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Stock</label>
+            <input
+              value={form.stock}
+              onChange={e => {
+                const value = e.target.value
+                if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                  setForm(prev => ({ ...prev, stock: value }))
+                }
+              }}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              placeholder="0"
+              inputMode="decimal"
+            />
+            {formErrors.stock && <p className="mt-1 text-xs text-red-600">{formErrors.stock}</p>}
+          </div>
+
+          {!previewItem ? (
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => { setShowAddModal(false); resetForm(); }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button type="button" onClick={handleProceed} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Proceed</button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-500">Please confirm the kitchen item before continuing.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 p-3">
+                  <p className="text-xs text-slate-500">Item</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{previewItem.itemName}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-3">
+                  <p className="text-xs text-slate-500">Department</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{previewItem.department}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-3 sm:col-span-2">
+                  <p className="text-xs text-slate-500">Stock</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{Number(previewItem.stock)}</p>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button type="button" onClick={() => setPreviewItem(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back</button>
+                <button type="button" onClick={handleConfirm} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">{editingItem ? 'Confirm Update' : 'Add Item'}</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal open={showTransferModal} title="Transfer from Production" onClose={() => { setShowTransferModal(false); setTransferPreview(null); setTransferForm(emptyTransferForm); setTransferErrors({}) }}>
+        {!transferPreview ? (
+          <div className="space-y-4 w-full">
+            <div className="w-md">
+              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Item Name</label>
+              <select
+                value={transferForm.itemName}
+                onChange={e => setTransferForm(prev => ({ ...prev, itemName: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              >
+                <option value="">Select item from Production Catalog</option>
+                {productionStock.map(item => (
+                  <option key={item.id} value={item.itemName}>{item.itemName}</option>
+                ))}
+              </select>
+              {transferErrors.itemName && <p className="mt-1 text-xs text-red-600">{transferErrors.itemName}</p>}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Department</label>
+              <input
+                value={transferForm.department}
+                readOnly
+                disabled
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none bg-slate-50 text-slate-600 cursor-not-allowed"
+              />
+              {transferErrors.department && <p className="mt-1 text-xs text-red-600">{transferErrors.department}</p>}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Quantity</label>
+              <input
+                value={transferForm.quantity}
+                onChange={e => {
+                  const value = e.target.value
+                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                    setTransferForm(prev => ({ ...prev, quantity: value }))
+                  }
+                }}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                placeholder="0"
+                inputMode="decimal"
+              />
+              {transferErrors.quantity && <p className="mt-1 text-xs text-red-600">{transferErrors.quantity}</p>}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => { setShowTransferModal(false); setTransferForm(emptyTransferForm); setTransferErrors({}) }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button type="button" onClick={handleTransferProceed} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Proceed</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 w-full">
+            <p className="text-sm text-slate-500">Please confirm the transfer before continuing.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 p-3">
+                <p className="text-xs text-slate-500">Item</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{transferPreview.itemName}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3">
+                <p className="text-xs text-slate-500">Department</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{transferPreview.department}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 sm:col-span-2">
+                <p className="text-xs text-slate-500">Quantity</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{transferPreview.quantity}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => setTransferPreview(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back</button>
+              <button type="button" onClick={handleTransferConfirm} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Confirm Transfer</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={showSelfProduceModal} title="Self-produce" onClose={() => { setShowSelfProduceModal(false); setSelfProducePreview(null); setSelfProduceForm(emptyTransferForm); setSelfProduceErrors({}) }}>
+        {!selfProducePreview ? (
+          <div className="space-y-4 w-full">
+            <div className="w-md">
+              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Item Name</label>
+              <input
+                value={selfProduceForm.itemName}
+                onChange={e => setSelfProduceForm(prev => ({ ...prev, itemName: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                placeholder="Enter item name"
+              />
+              {selfProduceErrors.itemName && <p className="mt-1 text-xs text-red-600">{selfProduceErrors.itemName}</p>}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Department</label>
+              <input
+                value={selfProduceForm.department}
+                readOnly
+                disabled
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none bg-slate-50 text-slate-600 cursor-not-allowed"
+              />
+              {selfProduceErrors.department && <p className="mt-1 text-xs text-red-600">{selfProduceErrors.department}</p>}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Quantity</label>
+              <input
+                value={selfProduceForm.quantity}
+                onChange={e => {
+                  const value = e.target.value
+                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                    setSelfProduceForm(prev => ({ ...prev, quantity: value }))
+                  }
+                }}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                placeholder="0"
+                inputMode="decimal"
+              />
+              {selfProduceErrors.quantity && <p className="mt-1 text-xs text-red-600">{selfProduceErrors.quantity}</p>}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => { setShowSelfProduceModal(false); setSelfProduceForm(emptyTransferForm); setSelfProduceErrors({}) }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button type="button" onClick={handleSelfProduceProceed} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Proceed</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 w-full">
+            <p className="text-sm text-slate-500">Please confirm the self-production entry before continuing.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 p-3">
+                <p className="text-xs text-slate-500">Item</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{selfProducePreview.itemName}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3">
+                <p className="text-xs text-slate-500">Department</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{selfProducePreview.department}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 sm:col-span-2">
+                <p className="text-xs text-slate-500">Quantity</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{selfProducePreview.quantity}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => setSelfProducePreview(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back</button>
+              <button type="button" onClick={handleSelfProduceConfirm} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Confirm Self-produce</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {deleteItemTarget && (
+        <Modal open={!!deleteItemTarget} title="Confirm deletion" onClose={() => setDeleteItemTarget(null)}>
+          <div className="w-full p-2">
+            <p className="text-sm text-slate-600 mb-4">
+              Are you sure you want to delete <span className="font-semibold text-slate-700">{deleteItemTarget.itemName}</span>?
+            </p>
+            <p className="text-xs text-slate-500 mb-5">This action cannot be undone.</p>
+            <div className="flex gap-3 justify-end">
+              <button type="button" onClick={() => setDeleteItemTarget(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const item = deleteItemTarget
+                  setKitchenStock(prev => prev.filter(entry => entry.id !== item.id))
+                  showToast({ type: 'success', message: 'Kitchen item deleted', description: `${item.itemName} was removed from kitchen inventory.` })
+                  setDeleteItemTarget(null)
+                }}
+                className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {selectedItem && (
+        <Modal open={!!selectedItem} title={selectedItem.itemName} onClose={() => setSelectedItem(null)}>
+          <div className="space-y-3 w-full max-w-md">
+            <div className="grid grid-cols-2 gap-3 w-md">
+              <div>
+                <p className="text-xs text-slate-400">Department</p>
+                <p className="text-sm font-medium">{selectedItem.department}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Stock</p>
+                <p className="text-sm font-medium">{selectedItem.stock}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Created</p>
+                <p className="text-sm font-medium">{new Date(selectedItem.createdAt).toLocaleDateString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Updated</p>
+                <p className="text-sm font-medium">{new Date(selectedItem.updatedAt).toLocaleDateString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Created By</p>
+                <p className="text-sm font-medium">{selectedItem.createdBy}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Updated By</p>
+                <p className="text-sm font-medium">{selectedItem.updatedBy}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => { setSelectedItem(null); openEdit(selectedItem) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
+              <button type="button" onClick={() => { setSelectedItem(null); setDeleteItemTarget(selectedItem) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Delete</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
