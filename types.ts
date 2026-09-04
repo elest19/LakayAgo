@@ -7,6 +7,7 @@ export type Page =
   | 'import-history'
   | 'payroll-periods'
   | 'payroll-history'
+  | 'cash-advance'
   | 'process-payroll'
   | 'payslips'
   | 'leave-management'
@@ -22,27 +23,18 @@ export type Page =
 
 export interface Employee {
   id: string
-  firstName: string
-  lastName: string
-  middleName: string
-  sex: 'Male' | 'Female'
+  source_employee_id: string
+  name: string
   department: string
-  position: string
-  employmentType: 'Full-Time' | 'Part-Time' | 'Contractual'
-  basicSalary: number
+  restaurant: string
+  pay_per_day: number
   status: 'Active' | 'Inactive' | 'On Leave'
-  dateHired: string
   email: string
   contactNumber: string
-  address: string
-  dateOfBirth: string
-  salaryType: 'Monthly' | 'Bi-Monthly' | 'Daily'
-  allowance: number
-  paymentMethod: string
-  supervisor: string
   sss?: number
-  philHealth?: number
+  philhealth?: number
   pagibig?: number
+  month_pay_13th?: number
 }
 
 export interface AttendanceRecord {
@@ -63,21 +55,20 @@ export interface AttendanceRecord {
   lateMinutes: number
   undertimeMinutes: number
   overtimeHours: number
+  overtimeMinutes: number
   status: 'Present' | 'Absent' | 'Leave' | 'Rest Day' | 'Holiday' | 'Incomplete' | 'Overtime'
 }
 
 export interface PayrollPeriod {
-  id: string
-  label: string
-  startDate: string
-  endDate: string
-  payDate: string
-  payrollType: 'Semi-Monthly' | 'Monthly' | 'Bi-Weekly' | 'Weekly'
-  employees: number
-  attendanceStatus: string
-  grossPayroll: number
-  deductions: number
-  netPayroll: number
+  id?: number
+  period_id?: number
+  report_period_id: number
+  period_start: string
+  period_end: string
+  tabulation_date: string
+  source_file: string | null
+  created_at: string
+  restaurant: string
   status:
     | 'Pending'
     | 'Attendance Imported'
@@ -245,6 +236,13 @@ export interface AppContextType {
   appMode: 'aroo' | 'lakayAgo'
   setAppMode: React.Dispatch<React.SetStateAction<'aroo' | 'lakayAgo'>>
   logoSrc: string
+
+  // auth
+  user?: any | null
+  setUser?: React.Dispatch<React.SetStateAction<any | null>>
+  authLoading?: boolean
+  logout?: () => Promise<void>
+  apiFetch?: typeof fetch
 
   // new
   openEmployee?: (id: string) => void

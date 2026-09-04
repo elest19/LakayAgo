@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { Upload, FileSpreadsheet, X, CheckCircle, AlertTriangle, ArrowRight, ChevronUp, ChevronDown, Edit2 } from 'lucide-react'
 import { useApp } from '../App'
-import { upsertAttendanceRecords } from '../data/mockData'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 import WorkflowStepper from '../components/WorkflowStepper'
@@ -32,15 +31,16 @@ const buildAttendancePreview = (records: NormalizedAttendanceRecord[]): Fingerpr
       lateMinutes: 0,
       undertimeMinutes: 0,
       overtimeHours: record.is_weekend ? 1 : 0,
-      // Treat weekend present records as Present (so counts reflect weekend attendance as present)
-      status: normalizedStatus === 'present'
-        ? 'Present'
-        : normalizedStatus === 'absent'
-          ? 'Absent'
-          : normalizedStatus === 'incomplete'
-            ? 'Incomplete'
-            : record.is_weekend
-              ? 'Rest Day'
+      overtimeMinutes: 0,
+      // Treat weekend days as Rest Day (do not count as Present)
+      status: record.is_weekend
+        ? 'Rest Day'
+        : normalizedStatus === 'present'
+          ? 'Present'
+          : normalizedStatus === 'absent'
+            ? 'Absent'
+            : normalizedStatus === 'incomplete'
+              ? 'Incomplete'
               : 'Absent',
     }
   })
@@ -68,6 +68,7 @@ const buildAttendancePreview = (records: NormalizedAttendanceRecord[]): Fingerpr
 type Stage = 'upload' | 'validate' | 'success'
 
 const attendanceImportSteps = [
+  { id: 'select-payroll', label: 'Select Payroll Period', description: 'Choose the payroll period for import' },
   { id: 'upload-file', label: 'Upload File', description: 'Select source file' },
   { id: 'attendance-validation', label: 'Attendance Validation', description: 'Check record quality' },
   { id: 'attendance-import', label: 'Attendance Import', description: 'Load validated data' },
@@ -124,7 +125,7 @@ export default function ImportAttendance() {
   const mapWeekendStatusDisplay = (status: AttendanceRecord['status'], day?: string) => {
     const isWeekend = day === 'SAT' || day === 'SUN'
     // Weekend present records are stored as 'Present' now; display them as 'Present (WE)'
-    if (isWeekend && status === 'Present') return 'Present (WE)'
+    if (isWeekend && status === 'Present') return 'Present'
     // Fallback: if any genuine 'Overtime' exists, keep showing 'Overtime'
     return status
   }
@@ -141,11 +142,53 @@ export default function ImportAttendance() {
   const [importing, setImporting] = useState(false)
   const [fileName, setFileName] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const [missingEmployeesModal, setMissingEmployeesModal] = useState<
+    | { employeeId: string; employeeName?: string }[]
+    | null
+  >(null)
   const [preview, setPreview] = useState<FingerprintAttendanceSummary | null>(null)
   const [sortColumn, setSortColumn] = useState<'id' | 'name' | 'days' | 'present' | 'absent' | 'overtime' | 'incomplete'>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [payrollPeriods, setPayrollPeriods] = useState<any[] | null>(null)
+  const [selectedPayrollPeriod, setSelectedPayrollPeriod] = useState<any | null>(null)
+  const [showUpload, setShowUpload] = useState(false)
 
-  const attendanceStepIndex = stage === 'upload' ? 0 : stage === 'validate' ? 1 : 2
+  const attendanceStepIndex = stage === 'upload' && !showUpload ? 0 : stage === 'upload' && showUpload ? 1 : stage === 'validate' ? 2 : 3
+
+  const pendingPeriods = useMemo(
+    () => (payrollPeriods ?? []).filter((p: any) => p.status === 'Pending'),
+    [payrollPeriods],
+  )
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/report_periods')
+        if (!res.ok) {
+          console.error('report_periods fetch failed', res.status)
+          if (mounted) setPayrollPeriods([])
+          return
+        }
+        const body = await res.json()
+        const transformed = (body.periods || []).map((p: any) => ({
+          report_period_id: p.report_period_id,
+          period_start: p.period_start,
+          period_end: p.period_end,
+          tabulation_date: p.tabulation_date,
+          source_file: p.source_file,
+          created_at: p.created_at,
+          restaurant: p.restaurant,
+          status: p.status,
+        }))
+        if (mounted) setPayrollPeriods(transformed)
+      } catch (err) {
+        console.error('Failed to fetch report periods', err)
+        if (mounted) setPayrollPeriods([])
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
 
   const prevAppModeRef = useRef(appMode)
 
@@ -314,7 +357,23 @@ export default function ImportAttendance() {
         return
       }
 
-      setPreview(buildAttendancePreview(parsed))
+      const previewData = buildAttendancePreview(parsed)
+
+      if (selectedPayrollPeriod && previewData.dateRange) {
+        const attendanceStart = previewData.dateRange.start
+        const attendanceEnd = previewData.dateRange.end
+        const payrollStart = selectedPayrollPeriod.period_start
+        const payrollEnd = selectedPayrollPeriod.period_end
+
+        if (attendanceStart !== payrollStart || attendanceEnd !== payrollEnd) {
+          setErrorMessage(
+            `Payroll period (${payrollStart} to ${payrollEnd}) does not match attendance dates in the file (${attendanceStart} to ${attendanceEnd}).`
+          )
+          return
+        }
+      }
+
+      setPreview(previewData)
       setStage('validate')
     } catch (error) {
       console.error('Fingerprint attendance import failed', error)
@@ -358,17 +417,120 @@ export default function ImportAttendance() {
     }
 
     setImporting(true)
-    window.setTimeout(() => {
-      upsertAttendanceRecords(preview.records)
-      setImporting(false)
-      setStage('success')
-      showToast({
-        type: 'success',
-        message: 'Attendance imported',
-        description: `${preview.records.length} records were imported from ${fileName}.`,
-      })
-    }, 800)
+    ;(async () => {
+      try {
+        // Fetch attendance settings once (start_time, end_time, grace_period, required_daily_hours)
+        let attSettings: any = {}
+        try {
+          const settingsRes = await fetch('/api/settings/attendance')
+          if (settingsRes.ok) attSettings = await settingsRes.json()
+        } catch {
+          // ignore — fall back to no-op calculations
+        }
+
+        const toMinutes = (t: string | null | undefined): number | null => {
+          if (!t) return null
+          const [h, m] = String(t).split(':').map(Number)
+          if (Number.isNaN(h) || Number.isNaN(m)) return null
+          return h * 60 + m
+        }
+
+        const startMinutes = toMinutes(attSettings.start_time)
+        const endMinutes = toMinutes(attSettings.end_time)
+        const halfDayMinutes = toMinutes(attSettings.half_day)
+        const gracePeriod = Math.floor((Number(attSettings.grace_period) || 0) / 60)
+        const requiredDailyHours = Number(attSettings.required_daily_hours) || 0
+        const requiredDailyMinutes = requiredDailyHours * 60
+
+        const enrichedRecords = preview.records.map(rec => {
+          const timeInMinutes = toMinutes(rec.firstOnDuty ?? rec.timeIn)
+          const timeOutMinutes = toMinutes(rec.firstOffDuty ?? rec.timeOut)
+
+          // late_minutes: clamp to 0 if on-time/early or within grace period (gracePeriod in minutes)
+          let lateMinutes = 0
+          if (startMinutes != null && timeInMinutes != null) {
+            const rawDiff = timeInMinutes - startMinutes
+            if (rawDiff > 0 && rawDiff > gracePeriod) {
+              lateMinutes = rawDiff
+            } else {
+              lateMinutes = 0
+            }
+          }
+
+          // leave_early_minutes / overtime_minutes: compare time_out against end_time.
+          // Only one may be non-zero per record.
+          let leaveEarlyMinutes = 0
+          let overtimeMinutes = 0
+          if (endMinutes != null && timeOutMinutes != null) {
+            let to = timeOutMinutes
+            if (startMinutes != null && to < startMinutes) to += 24 * 60
+            const diff = to - endMinutes
+            if (diff > 0) {
+              overtimeMinutes = diff
+            } else if (diff < 0) {
+              leaveEarlyMinutes = -diff
+            }
+          }
+
+          // is_halfday: true if employee is present (not absent) and time_in is later than half_day
+          const isAbsent = rec.status === 'Absent'
+          let isHalfday = false
+          if (!isAbsent && timeInMinutes != null && halfDayMinutes != null) {
+            const isLateAfterHalfDay = timeInMinutes >= halfDayMinutes
+            if (isLateAfterHalfDay) {
+              isHalfday = true
+            }
+          }
+
+          return {
+            ...rec,
+            period_id: selectedPayrollPeriod?.report_period_id ?? null,
+            late_minutes: lateMinutes,
+            leave_early_minutes: leaveEarlyMinutes,
+            overtime_minutes: overtimeMinutes,
+            is_halfday: isHalfday,
+            is_absent: rec.status === 'Absent',
+          }
+        })
+
+        const res = await fetch('/api/attendance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            records: enrichedRecords,
+            restaurant: selectedPayrollPeriod?.restaurant,
+            periodId: selectedPayrollPeriod?.report_period_id,
+          }),
+        })
+        const body = await res.json()
+        if (!res.ok) {
+          if (body.missingEmployees && body.missingEmployees.length > 0) {
+            setMissingEmployeesModal(body.missingEmployees)
+          } else {
+            setErrorMessage(body.error || 'Import failed')
+            showToast({ type: 'error', message: 'Import failed', description: body.error || 'Server error' })
+          }
+          setImporting(false)
+          return
+        }
+
+        setImporting(false)
+        setStage('success')
+        showToast({
+          type: 'success',
+          message: 'Attendance imported',
+          description: `${(body.inserted && body.inserted.length) || preview.records.length} records were imported from ${fileName}.`,
+        })
+      } catch (err) {
+        console.error('Import error', err)
+        setErrorMessage('Network error while importing')
+        showToast({ type: 'error', message: 'Network error' })
+        setImporting(false)
+      }
+    })()
   }
+
+  
 
   if (stage === 'success') {
     return (
@@ -389,6 +551,7 @@ export default function ImportAttendance() {
             <button onClick={() => navigate('attendance-records')} className="flex-1 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display">
               View Attendance
             </button>
+            
             <button onClick={() => navigate('process-payroll')} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg font-display flex items-center justify-center gap-2">
               Go to Payroll <ArrowRight size={14} />
             </button>
@@ -414,8 +577,95 @@ export default function ImportAttendance() {
         />
       </div>
 
-      {stage === 'upload' && (
-        <div className="max-w-2xl mx-auto space-y-5">
+      {stage === 'upload' && !showUpload && (
+        <div className="w-full mx-auto space-y-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-slate-800 font-display">Select Payroll Period</h3>
+          </div>
+
+          {payrollPeriods === null ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">Loading payroll periods...</div>
+          ) : pendingPeriods.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">No payroll periods with Pending status available.</div>
+          ) : (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50">
+                      {['Period Start', 'Period End', 'Tabulation Date', 'Restaurant'].map(h => (
+                        <th key={h} className="text-left py-3 px-6 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {pendingPeriods.map(pp => (
+                      <tr
+                        key={pp.report_period_id}
+                        className={`hover:bg-slate-50 group cursor-pointer ${selectedPayrollPeriod?.report_period_id === pp.report_period_id ? 'bg-indigo-50' : ''}`}
+                        onClick={() => setSelectedPayrollPeriod(pp)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setSelectedPayrollPeriod(pp)
+                          }
+                        }}
+                      >
+                        <td className="py-3.5 px-6">
+                          <p className="text-sm font-semibold text-slate-700 font-display">{pp.period_start}</p>
+                        </td>
+                        <td className="py-3.5 px-6">
+                          <p className="text-sm font-semibold text-slate-700 font-display">{pp.period_end}</p>
+                        </td>
+                        <td className="py-3.5 px-6">
+                          <p className="text-sm text-slate-600">{pp.tabulation_date}</p>
+                        </td>
+                        <td className="py-3.5 px-6">
+                          <p className="text-sm text-slate-600">{pp.restaurant}</p>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {errorMessage && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorMessage}</div>
+          )}
+
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowUpload(true)}
+              disabled={!selectedPayrollPeriod}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg font-display disabled:opacity-50"
+            >
+              Continue <ArrowRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {stage === 'upload' && showUpload && (
+        <div className="w-full mx-auto space-y-5">
+          {selectedPayrollPeriod && (
+            <div className="flex items-start justify-between bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Selected Payroll Period</p>
+                <p className="mt-1 text-sm font-bold text-slate-700 font-display">{selectedPayrollPeriod.period_start} to {selectedPayrollPeriod.period_end}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{selectedPayrollPeriod.restaurant}</p>
+              </div>
+              <button
+                onClick={() => { setShowUpload(false); setFileSelected(false); setFileName(''); setErrorMessage(''); setPreview(null) }}
+                className="text-sm font-medium text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 font-display"
+              >
+                Back
+              </button>
+            </div>
+          )}
           {!fileSelected ? (
             <div
               onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
@@ -786,6 +1036,7 @@ export default function ImportAttendance() {
               setSortColumn('name')
               setSortDirection('asc')
             }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back</button>
+            
             <button onClick={handleImport} disabled={importing || incompleteEmployees.length > 0} title={incompleteEmployees.length > 0 ? 'Resolve incomplete records before importing' : undefined} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display disabled:opacity-70">
               {importing ? (
                 <>
@@ -802,7 +1053,7 @@ export default function ImportAttendance() {
 
       {selectedRow && (
         <Modal open={!!selectedRow} title={`${selectedRow.employeeName} (ID: ${selectedRow.employeeId}) — Attendance Detail`} onClose={() => setSelectedRow(null)}>
-          <div className={`${isMobile ? 'w-full' : 'w-[40vw] max-w-6xl'}`}>
+          <div className={`${isMobile ? 'w-full' : 'w-[70vw] max-w-7xl'}`}>
             {selectedEmployeeRecords.length === 0 ? (
               <div className="rounded-lg border border-slate-200 p-4 text-sm text-slate-500">No attendance data for this employee.</div>
             ) : isMobile ? (
@@ -903,7 +1154,7 @@ export default function ImportAttendance() {
 
       {selectedDetailRecord && (
         <Modal open={!!selectedDetailRecord} title={`${selectedDetailRecord.employeeName} — Attendance Detail`} onClose={() => setSelectedDetailRecord(null)}>
-          <div className="w-full max-w-md">
+          <div className="w-2xl">
             <div className="space-y-0">
               <div className="border-b border-slate-100 pb-3">
                 <p className="text-xs text-slate-400 font-display">Date</p>
@@ -968,6 +1219,37 @@ export default function ImportAttendance() {
           onSave={(nextRecord) => handleSaveEditedRecord(nextRecord)}
         />
       )}
+
+      {missingEmployeesModal && (
+        <Modal open={!!missingEmployeesModal} title="Employees Not Found" onClose={() => setMissingEmployeesModal(null)}>
+          <div className="w-full max-w-lg">
+            <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+              <AlertTriangle size={18} className="text-red-600 shrink-0" />
+              <p className="text-sm text-red-700 font-medium">
+                These employees from the attendance import were not found in the database. Add them first before importing again.
+              </p>
+            </div>
+            <div className="max-h-80 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
+              {missingEmployeesModal.map(missing => (
+                <div key={missing.employeeId} className="flex items-center justify-between px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-700 font-display">{missing.employeeName || 'Unnamed Employee'}</p>
+                  <p className="text-sm text-slate-500 font-mono">ID: {missing.employeeId}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={() => setMissingEmployeesModal(null)}
+                className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      
     </div>
   )
 }

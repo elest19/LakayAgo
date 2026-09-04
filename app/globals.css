@@ -126,6 +126,8 @@ button:disabled {
   transform: translateY(-6px) scale(0.985);
   transition: opacity var(--motion-medium) var(--motion-ease-out), transform var(--motion-medium) var(--motion-ease-out);
   max-width: min(90vw, 48rem);
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 }
 .modal-content.show {
   opacity: 1;
@@ -198,4 +200,16 @@ button:disabled {
 
 .font-mono {
   font-family: var(--font-mono);
+}
+
+/* Hide number input spinner buttons */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }

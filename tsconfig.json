@@ -42,7 +42,8 @@
     "imports",
     "pages",
     "utils",
-    "types.ts",
+      "types.ts",
+      "types",
     "next-env.d.ts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"

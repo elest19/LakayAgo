@@ -1,7 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search } from 'lucide-react'
-import { auditLogs } from '../data/mockData'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 
@@ -27,24 +26,40 @@ const actionColor: Record<string, string> = {
 
 export default function AuditLogs() {
   const isMobile = useIsMobile()
-  const [selectedLog, setSelectedLog] = useState<(typeof auditLogs)[number] | null>(null)
+  const [logs, setLogs] = useState<any[]>([])
+  const [selectedLog, setSelectedLog] = useState<any | null>(null)
   const [search, setSearch] = useState('')
   const [module, setModule] = useState('')
   const [action, setAction] = useState('')
   const [user, setUser] = useState('')
 
-  const filtered = auditLogs.filter(log => {
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/audit-logs')
+        if (!res.ok) return
+        const body = await res.json()
+        if (mounted) setLogs(body.logs || [])
+      } catch (err) {
+        console.error('Failed to load audit logs', err)
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
+
+  const filtered = logs.filter((log: any) => {
     const q = search.toLowerCase()
-    const matchQ = !q || log.description.toLowerCase().includes(q) || log.user.toLowerCase().includes(q)
+    const matchQ = !q || (log.description || '').toLowerCase().includes(q) || (log.user || '').toLowerCase().includes(q)
     const matchModule = !module || log.module === module
     const matchAction = !action || log.action === action
     const matchUser = !user || log.user === user
     return matchQ && matchModule && matchAction && matchUser
   })
 
-  const uniqueModules = [...new Set(auditLogs.map(l => l.module))]
-  const uniqueActions = [...new Set(auditLogs.map(l => l.action))]
-  const uniqueUsers = [...new Set(auditLogs.map(l => l.user))]
+  const uniqueModules = [...new Set(logs.map(l => l.module))]
+  const uniqueActions = [...new Set(logs.map(l => l.action))]
+  const uniqueUsers = [...new Set(logs.map(l => l.user))]
 
   return (
     <div className="p-6">
@@ -115,7 +130,7 @@ export default function AuditLogs() {
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                          <span className="text-indigo-700 text-[9px] font-bold font-display">{log.user.split(' ').map(n => n[0]).join('').slice(0, 2)}</span>
+                          <span className="text-indigo-700 text-[9px] font-bold font-display">{log.user.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}</span>
                         </div>
                         <span className="text-sm text-slate-600 font-display whitespace-nowrap">{log.user}</span>
                       </div>
@@ -155,7 +170,7 @@ export default function AuditLogs() {
           </div>
         )}
         <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
-          <p className="text-xs text-slate-500">Showing {filtered.length} of {auditLogs.length} entries</p>
+          <p className="text-xs text-slate-500">Showing {filtered.length} of {logs.length} entries</p>
         </div>
       </div>
 

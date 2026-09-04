@@ -56,7 +56,7 @@ export default function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4"
+      className="fixed inset-0 z-100 flex items-center justify-center p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
     >
@@ -75,7 +75,7 @@ export default function Modal({
         {/* Header */}
         {title && (
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 px-3 pb-2 pt-3 sm:px-4 sm:pt-4">
-            <div className="min-w-0 break-words whitespace-normal text-lg font-semibold text-slate-800">
+            <div className="min-w-0 break-word whitespace-normal text-lg font-semibold text-slate-800">
               {title}
             </div>
 

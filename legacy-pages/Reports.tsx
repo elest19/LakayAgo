@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { FileText, Download, Printer, BarChart3, Clock, UserCheck } from 'lucide-react'
+import { useEffect } from 'react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
@@ -8,7 +9,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 
-const fmt = (n: number) =>
+const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n)
 
 const attendanceReportTypes = [
@@ -20,22 +21,27 @@ const payrollReportTypes = [
   'Earnings Report', 'Deduction Report', 'Overtime Cost',
 ]
 
-const mockReportData = [
-  { dept: 'Cooks & Chef', employees: 3, grossPay: 130000, deductions: 18900, netPay: 111100 },
-  { dept: 'Waiters', employees: 2, grossPay: 52000, deductions: 7540, netPay: 44460 },
-  { dept: 'Cashiers', employees: 2, grossPay: 67000, deductions: 9715, netPay: 57285 },
-  { dept: 'Management', employees: 4, grossPay: 95000, deductions: 13775, netPay: 81225 },
-]
+// fetched from API
 
 export default function Reports() {
   const { showToast } = useApp()
   const isMobile = useIsMobile()
-  const [selectedDept, setSelectedDept] = useState<(typeof mockReportData)[number] | null>(null)
+  const [selectedDept, setSelectedDept] = useState<any | null>(null)
   const [reportType, setReportType] = useState('Department Payroll')
   const [category, setCategory] = useState<'attendance' | 'payroll'>('payroll')
   const [generated, setGenerated] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [useDate, setUseDate] = useState(false)
+  const [reportData, setReportData] = useState<Array<any>>([])
+
+  useEffect(() => {
+    let mounted = true
+    fetch('/api/dashboard/summary')
+      .then(r => r.json())
+      .then(d => { if (mounted && d?.deptPayrollData) setReportData(d.deptPayrollData) })
+      .catch(() => {})
+    return () => { mounted = false }
+  }, [])
 
   const handleGenerate = () => {
     setGenerating(true)
@@ -177,11 +183,11 @@ export default function Reports() {
 
                 {/* Chart */}
                 <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={mockReportData} barSize={20}>
+                  <BarChart data={reportData} barSize={20}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis dataKey="dept" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `₱${(v / 1000).toFixed(0)}k`} />
-                    <Tooltip formatter={(v: any) => fmt(v)} />
+                    <Tooltip formatter={(v: any) => formatCurrency(v)} />
                     <Bar dataKey="netPay" name="Net Pay" fill="#6366f1" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -200,33 +206,33 @@ export default function Reports() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
-                        {mockReportData.map(r => (
+                        {reportData.map(r => (
                           <tr key={r.dept} className="hover:bg-slate-50">
                             <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{r.dept}</td>
                             <td className="py-3 px-4 font-mono text-xs text-slate-600">{r.employees}</td>
-                            <td className="py-3 px-4 font-mono text-xs text-slate-700">{fmt(r.grossPay)}</td>
-                            <td className="py-3 px-4 font-mono text-xs text-red-600">{fmt(r.deductions)}</td>
-                            <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700">{fmt(r.netPay)}</td>
+                            <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(r.grossPay)}</td>
+                            <td className="py-3 px-4 font-mono text-xs text-red-600">{formatCurrency(r.deductions)}</td>
+                            <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700">{formatCurrency(r.netPay)}</td>
                           </tr>
                         ))}
                         <tr className="bg-slate-50 border-t-2 border-slate-200">
                           <td className="py-3 px-4 text-sm font-bold text-slate-800 font-display">Total</td>
-                          <td className="py-3 px-4 font-mono text-xs font-bold text-slate-700">15</td>
-                          <td className="py-3 px-4 font-mono text-xs font-bold text-slate-700">{fmt(mockReportData.reduce((a, b) => a + b.grossPay, 0))}</td>
-                          <td className="py-3 px-4 font-mono text-xs font-bold text-red-600">{fmt(mockReportData.reduce((a, b) => a + b.deductions, 0))}</td>
-                          <td className="py-3 px-4 font-mono text-xs font-bold text-emerald-700">{fmt(mockReportData.reduce((a, b) => a + b.netPay, 0))}</td>
+                          <td className="py-3 px-4 font-mono text-xs font-bold text-slate-700">{reportData.reduce((a, b) => a + (b.employees || 0), 0)}</td>
+                          <td className="py-3 px-4 font-mono text-xs font-bold text-slate-700">{formatCurrency(reportData.reduce((a, b) => a + (b.grossPay || 0), 0))}</td>
+                          <td className="py-3 px-4 font-mono text-xs font-bold text-red-600">{formatCurrency(reportData.reduce((a, b) => a + (b.deductions || 0), 0))}</td>
+                          <td className="py-3 px-4 font-mono text-xs font-bold text-emerald-700">{formatCurrency(reportData.reduce((a, b) => a + (b.netPay || 0), 0))}</td>
                         </tr>
                       </tbody>
                     </table>
                   ) : (
                     <div className="flex flex-col">
-                      {mockReportData.map(r => (
+                      {reportData.map((r: any) => (
                         <button key={r.dept} onClick={() => setSelectedDept(r)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                           <div>
                             <div className="text-sm font-semibold text-slate-700 font-display">{r.dept}</div>
                             <div className="text-xs text-slate-400">{r.employees} employees</div>
                           </div>
-                          <div className="text-sm font-mono text-emerald-700">{fmt(r.netPay)}</div>
+                          <div className="text-sm font-mono text-emerald-700">{formatCurrency(r.netPay)}</div>
                         </button>
                       ))}
                     </div>
@@ -249,15 +255,15 @@ export default function Reports() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Gross Pay</p>
-                  <p className="text-sm font-medium">{fmt(selectedDept.grossPay)}</p>
+                  <p className="text-sm font-medium">{formatCurrency(selectedDept.grossPay)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Deductions</p>
-                  <p className="text-sm font-medium text-red-600">{fmt(selectedDept.deductions)}</p>
+                  <p className="text-sm font-medium text-red-600">{formatCurrency(selectedDept.deductions)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Net Pay</p>
-                  <p className="text-sm font-medium text-emerald-700">{fmt(selectedDept.netPay)}</p>
+                  <p className="text-sm font-medium text-emerald-700">{formatCurrency(selectedDept.netPay)}</p>
                 </div>
               </div>
             </div>

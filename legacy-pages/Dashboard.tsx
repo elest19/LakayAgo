@@ -10,7 +10,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts'
-import { monthlyPayrollData, deptPayrollData, overtimeData } from '../data/mockData'
+import { useEffect, useState } from 'react'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n)
@@ -97,6 +97,24 @@ export default function Dashboard() {
   const { navigate, inventoryItems, salesRecords, expenses } = useApp()
   const isMobile = useIsMobile()
 
+  const [monthlyPayrollData, setMonthlyPayrollData] = useState<Array<any>>([])
+  const [deptPayrollData, setDeptPayrollData] = useState<Array<any>>([])
+  const [overtimeData, setOvertimeData] = useState<Array<any>>([])
+
+  useEffect(() => {
+    let mounted = true
+    fetch('/api/dashboard/summary')
+      .then(r => r.json())
+      .then(d => {
+        if (!mounted) return
+        setMonthlyPayrollData(d.monthlyPayrollData || [])
+        setDeptPayrollData(d.deptPayrollData || [])
+        setOvertimeData(d.overtimeData || [])
+      })
+      .catch(() => {})
+    return () => { mounted = false }
+  }, [])
+
   const monthStart = useMemo(() => toStartOfDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), [])
   const monthEnd = useMemo(() => toEndOfDay(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)), [])
 
@@ -141,7 +159,7 @@ export default function Dashboard() {
     [filteredExpenses],
   )
 
-  const salesChartData = useMemo(
+    const salesChartData = useMemo(
     () => itemSummary.map(item => ({ name: item.item, grandTotalSale: item.grandTotalSale, netSale: item.netSale, orderDiscount: item.orderDiscount })),
     [itemSummary],
   )
@@ -157,7 +175,7 @@ export default function Dashboard() {
       .sort((a, b) => b.amount - a.amount)
   }, [filteredExpenses])
 
-  const summaryCards = [
+    const summaryCards = [
     { label: 'Grand Total Sale', value: fmt(totalGrandSales), icon: <DollarSign size={18} className="text-indigo-600" />, color: 'bg-indigo-50' },
     { label: 'Net Sale', value: fmt(totalNetSales), icon: <TrendingUp size={18} className="text-emerald-600" />, color: 'bg-emerald-50' },
     { label: 'Order Discount', value: fmt(totalOrderDiscount), icon: <ReceiptText size={18} className="text-amber-600" />, color: 'bg-amber-50' },
@@ -270,7 +288,7 @@ export default function Dashboard() {
                 <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `₱${(v / 1000).toFixed(0)}k`} />
                 <Tooltip content={<CustomTooltip />} />
                 <Bar dataKey="gross" name="gross" fill="#6366f1" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="net" name="net" fill="#34d399" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="net" name="net" fill="#34d399" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

@@ -1,7 +1,6 @@
-'use client'
-import { useState } from 'react'
+ 'use client'
+import { useState, useEffect } from 'react'
 import { Download } from 'lucide-react'
-import { payrollPeriods } from '../data/mockData'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 
@@ -13,11 +12,32 @@ const statusColor: Record<string, string> = {
   'Under Review': 'bg-orange-100 text-orange-700',
   Approved: 'bg-emerald-100 text-emerald-700',
   Finalized: 'bg-emerald-100 text-emerald-700',
+  released: 'bg-emerald-100 text-emerald-700',
+  Released: 'bg-emerald-100 text-emerald-700',
 }
 
 export default function PayrollHistory() {
   const isMobile = useIsMobile()
-  const [selectedPeriod, setSelectedPeriod] = useState<(typeof payrollPeriods)[number] | null>(null)
+  const [selectedPeriod, setSelectedPeriod] = useState<any | null>(null)
+  const [periods, setPeriods] = useState<any[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/report_periods')
+        if (!res.ok) return
+        const body = await res.json()
+        if (mounted) {
+          console.debug('report_periods fetched', Array.isArray(body.periods) ? body.periods.length : typeof body.periods)
+          setPeriods(body.periods || [])
+        }
+      } catch (err) {
+        console.error('Failed to load report periods', err)
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
 
   return (
     <div className="p-6">
@@ -55,15 +75,15 @@ export default function PayrollHistory() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Payroll Period', 'Employees', 'Gross Payroll', 'Deductions', 'Net Payroll', 'Status'].map(h => (
+                  {['Period Start', 'Period End', 'Tabulation Date', 'Restaurant', 'Status'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {payrollPeriods.filter(p => p.status !== 'Pending').map(pp => (
-                  <tr
-                    key={pp.id}
+                {periods.filter((p:any) => String((p.status || '')).toLowerCase() !== 'pending').map(pp => (
+                    <tr
+                      key={pp.report_period_id ?? pp.id ?? `${pp.period_start}-${pp.period_end}`}
                     className="hover:bg-slate-50 group cursor-pointer"
                     onClick={() => setSelectedPeriod(pp)}
                     role="button"
@@ -76,13 +96,17 @@ export default function PayrollHistory() {
                     }}
                   >
                     <td className="py-3.5 px-4">
-                      <p className="text-sm font-semibold text-slate-700 font-display">{pp.label}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">Pay Date: {pp.payDate}</p>
+                      <p className="text-sm font-semibold text-slate-700 font-display">{pp.period_start}</p>
                     </td>
-                    <td className="py-3.5 px-4 font-mono text-xs text-slate-600">{pp.employees}</td>
-                    <td className="py-3.5 px-4 font-mono text-xs text-slate-700">{fmt(pp.grossPayroll)}</td>
-                    <td className="py-3.5 px-4 font-mono text-xs text-red-600">{fmt(pp.deductions)}</td>
-                    <td className="py-3.5 px-4 font-mono text-xs font-semibold text-emerald-700">{fmt(pp.netPayroll)}</td>
+                    <td className="py-3.5 px-4">
+                      <p className="text-sm font-semibold text-slate-700 font-display">{pp.period_end}</p>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <p className="text-sm text-slate-600">{pp.tabulation_date}</p>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <p className="text-sm text-slate-600">{pp.restaurant}</p>
+                    </td>
                     <td className="py-3.5 px-4">
                       <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[pp.status] || 'bg-slate-100 text-slate-500'}`}>{pp.status}</span>
                     </td>
@@ -93,13 +117,13 @@ export default function PayrollHistory() {
             </table>
           ) : (
             <div className="flex flex-col">
-              {payrollPeriods.filter(p => p.status !== 'Pending').map(pp => (
-                <button key={pp.id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                {periods.filter((p:any) => String((p.status || '')).toLowerCase() !== 'pending').map(pp => (
+                <button key={pp.report_period_id ?? pp.id ?? `${pp.period_start}-${pp.period_end}`} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-slate-700">{pp.label}</div>
-                    <div className="text-xs text-slate-400">{pp.payDate}</div>
+                    <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
+                    <div className="text-xs text-slate-400">{pp.restaurant} • {pp.tabulation_date}</div>
                   </div>
-                  <div className="text-sm font-mono text-emerald-700">{fmt(pp.netPayroll)}</div>
+                  <div className="text-sm font-mono text-emerald-700">{pp.status}</div>
                 </button>
               ))}
             </div>
@@ -107,30 +131,34 @@ export default function PayrollHistory() {
         </div>
       </div>
 
-      {selectedPeriod && (
-        <Modal open={!!selectedPeriod} title={selectedPeriod.label} onClose={() => setSelectedPeriod(null)}>
+{selectedPeriod && (
+            <Modal open={!!selectedPeriod} title={`Period: ${selectedPeriod.period_start} – ${selectedPeriod.period_end}`} onClose={() => setSelectedPeriod(null)}>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-slate-400">Restaurant</p>
+                <p className="text-sm font-medium">{selectedPeriod.restaurant}</p>
+              </div>
               <div>
                 <p className="text-xs text-slate-400">Status</p>
                 <p className="text-sm font-medium">{selectedPeriod.status}</p>
               </div>
               <div>
-                <p className="text-xs text-slate-400">Employees</p>
-                <p className="text-sm font-medium">{selectedPeriod.employees}</p>
+                <p className="text-xs text-slate-400">Period Start</p>
+                <p className="text-sm font-medium">{selectedPeriod.period_start}</p>
               </div>
               <div>
-                <p className="text-xs text-slate-400">Gross</p>
-                <p className="text-sm font-medium">{fmt(selectedPeriod.grossPayroll)}</p>
+                <p className="text-xs text-slate-400">Period End</p>
+                <p className="text-sm font-medium">{selectedPeriod.period_end}</p>
               </div>
               <div>
-                <p className="text-xs text-slate-400">Net</p>
-                <p className="text-sm font-medium text-emerald-700">{fmt(selectedPeriod.netPayroll)}</p>
+                <p className="text-xs text-slate-400">Tabulation Date</p>
+                <p className="text-sm font-medium">{selectedPeriod.tabulation_date}</p>
               </div>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Pay Date</p>
-              <p className="text-sm font-medium">{selectedPeriod.payDate}</p>
+              <div>
+                <p className="text-xs text-slate-400">Created</p>
+                <p className="text-sm font-medium">{selectedPeriod.created_at ? new Date(selectedPeriod.created_at).toLocaleDateString() : '—'}</p>
+              </div>
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-4">

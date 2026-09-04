@@ -1,25 +1,58 @@
 'use client'
-import { useState } from 'react'
-import { Search, Download} from 'lucide-react'
-import { employees } from '../data/mockData'
+import { Search, Download } from 'lucide-react'
+import { useEffect, useState, useRef } from 'react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 
-const fmt = (n: number) =>
+const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n)
 
-const payslipData = employees.slice(0, 12).map((emp, i) => ({
-  emp,
-  period: 'August 1–15, 2026',
-  gross: emp.basicSalary / 2 + emp.allowance + [750, 0, 450, 0, 375, 0, 600, 225, 900, 0, 300, 0][i],
-  deductions: Math.round((emp.basicSalary / 2) * 0.067 + 200 + 75),
-  net: emp.basicSalary / 2 + emp.allowance + [750, 0, 450, 0, 375, 0, 600, 225, 900, 0, 300, 0][i] - Math.round((emp.basicSalary / 2) * 0.067 + 200 + 75),
-  status: 'Released',
-}))
+// Payslips are computed from `/api/payroll/calculate` for a selected period
 
-function PayslipDetailModal({ item, onClose }: { item: typeof payslipData[0]; onClose: () => void }) {
+// Note: component-scoped cache will be created with `useRef` below.
+
+function PayslipDetailModal({ item, onClose }: { item: any; onClose: () => void }) {
   const { logoSrc } = useApp()
+  const [empDetails, setEmpDetails] = useState<any | null>(null)
+  const [periodLabel, setPeriodLabel] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    const id = item?.emp?.id
+    // fetch employee details as a fallback for values not stored on the payslip row
+    if (id) {
+      ;(async () => {
+        try {
+          const res = await fetch(`/api/employees/${id}`)
+          if (!res.ok) return
+          const body = await res.json()
+          if (!mounted) return
+          setEmpDetails(body.employee || null)
+        } catch (err) {
+          console.error('Failed to load employee details', err)
+        }
+      })()
+    }
+
+    // fetch report period label for the payslip's report_period_id
+    const periodId = item?.raw?.report_period_id || item?.raw?.period_label || null
+    if (periodId) {
+      ;(async () => {
+        try {
+          const res = await fetch('/api/report_periods')
+          if (!res.ok) return
+          const body = await res.json()
+          if (!mounted) return
+          const found = (body.periods || []).find((p: any) => String(p.report_period_id ?? p.id) === String(periodId))
+          if (found) setPeriodLabel(found.label || `${found.period_start} – ${found.period_end}`)
+        } catch (err) {
+          console.error('Failed to load report periods', err)
+        }
+      })()
+    }
+    return () => { mounted = false }
+  }, [item])
 
   return (
     <Modal open={true} title={`Payslip — ${item.emp.firstName} ${item.emp.lastName}`} onClose={onClose}>
@@ -34,37 +67,37 @@ function PayslipDetailModal({ item, onClose }: { item: typeof payslipData[0]; on
           {/* Employee info */}
           <div className="grid grid-cols-2 gap-3 tracking-wide bg-slate-50 rounded-xl">
             {[
-              { id: 'employee', label: 'Employee', value: `${item.emp.firstName} ${item.emp.lastName}` },
-              { id: 'employee-id', label: 'Employee ID', value: item.emp.id },
-              { id: 'position', label: 'Position', value: item.emp.position },
-              { id: 'department', label: 'Department', value: item.emp.department },
-              { id: 'period', label: 'Payroll Period', value: item.period },
-            ].map(f => (
-              <div key={f.id}>
-                <p className="text-xs text-slate-400 font-display">{f.label}</p>
-                <p className="text-sm font-medium text-slate-700">{f.value}</p>
-              </div>
-            ))}
+                { id: 'employee', label: 'Employee', value: `${item.emp.firstName} ${item.emp.lastName}` },
+                { id: 'department', label: 'Department', value: item.raw?.department || empDetails?.department || '' },
+                { id: 'pay-per-day', label: 'Pay Per Day', value: formatCurrency(item.raw?.pay_per_day ?? empDetails?.pay_per_day ?? 0) },
+                { id: 'restaurant', label: 'Restaurant', value: item.raw?.restaurant || empDetails?.restaurant || '' },
+                { id: 'period', label: 'Payroll Period', value: periodLabel || item.period || '—' },
+              ].map(f => (
+                <div key={f.id} className={`${f.id === 'period' ? 'col-span-2' : ''}`}>
+                  <p className="text-xs text-slate-400 font-display">{f.label}</p>
+                  <p className="text-sm font-medium text-slate-700">{f.value}</p>
+                </div>
+              ))}
           </div>
 
-          {/* Earnings */}
+          {/* Earnings (read directly from payslip row) */}
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide font-display mb-3">Earnings</p>
             <div className="space-y-2">
               {[
-                { id: 'basic', label: 'Basic Salary', amount: item.emp.basicSalary / 2 },
-                { id: 'overtime', label: 'Overtime', amount: item.gross - item.emp.basicSalary / 2 - item.emp.allowance },
-                { id: 'holiday', label: 'Holiday Pay', amount: 800 },
-                { id: 'allowance', label: 'Allowance', amount: item.emp.allowance },
+                { id: 'base', label: 'Base Pay', amount: Number(item.raw?.base_pay ?? 0) },
+                { id: 'overtime', label: 'Overtime Pay', amount: Number(item.raw?.overtime_pay ?? 0) },
+                { id: 'halfday', label: 'Halfday Pay', amount: Number(item.raw?.halfday_pay ?? 0) },
+                { id: 'holiday', label: 'Holiday Pay', amount: Number(item.raw?.holiday_pay ?? 0) },
               ].map(e => (
                 <div key={e.id} className="flex justify-between text-sm">
                   <span className="text-slate-600">{e.label}</span>
-                  <span className="font-mono text-slate-700">{fmt(e.amount)}</span>
+                  <span className="font-mono text-slate-700">{formatCurrency(e.amount)}</span>
                 </div>
               ))}
-              <div className="flex justify-between text-sm font-semibold border-t border-slate-100 pt-2">
+                <div className="flex justify-between text-sm font-semibold border-t border-slate-100 pt-2">
                 <span className="text-slate-700">Gross Pay</span>
-                <span className="font-mono text-slate-800">{fmt(item.gross + 800)}</span>
+                <span className="font-mono text-slate-800">{formatCurrency(Number(item.raw?.gross_pay ?? item.gross ?? 0))}</span>
               </div>
             </div>
           </div>
@@ -74,20 +107,21 @@ function PayslipDetailModal({ item, onClose }: { item: typeof payslipData[0]; on
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide font-display mb-3">Deductions</p>
             <div className="space-y-2">
               {[
-                { id: 'sss', label: 'SSS', amount: Math.round((item.emp.basicSalary / 2) * 0.045) },
-                { id: 'philhealth', label: 'PhilHealth', amount: Math.round((item.emp.basicSalary / 2) * 0.02) },
-                { id: 'pagibig', label: 'Pag-IBIG', amount: 100 },
-                { id: 'tax', label: 'Withholding Tax', amount: Math.round((item.emp.basicSalary / 2) * 0.01) },
-                { id: 'late', label: 'Late', amount: 75 },
+                { id: 'sss', label: 'SSS', amount: Number(item.raw?.sss_deduction ?? 0) },
+                { id: 'philhealth', label: 'PhilHealth', amount: Number(item.raw?.philhealth_deduction ?? 0) },
+                { id: 'pagibig', label: 'Pag-IBIG', amount: Number(item.raw?.pagibig_deduction ?? 0) },
+                { id: 'undertime', label: 'Undertime Deductions', amount: Number(item.raw?.undertime_deduction ?? 0) },
+                { id: 'late', label: 'Late Deductions', amount: Number(item.raw?.late_deduction ?? 0) },
+                { id: 'cash-advance', label: 'Cash Advance', amount: Number(item.raw?.cash_advance_deduction ?? 0) },
               ].map(d => (
                 <div key={d.id} className="flex justify-between text-sm">
                   <span className="text-slate-600">{d.label}</span>
-                  <span className="font-mono text-red-600">{fmt(d.amount)}</span>
+                  <span className="font-mono text-red-600">{formatCurrency(d.amount)}</span>
                 </div>
               ))}
-              <div className="flex justify-between text-sm font-semibold border-t border-slate-100 pt-2">
+                <div className="flex justify-between text-sm font-semibold border-t border-slate-100 pt-2">
                 <span className="text-slate-700">Total Deductions</span>
-                <span className="font-mono text-red-600">{fmt(item.deductions)}</span>
+                <span className="font-mono text-red-600">{formatCurrency(Number(item.raw?.total_deduction ?? item.deductions ?? 0))}</span>
               </div>
             </div>
           </div>
@@ -95,11 +129,15 @@ function PayslipDetailModal({ item, onClose }: { item: typeof payslipData[0]; on
           {/* Net Pay */}
           <div className="bg-indigo-600 rounded-xl p-2 text-center">
             <p className="text-indigo-200 text-xs font-display uppercase tracking-widest mb-1">NET PAY</p>
-            <p className="text-2xl font-bold text-white font-display">{fmt(item.net)}</p>
+            <p className="text-2xl font-bold text-white font-display">{formatCurrency(Number(item.raw?.net_pay ?? item.net ?? 0))}</p>
           </div>
 
           <div className="flex gap-3">
-            <button className="flex-1 flex items-center justify-center gap-2 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display">
+            <button onClick={() => {
+              const id = item.raw?.payslip_id ?? item.id
+              if (!id) return
+              window.location.href = `/api/payslips/${id}/download`
+            }} className="flex-1 flex items-center justify-center gap-2 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display">
               <Download size={14} /> Download PDF
             </button>
             {/* 
@@ -116,16 +154,118 @@ function PayslipDetailModal({ item, onClose }: { item: typeof payslipData[0]; on
 
 export default function Payslips() {
   const isMobile = useIsMobile()
+  // component-scoped in-memory cache mapping employee_id -> employee object
+  const employeesRef = useRef<Map<string, any>>(new Map())
   const [search, setSearch] = useState('')
-  const [period, setPeriod] = useState('August 1–15, 2026')
+  const [period, setPeriod] = useState('')
   const [dept, setDept] = useState('')
-  const [viewing, setViewing] = useState<typeof payslipData[0] | null>(null)
+  const [viewing, setViewing] = useState<any | null>(null)
+  const [periods, setPeriods] = useState<any[]>([])
+  const [payslips, setPayslips] = useState<any[]>([])
 
-  const filtered = payslipData.filter(p => {
+  // Helper: build display object from raw payslip row using cache when available
+  const buildFromRaw = (r: any) => {
+    const empId = String(r.employee_id || r.employee_number || '')
+    const emp = employeesRef.current.get(empId)
+    const fullName = emp?.name || r.employee_name || ''
+    const [firstName = '', ...rest] = String(fullName).split(' ')
+    const lastName = rest.join(' ')
+    return {
+      raw: r,
+      id: r.payslip_id ?? `${r.employee_id ?? r.employee_number}-${r.report_period_id ?? r.period_label}`,
+      emp: { firstName, lastName, department: emp?.department || r.department || '', restaurant: emp?.restaurant || r.restaurant || '', id: r.employee_id || r.employee_number },
+      period: r.report_period_id ? String(r.report_period_id) : (r.period_label || '—'),
+      gross: Number(r.gross_pay ?? r.base_pay ?? 0),
+      deductions: Number(r.total_deduction ?? r.total_deductions ?? 0),
+      net: Number(r.net_pay ?? 0),
+      status: r.status || 'Released',
+    }
+  }
+
+  // Fetch missing employee IDs (parallel) and populate employeesRef.
+  const fetchMissingEmployees = async (ids: string[], mountedRef: { current: boolean }) => {
+    if (!ids || ids.length === 0) return
+    try {
+      const fetches = ids.map(id => fetch(`/api/employees/${encodeURIComponent(id)}`).then(async res => {
+        if (!res.ok) return null
+        const body = await res.json()
+        return body.employee || null
+      }).catch(() => null))
+      const results = await Promise.all(fetches)
+      results.forEach((emp, i) => {
+        const id = ids[i]
+        if (emp) employeesRef.current.set(String(id), emp)
+      })
+      // after populating cache, remap payslips from raw rows
+      if (!mountedRef.current) return
+      setPayslips(prev => prev.map(p => buildFromRaw(p.raw)))
+    } catch (err) {
+      console.error('Failed to fetch employees', err)
+    }
+  }
+
+  // Clear component-scoped cache and re-trigger lookups for visible payslips
+  const clearEmployeesCache = () => {
+    employeesRef.current.clear()
+    // compute visible payslip employee ids from current payslips and filters
+    const visible = payslips.filter(p => {
+      const q = search.toLowerCase()
+      const matchQ = !q || `${p.emp.firstName} ${p.emp.lastName}`.toLowerCase().includes(q)
+      const matchRestaurant = !dept || p.emp.restaurant === dept
+      return matchQ && matchRestaurant
+    })
+    const ids = Array.from(new Set(visible.map(p => String(p.emp.id))))
+    const mountedRef = { current: true }
+    fetchMissingEmployees(ids, mountedRef)
+  }
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/report_periods')
+        if (!res.ok) return
+        const body = await res.json()
+        if (!mounted) return
+        setPeriods(body.periods || [])
+        if ((body.periods || []).length > 0) setPeriod(String((body.periods || [])[0].report_period_id ?? (body.periods || [])[0].id))
+      } catch (err) {
+        console.error('Failed to load report periods', err)
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    if (!period) return
+    ;(async () => {
+      try {
+        // Fetch payslips first, then ensure employee info exists in the component cache.
+        const psRes = await fetch(`/api/payslips?period_id=${period}`)
+        if (!psRes.ok) return
+        const psBody = await psRes.json()
+        if (!mounted) return
+
+        // initial mapping from raw rows; this uses any cached employee entries already present
+        const raws: any[] = psBody.payslips || []
+        setPayslips(raws.map(r => buildFromRaw(r)))
+
+        // find missing employee ids to fetch
+        const ids = Array.from(new Set(raws.map(r => String(r.employee_id || r.employee_number || '')))).filter(id => id && !employeesRef.current.has(id))
+        if (ids.length > 0) await fetchMissingEmployees(ids, { current: mounted })
+      } catch (err) {
+        console.error('Failed to load payslips', err)
+      }
+    })()
+    return () => { mounted = false }
+  }, [period])
+
+  const filtered = payslips.filter(p => {
     const q = search.toLowerCase()
     const matchQ = !q || `${p.emp.firstName} ${p.emp.lastName}`.toLowerCase().includes(q)
-    const matchDept = !dept || p.emp.department === dept
-    return matchQ && matchDept
+    const matchRestaurant = !dept || p.emp.restaurant === dept
+    return matchQ && matchRestaurant
   })
 
   return (
@@ -142,14 +282,17 @@ export default function Payslips() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
         </div>
         <select value={period} onChange={e => setPeriod(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option>August 1–15, 2026</option>
-          <option>July 16–31, 2026</option>
-          <option>July 1–15, 2026</option>
+          {periods.length === 0 ? (
+            <option value="">Select payroll period</option>
+          ) : (
+            periods.map(p => <option key={p.report_period_id ?? p.id} value={String(p.report_period_id ?? p.id)}>{p.label || `${p.period_start} – ${p.period_end}`}</option>)
+          )}
         </select>
         <select value={dept} onChange={e => setDept(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option value="">Department: All</option>
-          {['Cooks & Chefs', 'Waiters', 'Cashiers', 'Management'].map(d => <option key={d}>{d}</option>)}
+          <option value="">Restaurant: All</option>
+          {['Lakay Ago', 'Aroo'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
+        <button onClick={() => clearEmployeesCache()} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white hover:bg-slate-50 font-display">Refresh Employee Data</button>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -158,60 +301,69 @@ export default function Payslips() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Employee', 'Payroll Period', 'Gross Pay', 'Deductions', 'Net Pay', 'Status'].map(h => (
+                  {['Employee', 'Restaurant', 'Gross Pay', 'Deductions', 'Net Pay', 'Status'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map(p => (
-                  <tr
-                    key={p.emp.id}
-                    className="hover:bg-slate-50 group cursor-pointer"
-                    onClick={() => setViewing(p)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        setViewing(p)
-                      }
-                    }}
-                  >
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                          <span className="text-indigo-700 text-[10px] font-bold font-display">{p.emp.firstName[0]}{p.emp.lastName[0]}</span>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{p.emp.firstName} {p.emp.lastName}</p>
-                          <p className="text-xs text-slate-400">{p.emp.department}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{p.period}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700">{fmt(p.gross)}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-red-600">{fmt(p.deductions)}</td>
-                    <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700">{fmt(p.net)}</td>
-                    <td className="py-3 px-4">
-                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{p.status}</span>
-                    </td>
-                    {/* Actions column removed; view via row click */}
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">No payslips available for this period.</td>
                   </tr>
-                ))}
+                ) : (
+                  filtered.map(p => (
+                    <tr
+                      key={p.id}
+                      className="hover:bg-slate-50 group cursor-pointer"
+                      onClick={() => setViewing(p)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setViewing(p)
+                        }
+                      }}
+                    >
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                            <span className="text-indigo-700 text-[10px] font-bold font-display">{(p.emp.firstName && p.emp.firstName.charAt(0)) || ''}{(p.emp.lastName && p.emp.lastName.charAt(0)) || ''}</span>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{p.emp.firstName} {p.emp.lastName}</p>
+                            <p className="text-xs text-slate-400">{p.emp.restaurant}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{p.emp.restaurant}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(p.gross)}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-red-600">{formatCurrency(p.deductions)}</td>
+                      <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700">{formatCurrency(p.net)}</td>
+                      <td className="py-3 px-4">
+                        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{p.status}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           ) : (
             <div className="flex flex-col">
-              {filtered.map(p => (
-                <button key={p.emp.id} onClick={() => setViewing(p)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-700">{p.emp.firstName} {p.emp.lastName}</div>
-                    <div className="text-xs text-slate-400">{p.period} • {p.emp.department}</div>
-                  </div>
-                  <div className="text-sm font-mono text-emerald-700">{fmt(p.net)}</div>
-                </button>
-              ))}
+              {filtered.length === 0 ? (
+                <div className="p-4 text-sm text-slate-500">No payslips available for this period.</div>
+              ) : (
+                filtered.map(p => (
+                  <button key={p.id} onClick={() => setViewing(p)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-700">{p.emp.firstName} {p.emp.lastName}</div>
+                      <div className="text-xs text-slate-400">{p.period} • {p.emp.restaurant}</div>
+                    </div>
+                    <div className="text-sm font-mono text-emerald-700">{formatCurrency(p.net)}</div>
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>

@@ -1,7 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle, XCircle, X } from 'lucide-react'
-import { leaveRequests, employees } from '../data/mockData'
 import type { LeaveRequest } from '../types'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
@@ -57,6 +56,39 @@ export default function LeaveManagement() {
   const [tab, setTab] = useState<'requests' | 'balances'>('requests')
   const [actionModal, setActionModal] = useState<{ leave: LeaveRequest; action: 'Approve' | 'Reject' } | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
+  const [leaveRequests, setLeaveRequests] = useState<any[]>([])
+  const [employees, setEmployees] = useState<any[]>([])
+
+  const loadLeaveRequests = useCallback(async () => {
+    try {
+      const res = await fetch('/api/leave_requests')
+      if (!res.ok) return
+      const body = await res.json()
+      setLeaveRequests(body.leaveRequests || [])
+      if (body.employees && body.employees.length) setEmployees(body.employees)
+      else {
+        const r2 = await fetch('/api/employees')
+        if (r2.ok) {
+          const b2 = await r2.json()
+          setEmployees((b2.employees || []).map((e: any) => {
+            const parts = (e.name || '').split(' ')
+            return { id: e.employee_id, firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '', department: e.department }
+          }))
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load leave requests', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      if (!mounted) return
+      await loadLeaveRequests()
+    })()
+    return () => { mounted = false }
+  }, [loadLeaveRequests])
 
   const leaveEntitlements: Record<string, number> = {
     'Vacation Leave': 10,
@@ -69,7 +101,7 @@ export default function LeaveManagement() {
   }
 
   function getVisibleLeaveTypes(employeeId: string) {
-    const emp = employees.find(e => e.id === employeeId)
+    const emp = employees.find(e => String(e.id) === String(employeeId))
     const sex = emp?.sex ?? ''
 
     return Object.keys(leaveEntitlements).filter(type => {
@@ -85,8 +117,8 @@ export default function LeaveManagement() {
     return types.map((type) => {
       const total = leaveEntitlements[type] ?? 0
       const used = leaveRequests
-        .filter(l => l.employeeId === employeeId && l.leaveType === type && l.status !== 'Rejected')
-        .reduce((sum, l) => sum + l.days, 0)
+        .filter(l => String(l.employeeId) === String(employeeId) && l.leaveType === type && l.status !== 'Rejected')
+        .reduce((sum, l) => sum + (Number(l.days) || 0), 0)
       return { type, used, total, remaining: Math.max(total - used, 0) }
     })
   }
@@ -177,7 +209,7 @@ export default function LeaveManagement() {
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
                               <span className="text-indigo-700 text-[10px] font-bold font-display">
-                                {leave.employeeName.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                {leave.employeeName.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
                               </span>
                             </div>
                             <div>
@@ -194,7 +226,10 @@ export default function LeaveManagement() {
                         <td className="py-3 px-4 font-mono text-xs text-slate-700">{leave.days}</td>
                         <td className="py-3 px-4 text-sm text-slate-500 max-w-45 truncate">{leave.reason}</td>
                         <td className="py-3 px-4">
-                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[leave.status]}`}>{leave.status}</span>
+                          {(() => {
+                            const key = leave.status as keyof typeof statusColor
+                            return <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[key]}`}>{leave.status}</span>
+                          })()}
                         </td>
                         <td className="py-3 px-4">{/* Actions moved into detail modal */}</td>
                       </tr>
@@ -205,12 +240,15 @@ export default function LeaveManagement() {
             ) : (
               <div className="flex flex-col">
                 {filtered.map(leave => (
-                  <button key={leave.id} onClick={() => setSelectedLeave(leave)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                    <button key={leave.id} onClick={() => setSelectedLeave(leave)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-700">{leave.employeeName}</div>
                       <div className="text-xs text-slate-400">{leave.leaveType} • {leave.startDate}</div>
                     </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColor[leave.status]}`}>{leave.status}</span>
+                      {(() => {
+                        const key = leave.status as keyof typeof statusColor
+                        return <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColor[key]}`}>{leave.status}</span>
+                      })()}
                   </button>
                 ))}
               </div>
@@ -339,14 +377,28 @@ export default function LeaveManagement() {
           leave={actionModal.leave}
           action={actionModal.action}
           onClose={() => setActionModal(null)}
-          onConfirm={() => {
+          onConfirm={async () => {
             const { leave, action } = actionModal
+            try {
+              const res = await fetch('/api/leave_requests', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ leaveRequestId: leave.id, status: action }),
+              })
+              if (!res.ok) {
+                const err = await res.json()
+                throw new Error(err.error || 'Failed to update leave request')
+              }
+              showToast({
+                type: action === 'Approve' ? 'success' : 'info',
+                message: `Leave ${action.toLowerCase()}d`,
+                description: `${leave.leaveType} for ${leave.employeeName} has been ${action.toLowerCase()}d.`
+              })
+              await loadLeaveRequests()
+            } catch (err: any) {
+              showToast({ type: 'error', message: 'Update failed', description: err.message || 'Could not update leave request' })
+            }
             setActionModal(null)
-            showToast({
-              type: action === 'Approve' ? 'success' : 'info',
-              message: `Leave ${action.toLowerCase()}d`,
-              description: `${leave.leaveType} for ${leave.employeeName} has been ${action.toLowerCase()}d.`
-            })
           }}
         />
       )}

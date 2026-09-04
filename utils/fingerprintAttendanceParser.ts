@@ -79,6 +79,26 @@ const toIsoDate = (year: number, month: number, day: number) => {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
 }
 
+const createUtcDateFromYmd = (value: string | null | undefined) => {
+  if (!value) return null
+  const trimmed = String(value).trim()
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
+  return new Date(Date.UTC(year, month - 1, day))
+}
+
+const normalizeDateOnly = (value: string | null | undefined) => {
+  if (!value) return null
+  const trimmed = String(value).trim()
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return null
+  return `${match[1]}-${match[2]}-${match[3]}`
+}
+
 const parseWeekDate = (value: string) => {
   const compact = value.trim()
   const withWeekday = compact.match(/^(\d{1,2})\s*([A-Z]{3})$/i)
@@ -230,9 +250,9 @@ export const parseAttendanceReport = async (
     const reportPeriod = getReportPeriod(rows)
     if (!reportPeriod) continue
 
-    const periodStart = new Date(`${reportPeriod.start}T00:00:00`)
-    const periodStartMonth = periodStart.getMonth() + 1
-    const periodStartYear = periodStart.getFullYear()
+    const periodStart = createUtcDateFromYmd(reportPeriod.start) ?? new Date(`${reportPeriod.start}T00:00:00Z`)
+    const periodStartMonth = periodStart.getUTCMonth() + 1
+    const periodStartYear = periodStart.getUTCFullYear()
 
     const employeeBases = discoverEmployeeBases(rows)
 
@@ -249,7 +269,7 @@ export const parseAttendanceReport = async (
         const weekDate = parseWeekDate(weekDateValue)
         if (!weekDate) continue
 
-        const startDate = new Date(`${reportPeriod.start}T00:00:00Z`)
+        const startDate = createUtcDateFromYmd(reportPeriod.start) ?? new Date(`${reportPeriod.start}T00:00:00Z`)
         const monthOffset = weekDate.dayNumber < startDate.getUTCDate() ? 1 : 0
         const date = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth() + monthOffset, weekDate.dayNumber))
         const finalDate = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`

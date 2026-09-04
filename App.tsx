@@ -30,6 +30,7 @@ import ImportAttendance from './legacy-pages/ImportAttendance'
 import ImportHistory from './legacy-pages/ImportHistory'
 import PayrollPeriods from './legacy-pages/PayrollPeriods'
 import PayrollHistory from './legacy-pages/PayrollHistory'
+import CashAdvance from './legacy-pages/CashAdvance'
 import ProcessPayroll from './legacy-pages/ProcessPayroll'
 import Payslips from './legacy-pages/Payslips'
 import LeaveManagement from './legacy-pages/LeaveManagement'
@@ -45,7 +46,6 @@ import Expenses from './legacy-pages/Expenses'
 // Use the public copy of the logo (served at /LakayAgo_Logo.jpg)
 import Modal from './components/Modal'
 import isMobile from './hooks/isMobile'
-import { inventoryCatalog, salesRecords as initialSalesRecords, expenseRecords as initialExpenses } from './data/mockData'
 
 const AppContext = createContext<AppContextType>({
   currentPage: 'dashboard',
@@ -111,6 +111,7 @@ const navItems: NavEntry[] = [
     icon: <CreditCard size={18} />,
     items: [
       { id: 'payroll-periods', label: 'Payroll Periods', icon: <CalendarDays size={16} /> },
+      { id: 'cash-advance', label: 'Cash Advance', icon: <Wallet size={16} /> },
       { id: 'process-payroll', label: 'Process Payroll', icon: <Cog size={16} /> },
       { id: 'payslips', label: 'Payslips', icon: <FileText size={16} /> },
     ],
@@ -143,6 +144,7 @@ const pageMeta: Record<Page, { title: string; breadcrumbs: string[] }> = {
   'import-history': { title: 'Import History', breadcrumbs: ['Attendance', 'Import History'] },
   'payroll-periods': { title: 'Payroll Periods', breadcrumbs: ['Payroll', 'Periods'] },
   'payroll-history': { title: 'Payroll History', breadcrumbs: ['Payroll', 'History'] },
+  'cash-advance': { title: 'Cash Advance', breadcrumbs: ['Payroll', 'Cash Advance'] },
   'process-payroll': { title: 'Process Payroll', breadcrumbs: ['Payroll', 'Process'] },
   payslips: { title: 'Payslips', breadcrumbs: ['Payroll', 'Payslips'] },
   'leave-management': { title: 'Leave Management', breadcrumbs: ['Leave Management'] },
@@ -199,6 +201,7 @@ const routePageMap: Record<string, Page> = {
   '/attendance/import-history': 'import-history',
   '/payroll/periods': 'payroll-periods',
   '/payroll/history': 'payroll-history',
+  '/payroll/cash-advance': 'cash-advance',
   '/payroll/process': 'process-payroll',
   '/payroll/payslips': 'payslips',
   '/leave-management': 'leave-management',
@@ -217,8 +220,10 @@ const routePageMap: Record<string, Page> = {
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard')
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [user, setUser] = useState<any | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const isMobileView = useIsMobile()
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>(inventoryCatalog)
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [productionStock, setProductionStock] = useState<ProductionItem[]>([
     { id: 'PRO-001', itemName: 'Chicken', department: 'Production', stock: 40, createdAt: '2026-08-01T09:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:00:00Z', updatedBy: 'Admin' },
     { id: 'PRO-002', itemName: 'Rice', department: 'Production', stock: 60, createdAt: '2026-08-01T09:10:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:10:00Z', updatedBy: 'Admin' },
@@ -230,8 +235,8 @@ export default function App() {
     { id: 'KIT-003', itemName: 'Chicken BBQ Platter', department: 'Kitchen', stock: 14, createdAt: '2026-08-01T09:10:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:10:00Z', updatedBy: 'Admin' },
     { id: 'KIT-004', itemName: 'Fresh Lumpia', department: 'Kitchen', stock: 18, createdAt: '2026-08-01T09:15:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:15:00Z', updatedBy: 'Admin' },
   ])
-  const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(initialSalesRecords)
-  const [expenses, setExpenses] = useState<ExpenseRecord[]>(initialExpenses)
+  const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([])
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>([])
   const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([])
   const [activePayrollPeriod, setActivePayrollPeriod] = useState<PayrollPeriod | null>(null)
   const [appMode, setAppMode] = useState<'aroo' | 'lakayAgo'>('lakayAgo')
@@ -246,18 +251,130 @@ export default function App() {
   const [showModeConfirmation, setShowModeConfirmation] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [profileForm, setProfileForm] = useState({
-    firstName: 'Eduardo',
-    lastName: 'Mendoza',
-    contactNumber: '+63 912 345 6789',
-    role: 'Super Admin',
-    email: 'lakay.ago@restaurant.ph',
-    password: 'secret',
+    firstName: '',
+    lastName: '',
+    contactNumber: '',
+    role: '',
+    email: '',
+    password: '',
   })
 
   useEffect(() => {
     const path = window.location.pathname.replace(/\/+$/, '') || '/'
     const page = routePageMap[path] ?? 'dashboard'
     setCurrentPage(page)
+  }, [])
+
+  
+
+  // fetch current session/user
+  useEffect(() => {
+    let mounted = true
+    const fetchMe = async () => {
+      try {
+        const res = await fetch('/api/auth/me')
+        if (!mounted) return
+        if (res.ok) {
+          const body = await res.json()
+          setUser(body.user ?? null)
+          // Initialize profileForm with user data when user is first loaded
+          if (body.user) {
+            const nameParts = (body.user.name || '').split(' ')
+            setProfileForm({
+              firstName: nameParts[0] || '',
+              lastName: nameParts.slice(1).join(' ') || '',
+              contactNumber: '',
+              role: body.user.role === 'SuperAdmin' ? 'Super Admin' : body.user.role || '',
+              email: body.user.email || '',
+              password: '',
+            })
+          }
+        } else {
+          setUser(null)
+        }
+      } catch (err) {
+        setUser(null)
+      } finally {
+        if (mounted) setAuthLoading(false)
+      }
+    }
+    fetchMe()
+    return () => { mounted = false }
+  }, [])
+
+  // sync profileForm with authenticated user
+  useEffect(() => {
+    if (user) {
+      const nameParts = (user.name || '').split(' ')
+      setProfileForm({
+        firstName: nameParts[0] || '',
+        lastName: nameParts.slice(1).join(' ') || '',
+        contactNumber: '',
+        role: user.role === 'SuperAdmin' ? 'Super Admin' : user.role || '',
+        email: user.email || '',
+        password: '',
+      })
+    }
+  }, [user])
+
+  // expose a global setter for legacy pages to set user after login
+  useEffect(() => {
+    ;(window as any).__app_set_user = (u: any) => setUser(u)
+    ;(window as any).routePageMap = routePageMap
+    return () => { delete (window as any).__app_set_user; delete (window as any).routePageMap }
+  }, [])
+
+  // global fetch interceptor: if any fetch returns 401, clear session and redirect to login
+  useEffect(() => {
+    const orig = window.fetch.bind(window)
+    window.fetch = async (...args: any[]) => {
+      const res = await (orig as any)(...args)
+      if (res.status === 401) {
+        setUser(null)
+        setCurrentPage('login')
+        window.history.replaceState({}, '', '/login')
+      }
+      return res
+    }
+    return () => { window.fetch = orig }
+  }, [])
+
+  // redirect logic after auth load
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user && currentPage !== 'login') {
+        const intended = window.location.pathname
+        const safe = Object.keys(routePageMap).includes(intended)
+        const redirectUrl = safe ? `/login?redirect=${encodeURIComponent(intended)}` : '/login'
+        window.history.replaceState({}, '', redirectUrl)
+        setCurrentPage('login')
+      } else if (user && currentPage === 'login') {
+        setCurrentPage('dashboard')
+        window.history.replaceState({}, '', '/dashboard')
+      }
+    }
+  }, [authLoading, user, currentPage])
+
+  // Load server data for inventory and sales
+  useEffect(() => {
+    let mounted = true
+    async function load() {
+      try {
+        const [invRes, salesRes] = await Promise.all([fetch('/api/inventory'), fetch('/api/sales')])
+        if (invRes.ok) {
+          const j = await invRes.json()
+          if (mounted) setInventoryItems(j.inventory || j.items || [])
+        }
+        if (salesRes.ok) {
+          const j = await salesRes.json()
+          if (mounted) setSalesRecords(j.sales || [])
+        }
+      } catch (err) {
+        console.error('Failed to load inventory or sales', err)
+      }
+    }
+    load()
+    return () => { mounted = false }
   }, [])
 
   useEffect(() => {
@@ -293,9 +410,36 @@ export default function App() {
     return () => clearTimeout(timeoutId)
   }, [notifOpen])
 
-  const navigate = useCallback((page: Page) => {
+  const navigate = useCallback((page: Page, push: boolean = true) => {
     setCurrentPage(page)
     setMobileSidebarOpen(false)
+    if (push) {
+      const pageToPath: Record<Page, string> = {
+        login: '/login',
+        dashboard: '/dashboard',
+        employees: '/employees',
+        'attendance-records': '/attendance/records',
+        'import-attendance': '/attendance/import',
+        'import-history': '/attendance/import-history',
+        'payroll-periods': '/payroll/periods',
+        'payroll-history': '/payroll/history',
+        'cash-advance': '/payroll/cash-advance',
+        'process-payroll': '/payroll/process',
+        payslips: '/payroll/payslips',
+        'leave-management': '/leave-management',
+        'sales-summary': '/sales-summary',
+        sales: '/sales',
+        'inventory-catalog': '/inventory/catalog',
+        'production-catalog': '/inventory/production',
+        'kitchen-catalog': '/inventory/kitchen',
+        expenses: '/expenses',
+        reports: '/reports',
+        settings: '/settings',
+        'audit-logs': '/audit-logs',
+      }
+      const p = pageToPath[page] ?? '/'
+      if (window.location.pathname !== p) window.history.pushState({}, '', p)
+    }
   }, [])
 
   const showToast = useCallback((toast: Omit<Toast, 'id'>) => {
@@ -718,6 +862,7 @@ export default function App() {
       case 'import-history': return <ImportHistory />
       case 'payroll-periods': return <PayrollPeriods />
       case 'payroll-history': return <PayrollHistory />
+      case 'cash-advance': return <CashAdvance />
       case 'process-payroll': return <ProcessPayroll />
       case 'payslips': return <Payslips />
       case 'leave-management': return <LeaveManagement />
@@ -750,12 +895,14 @@ export default function App() {
           aria-expanded={profileOpen}
         >
           <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center shrink-0">
-            <span className="text-white text-xs font-bold font-display">EM</span>
+            <span className="text-white text-xs font-bold font-display">
+              {user ? (user.name || '').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : '...'}
+            </span>
           </div>
           {showLabels && (
             <div className="text-start min-w-0">
-              <p className="text-sm font-semibold text-white truncate font-display">Eduardo Mendoza</p>
-              <p className="text-xs text-slate-400 truncate">Super Admin</p>
+              <p className="text-sm font-semibold text-white truncate font-display">{user?.name || 'Loading...'}</p>
+              <p className="text-xs text-slate-400 truncate">{user?.role || ''}</p>
             </div>
           )}
         </button>
@@ -864,6 +1011,10 @@ export default function App() {
       currentPage,
       navigate,
       showToast,
+      user,
+      setUser,
+      authLoading,
+      logout: async () => { try { await fetch('/api/auth/logout', { method: 'POST' }) } catch {} setUser(null); navigate('login') },
       inventoryItems,
       setInventoryItems,
       productionStock,
@@ -888,7 +1039,9 @@ export default function App() {
       openEmployeeId,
     }}>
       <>
-        {currentPage === 'login' ? (
+        {authLoading ? (
+          <div className="min-h-screen flex items-center justify-center">Loading...</div>
+        ) : currentPage === 'login' ? (
           <Login />
         ) : (
           <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-800">
@@ -987,9 +1140,13 @@ export default function App() {
                         className="flex items-center gap-2 rounded-lg hover:bg-slate-100 px-2 py-1.5 cursor-pointer"
                       >
                         <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center">
-                          <span className="text-white text-xs font-bold font-display">EM</span>
+                          <span className="text-white text-xs font-bold font-display">
+                            {user ? (user.name || '').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : '...'}
+                          </span>
                         </div>
-                        <span className="text-sm font-medium text-slate-700 font-display">Admin</span>
+                        <span className="text-sm font-medium text-slate-700 font-display">
+                          {user?.name || 'Loading...'}
+                        </span>
                       </button>
                     </div>
                   )}
@@ -1054,13 +1211,15 @@ export default function App() {
           <div className="flex items-start justify-between gap-3 w-full">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center">
-                <span className="text-white text-sm font-bold font-display">EM</span>
+                <span className="text-white text-sm font-bold font-display">
+                  {user ? (user.name || '').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : '...'}
+                </span>
               </div>
               <div>
                 <p className="font-semibold text-slate-800">
-                  {profileForm.firstName} {profileForm.lastName}
+                  {user?.name || 'Loading...'}
                 </p>
-                <p className="text-xs text-slate-500">{profileForm.email}</p>
+                <p className="text-xs text-slate-500">{user?.email || ''}</p>
               </div>
             </div>
           </div>
@@ -1090,29 +1249,18 @@ export default function App() {
 
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col text-sm">
-                <span className="text-slate-600 mb-1">Contact Number</span>
-                <input
-                  value={profileForm.contactNumber}
-                  onChange={e => setProfileForm(p => ({ ...p, contactNumber: e.target.value }))}
-                  disabled={!isEditingProfile}
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="flex flex-col text-sm">
                 <span className="text-slate-600 mb-1">Role</span>
-                <select
-                  value={profileForm.role}
-                  onChange={e => setProfileForm(p => ({ ...p, role: e.target.value }))}
-                  disabled={!isEditingProfile}
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
-                >
-                  <option value="Super Admin">Super Admin</option>
-                  <option value="Admin">Admin</option>
-                </select>
+              <select
+                 value={profileForm.role}
+                 onChange={e => setProfileForm(p => ({ ...p, role: e.target.value }))}
+                 disabled={!isEditingProfile}
+                 className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+               >
+                 <option value="Super Admin">Super Admin</option>
+                 <option value="Admin">Admin</option>
+                 <option value="Staff">Staff</option>
+               </select>
               </label>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col text-sm">
                 <span className="text-slate-600 mb-1">Email</span>
                 <input
@@ -1123,11 +1271,15 @@ export default function App() {
                   className="rounded-md border border-slate-200 px-3 py-2 text-sm"
                 />
               </label>
+            </div>
+
+            <div className="gap-3">
               <label className="flex flex-col text-sm">
                 <span className="text-slate-600 mb-1">Password</span>
                 <input
                   type="password"
                   value={profileForm.password}
+                  placeholder={`${isEditingProfile ? 'Enter new password' : '********'}`}
                   onChange={e => setProfileForm(p => ({ ...p, password: e.target.value }))}
                   disabled={!isEditingProfile}
                   className="rounded-md border border-slate-200 px-3 py-2 text-sm"
@@ -1136,10 +1288,18 @@ export default function App() {
             </div>
 
             <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => { navigate('login'); setProfileOpen(false); showToast({ type: 'info', message: 'Signed out' }) }}
+                  onClick={async () => {
+                    try {
+                      await fetch('/api/auth/logout', { method: 'POST' })
+                    } catch (err) {}
+                    setUser(null)
+                    setProfileOpen(false)
+                    showToast({ type: 'info', message: 'Signed out' })
+                    navigate('login')
+                  }}
                   className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
                 >
                   Sign Out
@@ -1150,14 +1310,17 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      setProfileForm({
-                        firstName: 'Eduardo',
-                        lastName: 'Mendoza',
-                        contactNumber: '+63 912 345 6789',
-                        role: 'Super Admin',
-                        email: 'eduardo.mendoza@company.ph',
-                        password: 'secret',
-                      })
+                      if (user) {
+                        const nameParts = (user.name || '').split(' ')
+                        setProfileForm({
+                          firstName: nameParts[0] || '',
+                          lastName: nameParts.slice(1).join(' ') || '',
+                          contactNumber: '',
+                          role: user.role === 'SuperAdmin' ? 'Super Admin' : user.role || '',
+                          email: user.email || '',
+                          password: '',
+                        })
+                      }
                       setIsEditingProfile(false)
                     }}
                     className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
