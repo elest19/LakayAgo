@@ -42,7 +42,7 @@ export async function GET(req: Request, context: any) {
   // Auto width for columns
   sheet.columns.forEach((col) => {
     let max = 10
-    col.eachCell({ includeEmpty: true }, (cell: any) => {
+    col.eachCell?.({ includeEmpty: true }, (cell: any) => {
       const v = cell.value ? String(cell.value) : ''
       if (v.length > max) max = v.length
     })
