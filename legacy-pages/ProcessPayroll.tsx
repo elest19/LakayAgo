@@ -34,7 +34,7 @@ type PayrollRow = {
   on_leave_total: number
   paid_leave_pay: number
   special_month?: number
-  special_month_pay?: number
+  
   halfday_total: number
   worked_minutes_total: number
   overtime_minutes_total: number
@@ -105,7 +105,7 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
   const halfdayPay = Number(row.halfday_payment || 0)
   const holidayPay = Number(row.holiday_pay || row.holiday_payment || row.holidayPay || 0)
   const paidLeavePay = Number(row.paid_leave_pay || 0)
-  const specialMonthPay = Number(row.special_month ?? row.special_month_pay ?? 0)
+  const specialMonthPay = Number(row.special_month ?? 0)
   const undertimeDeductionValue = Number(row.undertime_deduction_total || 0)
   const lateDeductionValue = Number(row.sum_late_min || 0)
   const healthDeduction = Number(row.health_deduction || 0)
@@ -293,7 +293,7 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
 }
 
 export default function ProcessPayroll() {
-  const { showToast, navigate, activePayrollPeriod } = useApp()
+  const { showToast, navigate, activePayrollPeriod, setActivePayrollPeriod } = useApp()
   const isMobile = useIsMobile()
   const [step, setStep] = useState<Step>('calculation')
   const [search, setSearch] = useState('')
@@ -328,14 +328,14 @@ export default function ProcessPayroll() {
   const [carouselIndex, setCarouselIndex] = useState(0)
   const totalEmployees = payrollRowsState.length
   const totalGrossPayroll = payrollRowsState.reduce((sum, row) => {
-    const specialMonth = Number(row.special_month ?? row.special_month_pay ?? 0)
+    const specialMonth = Number(row.special_month ?? 0)
     return sum + Number(row.gross_pay ?? (Number(row.gross_base || 0) + Number(row.overtime_pay || 0) + Number(row.holiday_pay || 0) + Number(row.halfday_payment || 0) + Number(row.paid_leave_pay || 0) + specialMonth))
   }, 0)
   const totalDeductions = payrollRowsState.reduce((sum, row) => sum + Number(row.total_deduction || row.deductions || 0), 0)
   const totalNetPayroll = payrollRowsState.reduce((sum, row) => sum + Number(row.net_pay || 0), 0)
   const totalOvertime = payrollRowsState.reduce((sum, row) => sum + Number(row.overtime_pay || 0), 0)
   const totalHolidayPay = payrollRowsState.reduce((sum, row) => sum + Number(row.holiday_pay || 0), 0)
-  const totalSpecialMonthPay = payrollRowsState.reduce((sum, row) => sum + Number(row.special_month ?? row.special_month_pay ?? 0), 0)
+  const totalSpecialMonthPay = payrollRowsState.reduce((sum, row) => sum + Number(row.special_month ?? 0), 0)
 
   const activePayrollIndex = stepToIndex[step]
   const maxCarouselIndex = Math.max(0, payrollWorkflowSteps.length - 3)
@@ -410,7 +410,15 @@ export default function ProcessPayroll() {
 
       if (requestId !== payrollRequestId.current) return // stale response — a newer fetch wins
 
-      const rows = (body.rows || body.payroll || []).map((r: any) => {
+      // Filter out inactive employees if status is provided by the API
+      const incoming = (body.rows || body.payroll || [])
+      const activeFiltered = incoming.filter((r: any) => {
+        const status = String(r.status ?? r.employee_status ?? '').trim()
+        if (!status) return true // no status provided -> assume active
+        return status.toLowerCase() === 'active'
+      })
+
+      const rows = activeFiltered.map((r: any) => {
         const fullName = String(r.employee_name || r.name || '').trim()
         const [firstName = '', ...rest] = fullName.split(' ')
         const lastName = rest.join(' ')
@@ -423,8 +431,7 @@ export default function ProcessPayroll() {
           absent_total: Number(r.absent_total ?? 0),
           on_leave_total: Number(r.on_leave_total ?? 0),
           paid_leave_pay: Number(r.paid_leave_pay ?? 0),
-          special_month: Number(r.special_month ?? r.special_month_pay ?? 0),
-          special_month_pay: Number(r.special_month ?? r.special_month_pay ?? 0),
+          special_month: Number(r.special_month ?? 0),
           halfday_total: Number(r.halfday_total ?? 0),
           worked_minutes_total: Number(r.worked_minutes_total ?? 0),
           overtime_minutes_total: Number(r.overtime_minutes_total ?? 0),
@@ -440,7 +447,7 @@ export default function ProcessPayroll() {
           deductions: Number(r.deductions ?? r.total_deduction ?? 0),
           net_pay: Number(r.net_pay ?? r.netPay ?? 0),
           // ensure gross includes holiday, halfday, and paid leave when backend doesn't provide gross_pay
-          gross_pay: Number(r.gross_pay ?? (Number(r.gross_base ?? 0) + Number(r.overtime_pay ?? 0) + Number(r.holiday_pay ?? 0) + Number(r.halfday_payment ?? 0) + Number(r.paid_leave_pay ?? 0) + Number(r.special_month ?? r.special_month_pay ?? 0))),
+          gross_pay: Number(r.gross_pay ?? (Number(r.gross_base ?? 0) + Number(r.overtime_pay ?? 0) + Number(r.holiday_pay ?? 0) + Number(r.halfday_payment ?? 0) + Number(r.paid_leave_pay ?? 0) + Number(r.special_month ?? 0))),
           holiday_pay: Number(r.holiday_pay ?? r.holidayPay ?? r.holiday_payment ?? 0),
           overtime_pay: Number(r.overtime_pay ?? 0),
           halfday_payment: Number(r.halfday_payment ?? 0),
@@ -579,7 +586,7 @@ export default function ProcessPayroll() {
       const cashAdvance = Number(cashAdvanceDeductionsRef.current[empId] || 0)
       const health = Number(r.health_deduction || 0)
       const totalDeduction = attendanceDeduction + health + cashAdvance
-      const specialMonth = Number(r.special_month ?? r.special_month_pay ?? 0)
+      const specialMonth = Number(r.special_month ?? 0)
       const gross = Number(r.gross_pay ?? (Number(r.gross_base || 0) + Number(r.overtime_pay || 0) + Number(r.holiday_pay || 0) + Number(r.halfday_payment || 0) + Number(r.paid_leave_pay || 0) + specialMonth))
 
       if (r.net_pay_overridden) {
@@ -666,7 +673,7 @@ export default function ProcessPayroll() {
         const health = Number(r.health_deduction || 0)
         const cashAdvance = Number((r.cash_advance_deduction || 0) + amount)
         const totalDeduction = attendanceDeduction + health + cashAdvance
-        const specialMonth = Number(r.special_month ?? r.special_month_pay ?? 0)
+        const specialMonth = Number(r.special_month ?? 0)
         const gross = Number(r.gross_pay ?? (Number(r.gross_base || 0) + Number(r.overtime_pay || 0) + Number(r.holiday_pay || 0) + Number(r.halfday_payment || 0) + Number(r.paid_leave_pay || 0) + specialMonth))
         const net = gross - totalDeduction
         return { ...r, attendance_deduction: attendanceDeduction, cash_advance_deduction: cashAdvance, total_deduction: totalDeduction, net_pay: net }
@@ -957,7 +964,6 @@ export default function ProcessPayroll() {
                 )}
 
                 <div className="flex justify-end gap-3 mt-3">
-                  <button onClick={() => setStep('attendance')} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back</button>
                   <button
                     onClick={async () => {
                       // mark period as Under Review in DB, then go to review
@@ -1159,6 +1165,7 @@ export default function ProcessPayroll() {
                     showToast({ type: 'success', message: 'Payroll approved!', description: `Inserted ${body.inserted_count || 0} payslips.` })
                     setApproveConfirm(false)
                     setStep('approved')
+                    setActivePayrollPeriod(null)
                     // After successful approval (status set to 'released' server-side), move user to Payroll History
                     navigate('payroll-history')
                   } catch (err) {

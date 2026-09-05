@@ -29,6 +29,7 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
   const [periodStart, setPeriodStart] = useState(existingPeriod?.period_start ?? 'yyyy/mm/dd')
   const [periodEnd, setPeriodEnd] = useState(existingPeriod?.period_end ?? 'yyyy/mm/dd')
   const [tabulationDate, setTabulationDate] = useState(existingPeriod?.tabulation_date ?? 'yyyy/mm/dd')
+  const [isSpecialMonth, setIsSpecialMonth] = useState<boolean>(existingPeriod?.is_special_month ?? false)
 
   const restaurant = existingPeriod?.restaurant ?? (appMode === 'aroo' ? 'Aroo' : 'Lakay Ago')
 
@@ -56,7 +57,7 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
 
     try {
       if (existingPeriod) {
-        const payload: any = { tabulation_date: tabulationDate, restaurant }
+        const payload: any = { tabulation_date: tabulationDate, restaurant, is_special_month: isSpecialMonth }
         const res = await fetch(`/api/report_periods/${existingPeriod.report_period_id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -73,7 +74,7 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
         const res = await fetch('/api/report_periods', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ period_start: periodStart, period_end: periodEnd, tabulation_date: tabulationDate, restaurant }),
+          body: JSON.stringify({ period_start: periodStart, period_end: periodEnd, tabulation_date: tabulationDate, restaurant, is_special_month: isSpecialMonth }),
         })
         const data = await res.json()
         if (res.ok) {
@@ -125,6 +126,10 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
+          <div className="flex items-center gap-2 px-2">
+            <input id="isSpecialMonth" type="checkbox" checked={isSpecialMonth} onChange={e => setIsSpecialMonth(e.target.checked)} className="w-4 h-4" />
+            <label htmlFor="isSpecialMonth" className="text-sm text-slate-600">13th Month Pay period</label>
+          </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Restaurant</label>
             <input
@@ -172,6 +177,7 @@ export default function PayrollPeriods() {
         created_at: p.created_at,
         restaurant: p.restaurant,
         status: p.status,
+        is_special_month: p.is_special_month,
       }))
       setPeriods(transformed)
     } catch (err) {

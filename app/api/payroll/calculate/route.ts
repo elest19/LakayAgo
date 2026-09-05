@@ -31,34 +31,15 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    async function hasPayrollSettingsSpecialMonthPayColumn() {
-      const res = await query(`
-        SELECT EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = current_schema()
-            AND table_name = 'payroll_settings'
-            AND column_name = 'special_month_pay'
-        ) AS has_column
-      `)
-      return Boolean(res.rows[0]?.has_column)
-    }
-
-    const [hasSpecialMonthPay, attendanceSettingsResult] = await Promise.all([
-      hasPayrollSettingsSpecialMonthPayColumn(),
+    const [attendanceSettingsResult, payrollSettingsResult] = await Promise.all([
       query('SELECT * FROM attendance_settings ORDER BY updated_at DESC LIMIT 1'),
+      query("SELECT undertime_deduction, undertime_deduction_rate_type, undertime_deduction_rate FROM payroll_settings ORDER BY updated_at DESC LIMIT 1"),
     ])
-
-    const payrollSettingsQuery = hasSpecialMonthPay
-      ? 'SELECT * FROM payroll_settings ORDER BY updated_at DESC LIMIT 1'
-      : 'SELECT id, undertime_deduction, undertime_deduction_rate_type, undertime_deduction_rate, NULL::date AS special_month_pay, created_at, updated_at FROM payroll_settings ORDER BY updated_at DESC LIMIT 1'
-    const payrollSettingsResult = await query(payrollSettingsQuery)
 
     const payrollSettings = payrollSettingsResult.rows[0] || {
       undertime_deduction: 0,
       undertime_deduction_rate_type: 'Hour',
       undertime_deduction_rate: 1,
-      special_month_pay: null,
     }
     const attendanceSettings = attendanceSettingsResult.rows[0] || {
       required_daily_hours: 8,
@@ -79,9 +60,10 @@ export async function GET(req: Request) {
       : 0
 
     // TODO: update the frontend to pass pagination params once this ships.
-    const employeeWhere = 'WHERE restaurant = $1'
-    const employeeCountQuery = `SELECT COUNT(*)::int AS count FROM employees ${employeeWhere}`
-    const employeeQuery = `SELECT employee_id, name, department, pay_per_day, sss, philhealth, pagibig, month_pay_13th, restaurant
+     // Only include active employees in payroll calculations
+     const employeeWhere = "WHERE restaurant = $1 AND lower(coalesce(status, '')) = 'active'"
+     const employeeCountQuery = `SELECT COUNT(*)::int AS count FROM employees ${employeeWhere}`
+     const employeeQuery = `SELECT employee_id, name, department, pay_per_day, sss, philhealth, pagibig, month_pay_13th, restaurant, status
        FROM employees
        ${employeeWhere}${limit !== null ? ' LIMIT $2 OFFSET $3' : ''}`
 
@@ -139,18 +121,7 @@ export async function GET(req: Request) {
     }
 
     const rows: any[] = []
-    const specialMonthPayRaw = payrollSettings.special_month_pay
-    const specialMonthPayText = specialMonthPayRaw instanceof Date
-      ? specialMonthPayRaw.toISOString().slice(0, 10)
-      : String(specialMonthPayRaw ?? '').slice(0, 10)
-    const periodStartDate = new Date(`${String(period.period_start).slice(0, 10)}T00:00:00Z`)
-    const periodEndDate = new Date(`${String(period.period_end).slice(0, 10)}T00:00:00Z`)
-    const specialMonthDate = specialMonthPayText && /^\d{4}-\d{2}-\d{2}$/.test(specialMonthPayText)
-      ? new Date(`${specialMonthPayText}T00:00:00Z`)
-      : null
-    const specialMonthInPeriod = specialMonthDate
-      ? specialMonthDate >= periodStartDate && specialMonthDate <= periodEndDate
-      : false
+    const specialMonthInPeriod = Boolean(period.is_special_month)
 
     for (const employee of employeeRows) {
       const attendanceRowsForEmployee = attendanceByEmployee.get(String(employee.employee_id)) ?? []
@@ -275,7 +246,6 @@ export async function GET(req: Request) {
         gross_pay: grossPay,
         paid_leave_pay: paidLeavePay,
         special_month: specialMonthPay,
-        special_month_pay: specialMonthPay,
         halfday_payment: halfdayPayment,
         holiday_pay: holidayPay,
         attendance_deduction: attendanceDeduction,

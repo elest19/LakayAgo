@@ -21,7 +21,8 @@ export async function GET(req: Request) {
       to_char(tabulation_date, 'YYYY-MM-DD') as tabulation_date,
       source_file,
       created_at,
-      status
+      status,
+      coalesce(is_special_month, false) as is_special_month
     from report_periods
   `
   const params: any[] = []
@@ -62,8 +63,9 @@ export async function POST(req: Request) {
   const restaurantValue = restaurant || session.restaurant || 'Both'
   if (!restaurantValue) return NextResponse.json({ error: 'Restaurant required' }, { status: 403 })
 
-  const text = `insert into report_periods(restaurant, period_start, period_end, tabulation_date, source_file, created_at) values($1,$2,$3,$4,$5, now()) returning *`
-  const { rows } = await query(text, [restaurantValue, period_start, period_end, tabulation_date ?? null, source_file ?? null])
+  const isSpecial = Boolean(body.is_special_month)
+  const text = `insert into report_periods(restaurant, period_start, period_end, tabulation_date, source_file, is_special_month, created_at) values($1,$2,$3,$4,$5,$6, now()) returning *`
+  const { rows } = await query(text, [restaurantValue, period_start, period_end, tabulation_date ?? null, source_file ?? null, isSpecial])
   const created = rows[0]
   logAudit({ user_id: session.user_id, restaurant: restaurantValue, action: 'create_report_period', table_name: 'report_periods', record_id: String(created.report_period_id), new_data: created })
   return NextResponse.json({ period: created })

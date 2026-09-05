@@ -129,7 +129,6 @@ export default function SettingsPage() {
           undertimeDeduction: body && (body.undertime_deduction != null) ? String(body.undertime_deduction) : defaultPayrollSettings.undertimeDeduction,
           undertimeDeductionRateType: body?.undertime_deduction_rate_type === 'Minute' ? 'Minute' : 'Hour',
           undertimeDeductionRate: body && (body.undertime_deduction_rate != null) ? String(body.undertime_deduction_rate) : defaultPayrollSettings.undertimeDeductionRate,
-          specialMonthPay: body && body.special_month_pay ? String(body.special_month_pay).slice(0, 10) : '',
         }
         setPayrollSettings(mapped)
         setOriginalPayrollSettings(mapped)
@@ -157,7 +156,6 @@ export default function SettingsPage() {
     undertimeDeduction: '0',
     undertimeDeductionRateType: 'Hour',
     undertimeDeductionRate: '1',
-    specialMonthPay: '',
   }
 
   const defaultAttendanceSettings = {
@@ -318,7 +316,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
   const handleSave = () => setSaveConfirmOpen(true)
 
   const saveSummary: Record<Tab, string[]> = {
-    payroll: ['Undertime deduction', 'Undertime deduction rate type', 'Undertime deduction rate', '13th Month Pay Date'],
+    payroll: ['Undertime deduction', 'Undertime deduction rate type', 'Undertime deduction rate'],
     attendance: ['Start time', 'End time', 'Half Day Pay', 'Grace period'],
     holidays: ['Holiday calendar', 'Holiday types', 'Holiday status settings'],
     users: ['User access', 'Role assignments', 'Account status settings'],
@@ -341,11 +339,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
         from: defaultPayrollSettings.undertimeDeductionRate,
         to: (payrollSettings as any).undertimeDeductionRate,
       },
-      {
-        label: '13th Month Pay Date',
-        from: (originalPayrollSettings as any).specialMonthPay || '',
-        to: (payrollSettings as any).specialMonthPay || '',
-      },
+      
     ].filter(change => String(change.from ?? '') !== String(change.to ?? '')),
 
     attendance: [
@@ -408,7 +402,6 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
             undertime_deduction: Number((payrollSettings as any).undertimeDeduction || 0),
             undertime_deduction_rate_type: (payrollSettings as any).undertimeDeductionRateType === 'Minute' ? 'Minute' : 'Hour',
             undertime_deduction_rate: Number((payrollSettings as any).undertimeDeductionRate || 0),
-            special_month_pay: (payrollSettings as any).specialMonthPay ? String((payrollSettings as any).specialMonthPay).slice(0, 10) : null,
           }),
         })
 
@@ -496,16 +489,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">13th Month Pay Date</label>
-              <input
-                value={(payrollSettings as any).specialMonthPay || ''}
-                onChange={e => setPayrollSettings(prev => ({ ...prev, specialMonthPay: e.target.value }))}
-                type="date"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-              />
-              <p className="mt-1 text-[11px] text-slate-400">Leave blank to disable the 13th month pay trigger for future payroll periods.</p>
-            </div>
+            
           </div>
           <div className="mt-5 flex justify-end">
             <button onClick={handleSave} className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>

@@ -14,7 +14,7 @@ function normalizePayrollRow(row: any) {
   const halfdayPay = Math.max(0, Number(row?.halfday_payment ?? 0))
   const holidayPay = Math.max(0, Number(row?.holiday_pay ?? 0))
   const paidLeavePay = Math.max(0, Number(row?.paid_leave_pay ?? 0))
-  const specialMonthPay = Math.max(0, Number(row?.special_month ?? row?.special_month_pay ?? 0))
+  const specialMonthPay = Math.max(0, Number(row?.special_month ?? 0))
   const grossPay = Math.max(0, Number(row?.gross_pay ?? basePay + overtimePay + halfdayPay + holidayPay + paidLeavePay + specialMonthPay))
 
   const sss = Math.max(0, Number(row?.sss_deduction ?? 0))
@@ -84,8 +84,28 @@ export async function POST(req: Request) {
     `
 
     const inserted: any[] = []
-    for (const rawRow of rows) {
-      const row = normalizePayrollRow(rawRow)
+    // Normalize rows first
+    const normalizedRows = rows.map((r: any) => normalizePayrollRow(r))
+    // Batch-fetch employee statuses to ensure we only create payslips for active employees
+    const employeeIds = Array.from(new Set(normalizedRows.map((r: any) => Number(r.employee_id)).filter((id: any) => Number.isFinite(id) && id > 0)))
+    const empStatusMap: Record<string, string> = {}
+    if (employeeIds.length > 0) {
+      const { rows: empRows } = await client.query("select employee_id, coalesce(status, '') as status from employees where employee_id = any($1)", [employeeIds])
+      for (const er of empRows) {
+        empStatusMap[String(er.employee_id)] = String(er.status ?? '')
+      }
+    }
+
+    let skippedCount = 0
+    for (const row of normalizedRows) {
+      const empIdStr = String(row.employee_id)
+      const empStatus = String(empStatusMap[empIdStr] ?? '')
+      if (empStatus.trim().toLowerCase() !== 'active') {
+        // skip creating payslip for inactive/fired employees
+        skippedCount++
+        continue
+      }
+
       const params = [
         periodId,
         period.restaurant,
@@ -123,7 +143,7 @@ export async function POST(req: Request) {
 
     await client.query('COMMIT')
     logAudit({ user_id: session.user_id, restaurant: period.restaurant, action: 'approve_payroll', table_name: 'payslips', record_id: String(periodId), new_data: { count: inserted.length } })
-    return NextResponse.json({ ok: true, inserted_count: inserted.length })
+    return NextResponse.json({ ok: true, inserted_count: inserted.length, skipped_count: typeof skippedCount === 'number' ? skippedCount : 0 })
   } catch (err) {
     await client.query('ROLLBACK')
     console.error('approve payroll error', err)

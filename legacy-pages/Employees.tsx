@@ -375,7 +375,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
                             <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatTabTime(row.first_on_duty)}</td>
                             <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatTabTime(row.first_off_duty)}</td>
                             <td className="py-2 px-3">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${status === 'Present' ? 'bg-emerald-100 text-emerald-700' : status === 'Absent' ? 'bg-red-100 text-red-700' : status === 'On Leave' ? 'bg-violet-100 text-violet-700' : status === 'Rest Day' ? 'bg-slate-100 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${status === 'Present' ? 'bg-emerald-100 text-emerald-700' : status === 'Absent' ? 'bg-red-100 text-red-700' : status === 'On Leave' ? 'bg-yellow-100 text-yellow-700' : status === 'Rest Day' ? 'bg-slate-100 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>
                                 {status}
                               </span>
                             </td>

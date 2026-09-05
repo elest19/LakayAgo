@@ -48,7 +48,7 @@ const statusColor: Record<string, string> = {
   Approved: 'bg-emerald-100 text-emerald-700',
   Finalized: 'bg-emerald-100 text-emerald-700',
   Pending: 'bg-slate-100 text-slate-500',
-  Unknown: 'bg-slate-100 text-slate-500',
+  Unknown: 'bg-green-100 text-green-600',
 }
 
 const attendanceStatusColor: Record<string, string> = {

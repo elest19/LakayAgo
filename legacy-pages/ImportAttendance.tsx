@@ -866,7 +866,7 @@ export default function ImportAttendance() {
             <p className="text-sm text-amber-700 font-medium">Review the workbook summary before importing. Weekend attendance is classified as overtime and should not be treated as second shift.</p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
               { label: 'Employees', value: preview.employeesFound },
               { label: 'Records', value: preview.attendanceRecords },
