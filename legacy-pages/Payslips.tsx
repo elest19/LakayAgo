@@ -87,10 +87,11 @@ function PayslipDetailModal({ item, onClose }: { item: any; onClose: () => void 
               {[
                 { id: 'base', label: 'Base Pay', amount: Number(item.raw?.base_pay ?? 0) },
                 { id: 'overtime', label: 'Overtime Pay', amount: Number(item.raw?.overtime_pay ?? 0) },
-                { id: 'halfday', label: 'Halfday Pay', amount: Number(item.raw?.halfday_pay ?? 0) },
+                { id: 'halfday', label: 'Late Time In Pay', amount: Number(item.raw?.halfday_pay ?? 0) },
                 { id: 'holiday', label: 'Holiday Pay', amount: Number(item.raw?.holiday_pay ?? 0) },
                 { id: 'paid-leave', label: 'Paid Leave Pay', amount: Number(item.raw?.paid_leave_pay ?? 0) },
-              ].map(e => (
+                ...(Number(item.raw?.special_month ?? 0) > 0 ? [{ id: 'special-month', label: '13th Month Pay', amount: Number(item.raw?.special_month ?? 0) }] : []),
+              ].filter(e => Number(e.amount || 0) !== 0).map(e => (
                 <div key={e.id} className="flex justify-between text-sm">
                   <span className="text-slate-600">{e.label}</span>
                   <span className="font-mono text-slate-700">{formatCurrency(e.amount)}</span>

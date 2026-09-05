@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarClock, CheckCircle2, CircleDollarSign, Pencil, Plus, Trash2, Wallet } from 'lucide-react'
+import { CalendarClock, CheckCircle2, CircleDollarSign, Plus, Trash2, Wallet } from 'lucide-react'
 import { useApp } from '../App'
 import Modal from '../components/Modal'
 
@@ -72,6 +72,10 @@ export default function CashAdvancePage() {
     remarks: '',
   })
   const [paymentDraft, setPaymentDraft] = useState({ reportPeriodId: '', amount: '1000' })
+  const [deleteTarget, setDeleteTarget] = useState<CashAdvanceItem | null>(null)
+  const [deletePaymentTarget, setDeletePaymentTarget] = useState<{ advanceId: string; paymentId: string; label: string } | null>(null)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 10
 
   const reportPeriodOptions = useMemo(
     () => reportPeriods.map(period => ({
@@ -95,6 +99,9 @@ export default function CashAdvancePage() {
       return employeeOk && restaurantOk && statusOk && periodOk
     })
   }, [advances, filters])
+
+  const totalPages = Math.max(1, Math.ceil(filteredAdvances.length / PAGE_SIZE))
+  const pageData = filteredAdvances.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const totalOutstanding = advances.reduce((sum, item) => sum + item.balance_remaining, 0)
   const paidCount = advances.filter(item => item.is_fully_paid).length
@@ -283,7 +290,11 @@ export default function CashAdvancePage() {
     }
   }
 
-  const deleteAdvance = async (cashAdvanceId: string) => {
+  const deleteAdvance = (advance: CashAdvanceItem) => {
+    setDeleteTarget(advance)
+  }
+
+  const confirmDeleteAdvance = async (cashAdvanceId: string) => {
     try {
       const res = await fetch(`/api/cash_advances/${cashAdvanceId}`, { method: 'DELETE' })
       const body = await res.json().catch(() => ({}))
@@ -297,6 +308,31 @@ export default function CashAdvancePage() {
     } catch (error) {
       console.error('Failed to delete advance', error)
       showToast({ type: 'error', message: 'Network error', description: 'Could not delete the cash advance.' })
+    } finally {
+      setDeleteTarget(null)
+    }
+  }
+
+  const deletePayment = (advanceId: string, paymentId: string, label: string) => {
+    setDeletePaymentTarget({ advanceId, paymentId, label })
+  }
+
+  const confirmDeletePayment = async (advanceId: string, paymentId: string) => {
+    try {
+      const res = await fetch(`/api/cash_advances/${advanceId}/payments/${paymentId}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        showToast({ type: 'warning', message: 'Cannot delete', description: body.error || 'This payment cannot be removed.' })
+        return
+      }
+
+      await loadAdvances()
+      showToast({ type: 'success', message: 'Payment deleted', description: 'The payment was removed from the ledger.' })
+    } catch (error) {
+      console.error('Failed to delete payment', error)
+      showToast({ type: 'error', message: 'Network error', description: 'Could not delete the payment.' })
+    } finally {
+      setDeletePaymentTarget(null)
     }
   }
 
@@ -348,19 +384,19 @@ export default function CashAdvancePage() {
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-3">
-          <select value={filters.employee} onChange={e => setFilters(prev => ({ ...prev, employee: e.target.value }))} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
+          <select value={filters.employee} onChange={e => { setFilters(prev => ({ ...prev, employee: e.target.value })); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
             <option value="all">All employees</option>
             {employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
           </select>
-          <select value={filters.restaurant} onChange={e => setFilters(prev => ({ ...prev, restaurant: e.target.value }))} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
+          <select value={filters.restaurant} onChange={e => { setFilters(prev => ({ ...prev, restaurant: e.target.value })); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
             <option value="all">All restaurants</option>
             {['Lakay Ago', 'Aroo', 'Both'].map(r => <option key={r} value={r}>{r}</option>)}
           </select>
-          <select value={filters.status} onChange={e => setFilters(prev => ({ ...prev, status: e.target.value }))} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
+          <select value={filters.status} onChange={e => { setFilters(prev => ({ ...prev, status: e.target.value })); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
             <option value="all">All statuses</option>
             {Object.keys(statusStyles).map(status => <option key={status} value={status}>{status}</option>)}
           </select>
-          <select value={filters.period} onChange={e => setFilters(prev => ({ ...prev, period: e.target.value }))} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
+          <select value={filters.period} onChange={e => { setFilters(prev => ({ ...prev, period: e.target.value })); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
             <option value="all">All payroll periods</option>
             {reportPeriodOptions.map(period => <option key={period.id} value={period.id}>{period.label}</option>)}
           </select>
@@ -375,22 +411,23 @@ export default function CashAdvancePage() {
                 <th className="px-4 py-3">Amount</th>
                 <th className="px-4 py-3">Balance</th>
                 <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredAdvances.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">No cash advances found.</td>
+                  <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">No cash advances found.</td>
                 </tr>
               ) : (
-                filteredAdvances.map(item => (
-                  <tr key={item.cash_advances_id} className={`hover:bg-slate-50 ${selectedRecord?.cash_advances_id === item.cash_advances_id ? 'bg-indigo-50' : ''}`}>
+                pageData.map(item => (
+                  <tr
+                    key={item.cash_advances_id}
+                    className={`hover:bg-slate-50 cursor-pointer ${selectedRecord?.cash_advances_id === item.cash_advances_id ? 'bg-indigo-50' : ''}`}
+                    onClick={() => setSelectedAdvance(item.cash_advances_id)}
+                  >
                     <td className="px-4 py-3">
-                      <button onClick={() => setSelectedAdvance(item.cash_advances_id)} className="text-left">
-                        <div className="font-semibold text-slate-700 font-display">{item.employee_name}</div>
-                        <div className="text-xs text-slate-500">Requested: {item.date_requested ?? '—'}</div>
-                      </button>
+                      <div className="font-semibold text-slate-700 font-display">{item.employee_name}</div>
+                      <div className="text-xs text-slate-500">Requested: {item.date_requested ?? '—'}</div>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{item.restaurant}</td>
                     <td className="px-4 py-3 text-sm font-medium text-slate-700">{formatCurrency(item.amount)}</td>
@@ -398,18 +435,33 @@ export default function CashAdvancePage() {
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusStyles[item.status] ?? 'bg-slate-100 text-slate-600'}`}>{item.status}</span>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <button onClick={() => setSelectedAdvance(item.cash_advances_id)} className="p-1.5 text-slate-500 hover:text-indigo-600"><Pencil size={14} /></button>
-                        <button onClick={() => void deleteAdvance(item.cash_advances_id)} className="p-1.5 text-slate-500 hover:text-red-600"><Trash2 size={14} /></button>
-                      </div>
-                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
+            <p className="text-xs text-slate-500">Page {page} of {totalPages}</p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {selectedRecord && (
@@ -447,7 +499,16 @@ export default function CashAdvancePage() {
                         <div className="font-medium text-slate-700">{payment.report_period_label}</div>
                         <div className="text-xs text-slate-500">{payment.created_at ? String(payment.created_at).slice(0, 10) : '—'}</div>
                       </div>
-                      <div className="font-semibold text-slate-700">{formatCurrency(payment.amount_deducted)}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="font-semibold text-slate-700">{formatCurrency(payment.amount_deducted)}</div>
+                        <button
+                          onClick={() => deletePayment(selectedRecord.cash_advances_id, payment.cash_advance_payments_id, payment.report_period_label)}
+                          className="p-1 text-slate-400 hover:text-red-600"
+                          title="Delete payment"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -464,7 +525,7 @@ export default function CashAdvancePage() {
               <button onClick={() => setShowPayment(true)} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
                 <CalendarClock size={15} /> Add payroll deduction
               </button>
-              <button onClick={() => void deleteAdvance(selectedRecord.cash_advances_id)} className="w-full flex items-center justify-center gap-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
+              <button onClick={() => deleteAdvance(selectedRecord)} className="w-full flex items-center justify-center gap-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
                 <Trash2 size={15} /> Delete advance
               </button>
             </div>
@@ -527,6 +588,28 @@ export default function CashAdvancePage() {
             <div className="mt-5 flex gap-3 justify-end">
               <button onClick={() => setShowPayment(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
               <button onClick={() => void addPayment()} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">Post payment</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {deleteTarget && (
+        <Modal open={true} title="Delete Cash Advance" onClose={() => setDeleteTarget(null)}>
+          <div className="p-6">
+            <p className="mb-4">Are you sure you want to delete this cash advance?</p>
+            <div className="flex gap-3">
+              <button onClick={() => { setDeleteTarget(null); showToast({ type: 'error', message: 'Delete cancelled' }) }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button onClick={() => confirmDeleteAdvance(deleteTarget!.cash_advances_id)} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display">Delete</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {deletePaymentTarget && (
+        <Modal open={true} title="Delete Payment" onClose={() => setDeletePaymentTarget(null)}>
+          <div className="p-6">
+            <p className="mb-4">Are you sure you want to delete this payment for {deletePaymentTarget!.label}?</p>
+            <div className="flex gap-3">
+              <button onClick={() => { setDeletePaymentTarget(null); showToast({ type: 'error', message: 'Delete cancelled' }) }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button onClick={() => confirmDeletePayment(deletePaymentTarget!.advanceId, deletePaymentTarget!.paymentId)} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display">Delete</button>
             </div>
           </div>
         </Modal>

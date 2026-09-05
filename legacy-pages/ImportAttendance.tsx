@@ -13,6 +13,7 @@ const buildAttendancePreview = (
   records: NormalizedAttendanceRecord[],
   approvedLeaves: any[] = [],
   sourceIdToEmployeeId: Map<string, string> = new Map(),
+  restaurantFilter?: string,
 ): FingerprintAttendanceSummary => {
   const isApprovedLeaveStatus = (value: any) => String(value ?? '').trim().toLowerCase() === 'approved'
 
@@ -28,6 +29,8 @@ const buildAttendancePreview = (
   const leaveDatesByEmployee = new Map<string, Array<{ start: string; end: string }>>()
   for (const leave of approvedLeaves) {
     if (!isApprovedLeaveStatus(leave.status)) continue
+    const leaveRestaurant = String(leave.restaurant ?? leave.employeeRestaurant ?? '')
+    if (restaurantFilter && leaveRestaurant && leaveRestaurant !== restaurantFilter) continue
     const employeeId = String(leave.employeeId ?? leave.employee_id ?? '')
     if (!employeeId) continue
     const current = leaveDatesByEmployee.get(employeeId) ?? []
@@ -163,10 +166,21 @@ export default function ImportAttendance() {
   const { navigate, showToast, appMode } = useApp()
   const mapWeekendStatusDisplay = (status: AttendanceRecord['status'], day?: string) => {
     const isWeekend = day === 'SAT' || day === 'SUN'
-    // Weekend present records are stored as 'Present' now; display them as 'Present (WE)'
+    if (status === 'On Leave') return 'On Leave'
     if (isWeekend && status === 'Present') return 'Present'
-    // Fallback: if any genuine 'Overtime' exists, keep showing 'Overtime'
     return status
+  }
+
+  const getStatusBadgeClasses = (status: AttendanceRecord['status'], day?: string) => {
+    const isWeekendPresent = (day === 'SAT' || day === 'SUN') && status === 'Present'
+    if (status === 'On Leave') return 'bg-yellow-100 text-yellow-700'
+    if (isWeekendPresent) return 'bg-violet-100 text-violet-700'
+    if (status === 'Overtime') return 'bg-blue-100 text-blue-700'
+    if (status === 'Absent') return 'bg-red-100 text-red-700'
+    if (status === 'Incomplete') return 'bg-amber-100 text-amber-700'
+    if (status === 'Rest Day') return 'bg-slate-100 text-slate-600'
+    if (status === 'Holiday') return 'bg-blue-100 text-blue-700'
+    return 'bg-emerald-100 text-emerald-700'
   }
   const isMobile = useIsMobile()
   const [showPreviewSection, setShowPreviewSection] = useState(true)
@@ -400,7 +414,10 @@ export default function ImportAttendance() {
       let approvedLeaves: any[] = []
       let sourceIdToEmployeeId = new Map<string, string>()
       try {
-        const leaveRes = await fetch('/api/leave_requests')
+        const restaurantParam = selectedPayrollPeriod?.restaurant
+          ? `?restaurant=${encodeURIComponent(selectedPayrollPeriod.restaurant)}`
+          : ''
+        const leaveRes = await fetch(`/api/leave_requests${restaurantParam}`)
         if (leaveRes.ok) {
           const leaveBody = await leaveRes.json()
           approvedLeaves = Array.isArray(leaveBody.leaveRequests)
@@ -418,7 +435,7 @@ export default function ImportAttendance() {
         console.warn('Could not fetch leave requests for preview', err)
       }
 
-      const previewData = buildAttendancePreview(parsed, approvedLeaves, sourceIdToEmployeeId)
+      const previewData = buildAttendancePreview(parsed, approvedLeaves, sourceIdToEmployeeId, selectedPayrollPeriod?.restaurant)
 
       if (selectedPayrollPeriod && previewData.dateRange) {
         const attendanceStart = previewData.dateRange.start
@@ -496,17 +513,27 @@ export default function ImportAttendance() {
           return h * 60 + m
         }
 
-        const leaveRes = await fetch('/api/leave_requests').catch(() => null)
+        const restaurantValue = selectedPayrollPeriod?.restaurant || ''
+        if (!restaurantValue) {
+          setErrorMessage('Please select a payroll period before importing attendance.')
+          setImporting(false)
+          return
+        }
+
+        // 1. Pass the restaurant being imported for, so the API scopes correctly
+        const leaveRes = await fetch(`/api/leave_requests?restaurant=${encodeURIComponent(restaurantValue)}`).catch(() => null)
         const leaveBody = leaveRes && leaveRes.ok ? await leaveRes.json() : { leaveRequests: [], employees: [] }
         const approvedLeaves = Array.isArray(leaveBody.leaveRequests)
           ? leaveBody.leaveRequests.filter((item: any) => String(item.status ?? '').trim().toLowerCase() === 'approved')
           : []
 
         const employeesFromLeaveApi = Array.isArray(leaveBody.employees) ? leaveBody.employees : []
+
+        // 2. Key by restaurant + sourceEmployeeId, not sourceEmployeeId alone
         const sourceIdToEmployeeId = new Map<string, string>(
           employeesFromLeaveApi
-            .filter((emp: any) => emp.sourceEmployeeId)
-            .map((emp: any) => [String(emp.sourceEmployeeId), String(emp.id)] as [string, string])
+            .filter((emp: any) => emp.sourceEmployeeId && emp.restaurant)
+            .map((emp: any) => [`${emp.restaurant}|${emp.sourceEmployeeId}`, String(emp.id)] as [string, string])
         )
 
         const fmtDate = (d: any) => {
@@ -518,17 +545,22 @@ export default function ImportAttendance() {
           if (isNaN(date.getTime())) return s
           return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
         }
+
+        // 3. Key leave windows by restaurant + employeeId, not employeeId alone
         const leaveDatesByEmployee = new Map<string, Array<{ start: string; end: string }>>()
         for (const leave of approvedLeaves) {
           const employeeId = String(leave.employeeId ?? leave.employee_id ?? '')
-          if (!employeeId) continue
-          const current = leaveDatesByEmployee.get(employeeId) ?? []
+          const leaveRestaurant = String(leave.restaurant ?? leave.employeeRestaurant ?? '')
+          if (!employeeId || !leaveRestaurant) continue
+          const key = `${leaveRestaurant}|${employeeId}`
+          const current = leaveDatesByEmployee.get(key) ?? []
           current.push({ start: fmtDate(leave.startDate ?? leave.start_date ?? ''), end: fmtDate(leave.endDate ?? leave.end_date ?? '') })
-          leaveDatesByEmployee.set(employeeId, current)
+          leaveDatesByEmployee.set(key, current)
         }
 
         const matchesApprovedLeave = (employeeId: string, referenceDate: string) => {
-          const windows = leaveDatesByEmployee.get(String(employeeId)) ?? []
+          const key = `${restaurantValue}|${employeeId}`
+          const windows = leaveDatesByEmployee.get(key) ?? []
           return windows.some((window) => {
             if (!window.start || !window.end) return false
             return referenceDate >= window.start && referenceDate <= window.end
@@ -545,8 +577,8 @@ export default function ImportAttendance() {
         const enrichedRecords = preview.records.map(rec => {
           const timeInMinutes = toMinutes(rec.firstOnDuty ?? rec.timeIn)
           const timeOutMinutes = toMinutes(rec.firstOffDuty ?? rec.timeOut)
-          const resolvedEmployeeId = sourceIdToEmployeeId.get(String(rec.employeeId)) ?? String(rec.employeeId)
-          const onLeave = matchesApprovedLeave(resolvedEmployeeId, String(rec.date))
+          const resolvedEmployeeId = sourceIdToEmployeeId.get(`${restaurantValue}|${rec.employeeId}`) ?? String(rec.employeeId)
+  const onLeave = matchesApprovedLeave(resolvedEmployeeId, String(rec.date)) || String(rec.status ?? '').trim().toLowerCase() === 'on leave'
 
           // late_minutes: clamp to 0 if on-time/early or within grace period (gracePeriod in minutes)
           let lateMinutes = 0
@@ -836,7 +868,6 @@ export default function ImportAttendance() {
 
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {[
-              { label: 'Sheets', value: preview.sheetsProcessed },
               { label: 'Employees', value: preview.employeesFound },
               { label: 'Records', value: preview.attendanceRecords },
               { label: 'Regular', value: preview.regularAttendance },
@@ -1171,19 +1202,7 @@ export default function ImportAttendance() {
                         <p className="text-xs text-slate-500">{record.day || '—'}</p>
                       </div>
                       {(() => {
-                        const isWeekendPresent = (record.day === 'SAT' || record.day === 'SUN') && record.status === 'Present'
-                        const cls = isWeekendPresent
-                          ? 'bg-violet-100 text-violet-700'
-                          : record.status === 'Overtime'
-                            ? 'bg-blue-100 text-blue-700'
-                            : record.status === 'Absent'
-                              ? 'bg-red-100 text-red-700'
-                              : record.status === 'Incomplete'
-                                ? 'bg-amber-100 text-amber-700'
-                                : record.status === 'Rest Day'
-                                  ? 'bg-slate-100 text-slate-600'
-                                  : 'bg-emerald-100 text-emerald-700'
-
+                        const cls = getStatusBadgeClasses(record.status, record.day)
                         return (
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${cls}`}>
                             {mapWeekendStatusDisplay(record.status, record.day)}
@@ -1214,19 +1233,7 @@ export default function ImportAttendance() {
                         <td className="py-2.5 px-3 text-sm text-slate-600">{record.day || '—'}</td>
                         <td className="py-2.5 px-3">
                           {(() => {
-                            const isWeekendPresent = (record.day === 'SAT' || record.day === 'SUN') && record.status === 'Present'
-                            const cls = isWeekendPresent
-                              ? 'bg-violet-100 text-violet-700'
-                              : record.status === 'Overtime'
-                                ? 'bg-blue-100 text-blue-700'
-                                : record.status === 'Absent'
-                                  ? 'bg-red-100 text-red-700'
-                                  : record.status === 'Incomplete'
-                                    ? 'bg-amber-100 text-amber-700'
-                                    : record.status === 'Rest Day'
-                                      ? 'bg-slate-100 text-slate-600'
-                                      : 'bg-emerald-100 text-emerald-700'
-
+                            const cls = getStatusBadgeClasses(record.status, record.day)
                             return <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium font-display ${cls}`}>{mapWeekendStatusDisplay(record.status, record.day)}</span>
                           })()}
                         </td>
@@ -1268,19 +1275,7 @@ export default function ImportAttendance() {
                 <p className="text-xs text-slate-400 font-display">Status</p>
                 <div className="mt-1">
                   {(() => {
-                    const isWeekendPresent = (selectedDetailRecord.day === 'SAT' || selectedDetailRecord.day === 'SUN') && selectedDetailRecord.status === 'Present'
-                    const cls = isWeekendPresent
-                      ? 'bg-violet-100 text-violet-700'
-                      : selectedDetailRecord.status === 'Overtime'
-                        ? 'bg-blue-100 text-blue-700'
-                        : selectedDetailRecord.status === 'Absent'
-                          ? 'bg-red-100 text-red-700'
-                          : selectedDetailRecord.status === 'Incomplete'
-                            ? 'bg-amber-100 text-amber-700'
-                            : selectedDetailRecord.status === 'Rest Day'
-                              ? 'bg-slate-100 text-slate-600'
-                              : 'bg-emerald-100 text-emerald-700'
-
+                    const cls = getStatusBadgeClasses(selectedDetailRecord.status, selectedDetailRecord.day)
                     return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${cls}`}>{mapWeekendStatusDisplay(selectedDetailRecord.status, selectedDetailRecord.day)}</span>
                   })()}
                 </div>

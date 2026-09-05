@@ -33,6 +33,8 @@ type PayrollRow = {
   absent_total: number
   on_leave_total: number
   paid_leave_pay: number
+  special_month?: number
+  special_month_pay?: number
   halfday_total: number
   worked_minutes_total: number
   overtime_minutes_total: number
@@ -103,6 +105,7 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
   const halfdayPay = Number(row.halfday_payment || 0)
   const holidayPay = Number(row.holiday_pay || row.holiday_payment || row.holidayPay || 0)
   const paidLeavePay = Number(row.paid_leave_pay || 0)
+  const specialMonthPay = Number(row.special_month ?? row.special_month_pay ?? 0)
   const undertimeDeductionValue = Number(row.undertime_deduction_total || 0)
   const lateDeductionValue = Number(row.sum_late_min || 0)
   const healthDeduction = Number(row.health_deduction || 0)
@@ -145,13 +148,19 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
         amount: paidLeavePay,
         detail: `${Number(row.on_leave_total || 0)} paid leave day(s) × ${fmt(payPerDay)}`,
       },
+      ...(specialMonthPay > 0 ? [{
+        id: 'special-month-pay',
+        label: '13th Month Pay',
+        amount: specialMonthPay,
+        detail: `13th month pay schedule active for this period: ${fmt(specialMonthPay)}`,
+      }] : []),
       {
         id: 'halfday-pay',
         label: 'Halfday Pay',
         amount: halfdayPay,
         detail: `${halfdayTotal} halfday(s) × (${fmt(payPerDay)} ÷ 2)`,
       },
-    ],
+    ].filter(entry => Number(entry.amount || 0) !== 0),
     deductions: [
       {
         id: 'undertime-deductions',
@@ -231,7 +240,7 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
               ))}
               <div className="flex justify-between text-sm font-semibold border-t border-slate-100 pt-2 mt-1">
                 <span className="text-slate-700">Gross Pay</span>
-                <span className="font-mono text-slate-800">{fmt(Number(row.gross_pay || basePay + overtimePay + holidayPay + halfdayPay + paidLeavePay || 0))}</span>
+                <span className="font-mono text-slate-800">{fmt(Number(row.gross_pay || basePay + overtimePay + holidayPay + halfdayPay + paidLeavePay + specialMonthPay || 0))}</span>
               </div>
             </div>
 
@@ -318,11 +327,15 @@ export default function ProcessPayroll() {
 
   const [carouselIndex, setCarouselIndex] = useState(0)
   const totalEmployees = payrollRowsState.length
-  const totalGrossPayroll = payrollRowsState.reduce((sum, row) => sum + Number(row.gross_pay || 0), 0)
+  const totalGrossPayroll = payrollRowsState.reduce((sum, row) => {
+    const specialMonth = Number(row.special_month ?? row.special_month_pay ?? 0)
+    return sum + Number(row.gross_pay ?? (Number(row.gross_base || 0) + Number(row.overtime_pay || 0) + Number(row.holiday_pay || 0) + Number(row.halfday_payment || 0) + Number(row.paid_leave_pay || 0) + specialMonth))
+  }, 0)
   const totalDeductions = payrollRowsState.reduce((sum, row) => sum + Number(row.total_deduction || row.deductions || 0), 0)
   const totalNetPayroll = payrollRowsState.reduce((sum, row) => sum + Number(row.net_pay || 0), 0)
   const totalOvertime = payrollRowsState.reduce((sum, row) => sum + Number(row.overtime_pay || 0), 0)
   const totalHolidayPay = payrollRowsState.reduce((sum, row) => sum + Number(row.holiday_pay || 0), 0)
+  const totalSpecialMonthPay = payrollRowsState.reduce((sum, row) => sum + Number(row.special_month ?? row.special_month_pay ?? 0), 0)
 
   const activePayrollIndex = stepToIndex[step]
   const maxCarouselIndex = Math.max(0, payrollWorkflowSteps.length - 3)
@@ -410,6 +423,8 @@ export default function ProcessPayroll() {
           absent_total: Number(r.absent_total ?? 0),
           on_leave_total: Number(r.on_leave_total ?? 0),
           paid_leave_pay: Number(r.paid_leave_pay ?? 0),
+          special_month: Number(r.special_month ?? r.special_month_pay ?? 0),
+          special_month_pay: Number(r.special_month ?? r.special_month_pay ?? 0),
           halfday_total: Number(r.halfday_total ?? 0),
           worked_minutes_total: Number(r.worked_minutes_total ?? 0),
           overtime_minutes_total: Number(r.overtime_minutes_total ?? 0),
@@ -425,7 +440,7 @@ export default function ProcessPayroll() {
           deductions: Number(r.deductions ?? r.total_deduction ?? 0),
           net_pay: Number(r.net_pay ?? r.netPay ?? 0),
           // ensure gross includes holiday, halfday, and paid leave when backend doesn't provide gross_pay
-          gross_pay: Number(r.gross_pay ?? (Number(r.gross_base ?? 0) + Number(r.overtime_pay ?? 0) + Number(r.holiday_pay ?? 0) + Number(r.halfday_payment ?? 0) + Number(r.paid_leave_pay ?? 0))),
+          gross_pay: Number(r.gross_pay ?? (Number(r.gross_base ?? 0) + Number(r.overtime_pay ?? 0) + Number(r.holiday_pay ?? 0) + Number(r.halfday_payment ?? 0) + Number(r.paid_leave_pay ?? 0) + Number(r.special_month ?? r.special_month_pay ?? 0))),
           holiday_pay: Number(r.holiday_pay ?? r.holidayPay ?? r.holiday_payment ?? 0),
           overtime_pay: Number(r.overtime_pay ?? 0),
           halfday_payment: Number(r.halfday_payment ?? 0),
@@ -564,7 +579,8 @@ export default function ProcessPayroll() {
       const cashAdvance = Number(cashAdvanceDeductionsRef.current[empId] || 0)
       const health = Number(r.health_deduction || 0)
       const totalDeduction = attendanceDeduction + health + cashAdvance
-      const gross = Number(r.gross_pay ?? (Number(r.gross_base || 0) + Number(r.overtime_pay || 0) + Number(r.holiday_pay || 0) + Number(r.halfday_payment || 0)))
+      const specialMonth = Number(r.special_month ?? r.special_month_pay ?? 0)
+      const gross = Number(r.gross_pay ?? (Number(r.gross_base || 0) + Number(r.overtime_pay || 0) + Number(r.holiday_pay || 0) + Number(r.halfday_payment || 0) + Number(r.paid_leave_pay || 0) + specialMonth))
 
       if (r.net_pay_overridden) {
         return {
@@ -650,7 +666,8 @@ export default function ProcessPayroll() {
         const health = Number(r.health_deduction || 0)
         const cashAdvance = Number((r.cash_advance_deduction || 0) + amount)
         const totalDeduction = attendanceDeduction + health + cashAdvance
-        const gross = Number(r.gross_pay || 0)
+        const specialMonth = Number(r.special_month ?? r.special_month_pay ?? 0)
+        const gross = Number(r.gross_pay ?? (Number(r.gross_base || 0) + Number(r.overtime_pay || 0) + Number(r.holiday_pay || 0) + Number(r.halfday_payment || 0) + Number(r.paid_leave_pay || 0) + specialMonth))
         const net = gross - totalDeduction
         return { ...r, attendance_deduction: attendanceDeduction, cash_advance_deduction: cashAdvance, total_deduction: totalDeduction, net_pay: net }
       }))
@@ -752,12 +769,13 @@ export default function ProcessPayroll() {
       {step === 'calculation' && (
         <div className="space-y-5">
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {[
               { label: 'Employees', value: String(totalEmployees), color: 'text-slate-800' },
               { label: 'Total Deductions', value: fmt(totalDeductions), color: 'text-red-600' },
               { label: 'Net Payroll', value: fmt(totalNetPayroll), color: 'text-emerald-600' },
               { label: 'Holiday Pay', value: fmt(totalHolidayPay), color: 'text-purple-600' },
+              { label: '13th Month Pay', value: fmt(totalSpecialMonthPay), color: 'text-indigo-600' },
               { label: 'Overtime', value: fmt(totalOvertime), color: 'text-yellow-600' },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">

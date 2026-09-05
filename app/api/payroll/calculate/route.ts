@@ -31,15 +31,34 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const [payrollSettingsResult, attendanceSettingsResult] = await Promise.all([
-      query('SELECT * FROM payroll_settings ORDER BY updated_at DESC LIMIT 1'),
+    async function hasPayrollSettingsSpecialMonthPayColumn() {
+      const res = await query(`
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'payroll_settings'
+            AND column_name = 'special_month_pay'
+        ) AS has_column
+      `)
+      return Boolean(res.rows[0]?.has_column)
+    }
+
+    const [hasSpecialMonthPay, attendanceSettingsResult] = await Promise.all([
+      hasPayrollSettingsSpecialMonthPayColumn(),
       query('SELECT * FROM attendance_settings ORDER BY updated_at DESC LIMIT 1'),
     ])
+
+    const payrollSettingsQuery = hasSpecialMonthPay
+      ? 'SELECT * FROM payroll_settings ORDER BY updated_at DESC LIMIT 1'
+      : 'SELECT id, undertime_deduction, undertime_deduction_rate_type, undertime_deduction_rate, NULL::date AS special_month_pay, created_at, updated_at FROM payroll_settings ORDER BY updated_at DESC LIMIT 1'
+    const payrollSettingsResult = await query(payrollSettingsQuery)
 
     const payrollSettings = payrollSettingsResult.rows[0] || {
       undertime_deduction: 0,
       undertime_deduction_rate_type: 'Hour',
       undertime_deduction_rate: 1,
+      special_month_pay: null,
     }
     const attendanceSettings = attendanceSettingsResult.rows[0] || {
       required_daily_hours: 8,
@@ -62,7 +81,7 @@ export async function GET(req: Request) {
     // TODO: update the frontend to pass pagination params once this ships.
     const employeeWhere = 'WHERE restaurant = $1'
     const employeeCountQuery = `SELECT COUNT(*)::int AS count FROM employees ${employeeWhere}`
-    const employeeQuery = `SELECT employee_id, name, department, pay_per_day, sss, philhealth, pagibig, restaurant
+    const employeeQuery = `SELECT employee_id, name, department, pay_per_day, sss, philhealth, pagibig, month_pay_13th, restaurant
        FROM employees
        ${employeeWhere}${limit !== null ? ' LIMIT $2 OFFSET $3' : ''}`
 
@@ -120,10 +139,23 @@ export async function GET(req: Request) {
     }
 
     const rows: any[] = []
+    const specialMonthPayRaw = payrollSettings.special_month_pay
+    const specialMonthPayText = specialMonthPayRaw instanceof Date
+      ? specialMonthPayRaw.toISOString().slice(0, 10)
+      : String(specialMonthPayRaw ?? '').slice(0, 10)
+    const periodStartDate = new Date(`${String(period.period_start).slice(0, 10)}T00:00:00Z`)
+    const periodEndDate = new Date(`${String(period.period_end).slice(0, 10)}T00:00:00Z`)
+    const specialMonthDate = specialMonthPayText && /^\d{4}-\d{2}-\d{2}$/.test(specialMonthPayText)
+      ? new Date(`${specialMonthPayText}T00:00:00Z`)
+      : null
+    const specialMonthInPeriod = specialMonthDate
+      ? specialMonthDate >= periodStartDate && specialMonthDate <= periodEndDate
+      : false
 
     for (const employee of employeeRows) {
       const attendanceRowsForEmployee = attendanceByEmployee.get(String(employee.employee_id)) ?? []
       const payPerDay = toNumber(employee.pay_per_day, 0)
+      const specialMonthPay = specialMonthInPeriod ? toNumber(employee.month_pay_13th, 0) : 0
       const leaveDateMap = new Map<string, boolean>()
       const approvedLeaveRowsForEmployee = approvedLeaveByEmployee.get(String(employee.employee_id)) ?? []
       for (const leave of approvedLeaveRowsForEmployee) {
@@ -215,7 +247,7 @@ export async function GET(req: Request) {
         toNumber(employee.philhealth, 0) +
         toNumber(employee.pagibig, 0)
 
-      const grossPay = grossBase + halfdayPayment + overtimePay + holidayPay + paidLeavePay
+      const grossPay = grossBase + halfdayPayment + overtimePay + holidayPay + paidLeavePay + specialMonthPay
       const attendanceDeduction = sumLateMin + undertimeDeductionTotal
       const totalDeduction = attendanceDeduction + healthDeduction
       const netPay = grossPay - totalDeduction
@@ -242,6 +274,8 @@ export async function GET(req: Request) {
         net_pay: netPay,
         gross_pay: grossPay,
         paid_leave_pay: paidLeavePay,
+        special_month: specialMonthPay,
+        special_month_pay: specialMonthPay,
         halfday_payment: halfdayPayment,
         holiday_pay: holidayPay,
         attendance_deduction: attendanceDeduction,

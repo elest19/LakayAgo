@@ -134,8 +134,38 @@ export async function POST(req: Request) {
         if (status !== 'active') continue
         employeeBySourceId.set(String(emp.source_employee_id), emp)
       }
+
+      // ---- 2. Load approved leave requests for this restaurant using the real employee_id -> employees join ----
+      const { rows: approvedLeaveRows } = await client.query(
+        `
+          select
+            lr.employee_id,
+            lr.start_date,
+            lr.end_date,
+            e.source_employee_id,
+            e.restaurant as employee_restaurant
+          from leave_requests lr
+          join employees e on e.employee_id = lr.employee_id
+          where lower(lr.status) = 'approved'
+            and e.restaurant = $1
+        `,
+        [restaurantValue],
+      )
+      const approvedLeaveBySourceEmployeeId = new Map<string, Array<{ start_date: string; end_date: string }>>()
+      for (const leave of approvedLeaveRows) {
+        const sourceEmployeeId = String(leave.source_employee_id ?? '').trim()
+        const leaveRestaurant = String(leave.employee_restaurant ?? '').trim()
+        if (!sourceEmployeeId || !leaveRestaurant) continue
+        const key = `${leaveRestaurant}|${sourceEmployeeId}`
+        const windows = approvedLeaveBySourceEmployeeId.get(key) ?? []
+        windows.push({
+          start_date: normalizeDateOnly(leave.start_date),
+          end_date: normalizeDateOnly(leave.end_date),
+        })
+        approvedLeaveBySourceEmployeeId.set(key, windows)
+      }
  
-      // ---- 2. Load all report periods for this restaurant ONCE ----
+      // ---- 3. Load all report periods for this restaurant ONCE ----
       const rpRes = restaurantValue === 'Both'
         ? await client.query('select * from report_periods')
         : await client.query('select * from report_periods where restaurant = $1', [restaurantValue])
@@ -145,7 +175,7 @@ export async function POST(req: Request) {
         return p ? p.report_period_id : null
       }
  
-      // ---- 3. Validate every employee id, and that every employee already exists ----
+      // ---- 4. Validate every employee id, and that every employee already exists ----
       const notFound: { employeeId: string; employeeName?: string }[] = []
       for (const r of records) {
         const srcIdNum = Number(r.employeeId)
@@ -171,7 +201,7 @@ export async function POST(req: Request) {
         )
       }
  
-      // ---- 4. Build all attendance rows in memory ----
+      // ---- 5. Build all attendance rows in memory ----
       type Row = { values: any[]; key: string }
       const rows: Row[] = []
       const seenRowKeys = new Map<string, { employeeId: string; date: string }>()
@@ -180,7 +210,9 @@ export async function POST(req: Request) {
         const srcIdNum = Number(r.employeeId)
         const employee = employeeBySourceId.get(String(srcIdNum))
         const workDate = normalizeDateOnly(r.date)
-        // employee is guaranteed to exist here — step 3 already validated this
+        const leaveWindows = approvedLeaveBySourceEmployeeId.get(`${restaurantValue}|${srcIdNum}`) ?? []
+        const hasApprovedLeave = leaveWindows.some(({ start_date, end_date }) => workDate >= start_date && workDate <= end_date)
+        // employee is guaranteed to exist here — step 4 already validated this
  
         let totalMinutes = 0
         if (r.firstOnDuty && r.firstOffDuty) {
@@ -209,7 +241,8 @@ export async function POST(req: Request) {
         const leaveEarlyMinutes = Math.max(0, Math.round(Number(r.leave_early_minutes ?? r.undertimeMinutes ?? 0) || 0))
         const overtimeMinutes = Math.max(0, Math.round(Number(r.overtime_minutes ?? 0) || 0))
         const isHalfday = r.is_halfday === true
-        const isOnLeave = typeof r.on_leave === 'boolean' ? r.on_leave : false
+        const requestedOnLeave = typeof r.on_leave === 'boolean' ? r.on_leave : false
+        const isOnLeave = requestedOnLeave || hasApprovedLeave
         const isAbsent = (typeof r.is_absent === 'boolean' ? r.is_absent : (r.status ?? '').toLowerCase() === 'absent') && !isOnLeave
 
         rows.push({
@@ -234,7 +267,7 @@ export async function POST(req: Request) {
         })
       }
  
-      // ---- 5. Bulk upsert in chunks ----
+      // ---- 6. Bulk upsert in chunks ----
       const insertedRows: any[] = []
       
       for (let i = 0; i < rows.length; i += BATCH_SIZE) {
@@ -328,7 +361,7 @@ export async function POST(req: Request) {
         }
       }
 
-      // ---- 6. Update the selected report period's source_file ----
+      // ---- 7. Update the selected report period's source_file ----
       if (periodId) {
         const rp = await client.query('select * from report_periods where report_period_id = $1', [periodId])
         const period = rp.rows[0]

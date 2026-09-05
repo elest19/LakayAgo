@@ -14,7 +14,8 @@ function normalizePayrollRow(row: any) {
   const halfdayPay = Math.max(0, Number(row?.halfday_payment ?? 0))
   const holidayPay = Math.max(0, Number(row?.holiday_pay ?? 0))
   const paidLeavePay = Math.max(0, Number(row?.paid_leave_pay ?? 0))
-  const grossPay = Math.max(0, Number(row?.gross_pay ?? basePay + overtimePay + halfdayPay + holidayPay + paidLeavePay))
+  const specialMonthPay = Math.max(0, Number(row?.special_month ?? row?.special_month_pay ?? 0))
+  const grossPay = Math.max(0, Number(row?.gross_pay ?? basePay + overtimePay + halfdayPay + holidayPay + paidLeavePay + specialMonthPay))
 
   const sss = Math.max(0, Number(row?.sss_deduction ?? 0))
   const philhealth = Math.max(0, Number(row?.philhealth_deduction ?? 0))
@@ -35,6 +36,7 @@ function normalizePayrollRow(row: any) {
     halfday_pay: Number(halfdayPay.toFixed(2)),
     holiday_pay: Number(holidayPay.toFixed(2)),
     paid_leave_pay: Number(paidLeavePay.toFixed(2)),
+    special_month: Number(specialMonthPay.toFixed(2)),
     gross_pay: Number(grossPay.toFixed(2)),
     sss_deduction: Number(sss.toFixed(2)),
     philhealth_deduction: Number(philhealth.toFixed(2)),
@@ -74,11 +76,11 @@ export async function POST(req: Request) {
     const insertText = `
       insert into payslips(
         report_period_id, restaurant, employee_id,
-        base_pay, overtime_pay, halfday_pay, holiday_pay, paid_leave_pay, gross_pay,
+        base_pay, overtime_pay, halfday_pay, holiday_pay, paid_leave_pay, special_month, gross_pay,
         sss_deduction, philhealth_deduction, pagibig_deduction,
         undertime_deduction, late_deduction, cash_advance_deduction,
         total_deduction, net_pay, status
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning *
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) returning *
     `
 
     const inserted: any[] = []
@@ -93,6 +95,7 @@ export async function POST(req: Request) {
         row.halfday_pay,
         row.holiday_pay,
         row.paid_leave_pay,
+        row.special_month,
         row.gross_pay,
         row.sss_deduction,
         row.philhealth_deduction,
