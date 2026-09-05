@@ -28,6 +28,7 @@ export async function GET(req: Request, context: any) {
           a.leave_early_minutes,
           a.overtime_minutes,
           a.total_minutes,
+          a.on_leave,
           a.is_absent,
           e.name as employee_name
         from attendance a

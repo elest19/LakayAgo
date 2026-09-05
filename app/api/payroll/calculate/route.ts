@@ -31,68 +31,177 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { rows: payrollRows } = await query(
-      'SELECT * FROM payroll_settings ORDER BY updated_at DESC LIMIT 1',
-    )
-    const payrollSettings = payrollRows[0] || {
+    const [payrollSettingsResult, attendanceSettingsResult] = await Promise.all([
+      query('SELECT * FROM payroll_settings ORDER BY updated_at DESC LIMIT 1'),
+      query('SELECT * FROM attendance_settings ORDER BY updated_at DESC LIMIT 1'),
+    ])
+
+    const payrollSettings = payrollSettingsResult.rows[0] || {
       undertime_deduction: 0,
       undertime_deduction_rate_type: 'Hour',
       undertime_deduction_rate: 1,
     }
-
-    const { rows: attendanceRows } = await query(
-      'SELECT * FROM attendance_settings ORDER BY updated_at DESC LIMIT 1',
-    )
-    const attendanceSettings = attendanceRows[0] || {
+    const attendanceSettings = attendanceSettingsResult.rows[0] || {
       required_daily_hours: 8,
     }
 
     const employeeRestaurant = period.restaurant ?? session.restaurant ?? 'Both'
-    const { rows: employeeRows } = await query(
-      `SELECT employee_id, name, department, pay_per_day, sss, philhealth, pagibig, restaurant
+
+    const rawLimit = url.searchParams.get('limit')
+    const rawOffset = url.searchParams.get('offset')
+    const hasPagination = rawLimit !== null || rawOffset !== null
+    const parsedLimit = rawLimit !== null ? Number(rawLimit) : null
+    const parsedOffset = rawOffset !== null ? Number(rawOffset) : 0
+    const limit = hasPagination
+      ? Number.isFinite(parsedLimit) && Number(parsedLimit) > 0 ? Math.min(Math.floor(Number(parsedLimit)), 500) : 50
+      : null
+    const offset = hasPagination && Number.isFinite(parsedOffset) && Number(parsedOffset) >= 0
+      ? Math.floor(Number(parsedOffset))
+      : 0
+
+    // TODO: update the frontend to pass pagination params once this ships.
+    const employeeWhere = 'WHERE restaurant = $1'
+    const employeeCountQuery = `SELECT COUNT(*)::int AS count FROM employees ${employeeWhere}`
+    const employeeQuery = `SELECT employee_id, name, department, pay_per_day, sss, philhealth, pagibig, restaurant
        FROM employees
-       WHERE restaurant = $1`,
-      [employeeRestaurant],
+       ${employeeWhere}${limit !== null ? ' LIMIT $2 OFFSET $3' : ''}`
+
+    const [employeeCountResult, employeeRowsResult] = await Promise.all([
+      query(employeeCountQuery, [employeeRestaurant]),
+      query(employeeQuery, limit !== null ? [employeeRestaurant, limit, offset] : [employeeRestaurant]),
+    ])
+
+    const employeeRows = employeeRowsResult.rows
+    const totalEmployeeCount = Number(employeeCountResult.rows[0]?.count ?? 0)
+
+    // batched across all employees to avoid N+1 queries for the same period data
+    const holidayMapByDate: Record<string, string> = {}
+    const { rows: holidayRows } = await query(
+      'SELECT date, type FROM holidays WHERE date >= $1 AND date <= $2 AND active = true',
+      [period.period_start, period.period_end],
     )
+    for (const h of holidayRows) {
+      const key = new Date(h.date).toISOString().slice(0, 10)
+      holidayMapByDate[key] = String(h.type)
+    }
+
+    const employeeIds = employeeRows.map((employee: any) => employee.employee_id)
+    const attendanceByEmployee = new Map<string, any[]>()
+    if (employeeIds.length > 0) {
+      // batched across all employees to avoid N+1 attendance fetches
+      const { rows: attendanceRows } = await query(
+        'SELECT * FROM attendance WHERE employee_id = ANY($1) AND work_date >= $2 AND work_date <= $3 ORDER BY employee_id, work_date',
+        [employeeIds, period.period_start, period.period_end],
+      )
+      for (const attendanceRow of attendanceRows) {
+        const key = String(attendanceRow.employee_id)
+        const current = attendanceByEmployee.get(key) ?? []
+        current.push(attendanceRow)
+        attendanceByEmployee.set(key, current)
+      }
+    }
+
+    const approvedLeaveByEmployee = new Map<string, any[]>()
+    if (employeeIds.length > 0) {
+      // batched across all employees to avoid N+1 leave requests fetches
+      const { rows: approvedLeaveRows } = await query(
+        `select lr.employee_id, lr.start_date, lr.end_date, coalesce(lt.is_paid, false) as is_paid
+         from leave_requests lr
+         left join leave_types lt on lt.leave_type_id = lr.leave_type_id
+         where lr.employee_id = ANY($1) and lr.status = 'Approved' and lr.start_date <= $2 and lr.end_date >= $3`,
+        [employeeIds, period.period_end, period.period_start],
+      )
+      for (const leaveRow of approvedLeaveRows) {
+        const key = String(leaveRow.employee_id)
+        const current = approvedLeaveByEmployee.get(key) ?? []
+        current.push(leaveRow)
+        approvedLeaveByEmployee.set(key, current)
+      }
+    }
 
     const rows: any[] = []
 
     for (const employee of employeeRows) {
-      const { rows: attendanceSummary } = await query(
-        `SELECT
-          count(*) FILTER (WHERE is_absent = true) AS absent_total,
-          -- present_total: exclude weekend rows (Sat/Sun) that have no on/off duty times
-          count(*) FILTER (
-            WHERE is_absent = false
-              AND NOT (
-                extract(dow from work_date) IN (0, 6)
-                AND first_on_duty IS NULL
-                AND first_off_duty IS NULL
-              )
-          ) AS present_total,
-          count(*) FILTER (WHERE is_halfday = true) AS halfday_total,
-          coalesce(sum(late_minutes) FILTER (WHERE is_absent = false AND is_halfday = false), 0) AS late_minutes_total,
-          coalesce(sum(total_minutes) FILTER (WHERE is_absent = false AND is_halfday = false), 0) AS worked_minutes_total,
-          coalesce(sum(overtime_minutes) FILTER (WHERE is_absent = false AND is_halfday = false), 0) AS overtime_minutes_total,
-          coalesce(sum(leave_early_minutes) FILTER (WHERE is_absent = false AND is_halfday = false AND leave_early_minutes > 0), 0) AS undertime_minutes_total
-        FROM attendance
-        WHERE employee_id = $1
-          AND work_date >= $2
-          AND work_date <= $3`,
-        [employee.employee_id, period.period_start, period.period_end],
-      )
-
-      const summary = attendanceSummary[0] || {}
+      const attendanceRowsForEmployee = attendanceByEmployee.get(String(employee.employee_id)) ?? []
       const payPerDay = toNumber(employee.pay_per_day, 0)
-      const absentTotal = toNumber(summary.absent_total, 0)
-      const presentTotal = toNumber(summary.present_total, 0)
-      const halfdayTotal = toNumber(summary.halfday_total, 0)
-      const lateMinutesTotal = toNumber(summary.late_minutes_total, 0)
-      const workedMinutesTotal = toNumber(summary.worked_minutes_total, 0)
-      const overtimeMinutesTotal = toNumber(summary.overtime_minutes_total, 0)
-      const undertimeMinutesTotal = toNumber(summary.undertime_minutes_total, 0)
+      const leaveDateMap = new Map<string, boolean>()
+      const approvedLeaveRowsForEmployee = approvedLeaveByEmployee.get(String(employee.employee_id)) ?? []
+      for (const leave of approvedLeaveRowsForEmployee) {
+        const start = new Date(leave.start_date)
+        const end = new Date(leave.end_date)
+        for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+          const key = new Date(cursor).toISOString().slice(0, 10)
+          leaveDateMap.set(key, Boolean(leave.is_paid))
+        }
+      }
 
-      const halfdayPayment = halfdayTotal * (payPerDay / 2)
+      let absentTotal = 0
+      let presentTotal = 0
+      let onLeaveTotal = 0
+      let halfdayTotal = 0
+      let lateMinutesTotal = 0
+      let workedMinutesTotal = 0
+      let overtimeMinutesTotal = 0
+      let undertimeMinutesTotal = 0
+      let holidayPay = 0
+      let halfdayPayment = 0
+      let paidLeavePay = 0
+
+      for (const a of attendanceRowsForEmployee) {
+        const isAbsent = Boolean(a.is_absent)
+        const isOnLeave = Boolean(a.on_leave)
+        const isHalfday = Boolean(a.is_halfday)
+        const workDateKey = new Date(a.work_date).toISOString().slice(0, 10)
+        const isHoliday = Boolean(holidayMapByDate[workDateKey])
+
+        if (isOnLeave) {
+          const leaveIsPaid = leaveDateMap.get(workDateKey) ?? false
+          if (leaveIsPaid) {
+            onLeaveTotal += 1
+            paidLeavePay += payPerDay
+          }
+        } else if (isAbsent) {
+          absentTotal += 1
+        } else {
+          const dow = new Date(a.work_date).getDay()
+          const firstOn = a.first_on_duty
+          const firstOff = a.first_off_duty
+          if (!(dow === 0 || dow === 6) || firstOn !== null || firstOff !== null) {
+            presentTotal += 1
+          }
+        }
+
+        if (!isAbsent && !isOnLeave && !isHalfday) {
+          lateMinutesTotal += toNumber(a.late_minutes, 0)
+          undertimeMinutesTotal += toNumber(a.leave_early_minutes, 0)
+        }
+
+        if (isOnLeave) {
+          // leave days are excluded from normal gross_base and absence counts; paid leave is accounted under paid_leave_pay
+        } else if (!isAbsent && isHoliday) {
+          const htype = String(holidayMapByDate[workDateKey])
+          const baseAmount = isHalfday ? (payPerDay / 2) : payPerDay
+          let dayHolidayPay = 0
+          if (htype === 'REGULAR') {
+            dayHolidayPay = baseAmount * 2
+          } else if (htype === 'SPECIAL' || htype === 'SPECIAL_NON_WORKING') {
+            dayHolidayPay = baseAmount * 0.3
+          } else {
+            dayHolidayPay = baseAmount * 0.3
+          }
+          holidayPay += dayHolidayPay
+        } else if (!isAbsent && isHalfday && !isHoliday) {
+          halfdayTotal += 1
+          halfdayPayment += payPerDay / 2
+        } else if (!isAbsent && !isHalfday && !isHoliday) {
+          workedMinutesTotal += toNumber(a.total_minutes, 0)
+        }
+
+        if (!isAbsent && !isOnLeave && !isHalfday) {
+          overtimeMinutesTotal += toNumber(a.overtime_minutes, 0)
+        }
+      }
+
       const sumLateMin = (lateMinutesTotal / 15) * 50
       const undertimeDeductionRateType = String(payrollSettings.undertime_deduction_rate_type || 'Hour').trim()
       const undertimeDeductionRate = toNumber(payrollSettings.undertime_deduction_rate, 0)
@@ -106,7 +215,7 @@ export async function GET(req: Request) {
         toNumber(employee.philhealth, 0) +
         toNumber(employee.pagibig, 0)
 
-      const grossPay = grossBase + halfdayPayment + overtimePay
+      const grossPay = grossBase + halfdayPayment + overtimePay + holidayPay + paidLeavePay
       const attendanceDeduction = sumLateMin + undertimeDeductionTotal
       const totalDeduction = attendanceDeduction + healthDeduction
       const netPay = grossPay - totalDeduction
@@ -117,6 +226,7 @@ export async function GET(req: Request) {
         pay_per_day: payPerDay,
         present_total: presentTotal,
         absent_total: absentTotal,
+        on_leave_total: onLeaveTotal,
         halfday_total: halfdayTotal,
         worked_minutes_total: workedMinutesTotal,
         late_minutes_total: lateMinutesTotal,
@@ -131,7 +241,9 @@ export async function GET(req: Request) {
         deductions: totalDeduction,
         net_pay: netPay,
         gross_pay: grossPay,
+        paid_leave_pay: paidLeavePay,
         halfday_payment: halfdayPayment,
+        holiday_pay: holidayPay,
         attendance_deduction: attendanceDeduction,
         total_deduction: totalDeduction,
         health_deduction: healthDeduction,
@@ -150,6 +262,7 @@ export async function GET(req: Request) {
       period,
       rows,
       payroll: rows,
+      count: totalEmployeeCount,
     })
   } catch (error) {
     console.error('payroll calculate failed', error)

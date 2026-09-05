@@ -38,6 +38,7 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
     const newEnd = new Date(periodEnd)
     
     const hasOverlap = existingPeriods.some(p => {
+      if (String(p.restaurant || '').trim() !== String(restaurant).trim()) return false
       const existingStart = new Date(p.period_start)
       const existingEnd = new Date(p.period_end)
       // Overlap if: newStart <= existingEnd AND existingStart <= newEnd

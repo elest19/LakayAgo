@@ -56,7 +56,7 @@ export interface AttendanceRecord {
   undertimeMinutes: number
   overtimeHours: number
   overtimeMinutes: number
-  status: 'Present' | 'Absent' | 'Leave' | 'Rest Day' | 'Holiday' | 'Incomplete' | 'Overtime'
+  status: 'Present' | 'Absent' | 'Leave' | 'On Leave' | 'Rest Day' | 'Holiday' | 'Incomplete' | 'Overtime'
 }
 
 export interface PayrollPeriod {
@@ -84,7 +84,9 @@ export interface LeaveRequest {
   id: string
   employeeId: string
   employeeName: string
-  department: string
+  department?: string
+  restaurant?: string
+  employeeRestaurant?: string
   leaveType: string
   startDate: string
   endDate: string

@@ -1,5 +1,5 @@
 'use client'
-import { Search, Download } from 'lucide-react'
+import { Search, Download, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useState, useRef } from 'react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
@@ -89,6 +89,7 @@ function PayslipDetailModal({ item, onClose }: { item: any; onClose: () => void 
                 { id: 'overtime', label: 'Overtime Pay', amount: Number(item.raw?.overtime_pay ?? 0) },
                 { id: 'halfday', label: 'Halfday Pay', amount: Number(item.raw?.halfday_pay ?? 0) },
                 { id: 'holiday', label: 'Holiday Pay', amount: Number(item.raw?.holiday_pay ?? 0) },
+                { id: 'paid-leave', label: 'Paid Leave Pay', amount: Number(item.raw?.paid_leave_pay ?? 0) },
               ].map(e => (
                 <div key={e.id} className="flex justify-between text-sm">
                   <span className="text-slate-600">{e.label}</span>
@@ -162,6 +163,8 @@ export default function Payslips() {
   const [viewing, setViewing] = useState<any | null>(null)
   const [periods, setPeriods] = useState<any[]>([])
   const [payslips, setPayslips] = useState<any[]>([])
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 10
 
   // Helper: build display object from raw payslip row using cache when available
   const buildFromRaw = (r: any) => {
@@ -268,6 +271,13 @@ export default function Payslips() {
     return matchQ && matchRestaurant
   })
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(prev => Math.min(prev, totalPages))
+  }, [totalPages])
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -279,20 +289,20 @@ export default function Payslips() {
       <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
         <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400">
           <Search size={14} className="text-slate-400 shrink-0" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
         </div>
-        <select value={period} onChange={e => setPeriod(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+        <select value={period} onChange={e => { setPeriod(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
           {periods.length === 0 ? (
             <option value="">Select payroll period</option>
           ) : (
             periods.map(p => <option key={p.report_period_id ?? p.id} value={String(p.report_period_id ?? p.id)}>{p.label || `${p.period_start} – ${p.period_end}`}</option>)
           )}
         </select>
-        <select value={dept} onChange={e => setDept(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+        <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
           <option value="">Restaurant: All</option>
           {['Lakay Ago', 'Aroo'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
-        <button onClick={() => clearEmployeesCache()} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white hover:bg-slate-50 font-display">Refresh Employee Data</button>
+        {/* <button onClick={() => clearEmployeesCache()} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white hover:bg-slate-50 font-display">Refresh Employee Data</button> */}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -312,7 +322,7 @@ export default function Payslips() {
                     <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">No payslips available for this period.</td>
                   </tr>
                 ) : (
-                  filtered.map(p => (
+                  pageData.map(p => (
                     <tr
                       key={p.id}
                       className="hover:bg-slate-50 group cursor-pointer"
@@ -354,7 +364,7 @@ export default function Payslips() {
               {filtered.length === 0 ? (
                 <div className="p-4 text-sm text-slate-500">No payslips available for this period.</div>
               ) : (
-                filtered.map(p => (
+                pageData.map(p => (
                   <button key={p.id} onClick={() => setViewing(p)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-700">{p.emp.firstName} {p.emp.lastName}</div>
@@ -366,6 +376,27 @@ export default function Payslips() {
               )}
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-white rounded-b-xl">
+        <p className="text-xs text-slate-500">Showing {filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} payslips</p>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"><ChevronLeft size={16} /></button>
+          {Array.from({ length: totalPages }, (_, i) => {
+            const p = i + 1
+            const show = p === 1 || p === totalPages || Math.abs(p - page) <= 2
+            if (!show) {
+              if (i === 1 || i === totalPages - 2) return <span key={p} className="px-1 text-slate-400">…</span>
+              return null
+            }
+            return (
+              <button key={p} onClick={() => setPage(p)} className={`w-7 h-7 rounded-lg text-xs font-medium font-display ${page === p ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
+                {p}
+              </button>
+            )
+          })}
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"><ChevronRight size={16} /></button>
         </div>
       </div>
 

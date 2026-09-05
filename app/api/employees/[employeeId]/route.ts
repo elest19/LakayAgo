@@ -55,10 +55,29 @@ export async function PUT(req: Request, context: any) {
     }
     if (Object.keys(allowed).length === 0) return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
 
+    if (allowed.status) {
+      allowed.status = String(allowed.status).trim().toLowerCase() === 'inactive'
+        ? 'inactive'
+        : String(allowed.status).trim().toLowerCase() === 'fired'
+          ? 'fired'
+          : 'active'
+    }
+
     const { rows: existingRows } = await query('select * from employees where employee_id = $1 limit 1', [Number(employeeId)])
     const emp = existingRows[0]
     if (!emp) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     if (session.role !== 'SuperAdmin' && emp.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+    const nextStatus = allowed.status ?? emp.status
+    if (String(nextStatus ?? '').trim().toLowerCase() === 'active') {
+      const { rows: duplicateRows } = await query(
+        'select employee_id from employees where employee_id != $1 and source_employee_id = $2 and restaurant = $3 and lower(status) = $4 limit 1',
+        [Number(employeeId), allowed.source_employee_id ?? emp.source_employee_id, allowed.restaurant ?? emp.restaurant, 'active'],
+      )
+      if (duplicateRows.length > 0) {
+        return NextResponse.json({ error: `An active employee with ID ${allowed.source_employee_id ?? emp.source_employee_id} already exists for ${allowed.restaurant ?? emp.restaurant}.` }, { status: 409 })
+      }
+    }
 
     const sets = [] as string[]
     const queryParams: any[] = []

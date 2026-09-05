@@ -23,6 +23,7 @@ type IncomingRecord = {
   overtime_minutes?: number
   is_halfday?: boolean
   is_absent?: boolean
+  on_leave?: boolean
 }
 
 export async function GET(req: Request) {
@@ -54,7 +55,11 @@ export async function GET(req: Request) {
 
     const text = `select * from attendance ${where.length ? 'where ' + where.join(' and ') : ''} order by work_date desc`
     const { rows } = await query(text, params)
-    return NextResponse.json({ attendance: rows })
+    const attendance = rows.map((row: any) => ({
+      ...row,
+      work_date: normalizeDateOnly(row.work_date),
+    }))
+    return NextResponse.json({ attendance })
   } catch (err) {
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
@@ -69,15 +74,19 @@ function emptyToNull(v: unknown): string | null {
   function normalizeDateOnly(value: unknown): string {
     if (value === null || value === undefined) return ''
     if (value instanceof Date) {
-      const iso = value.toISOString()
-      return iso.slice(0, 10)
+      const year = value.getFullYear()
+      const month = String(value.getMonth() + 1).padStart(2, '0')
+      const day = String(value.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
     }
 
     const raw = String(value).trim()
-    const base = raw.split('T')[0]
-    const match = base.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (!raw) return ''
+
+    const base = raw.split(/[T\s]/)[0]
+    const match = base.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
     if (match) {
-      return `${match[1]}-${match[2]}-${match[3]}`
+      return `${match[1]}-${String(Number(match[2])).padStart(2, '0')}-${String(Number(match[3])).padStart(2, '0')}`
     }
 
     const fallback = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
@@ -120,11 +129,11 @@ export async function POST(req: Request) {
 
 
       const employeeBySourceId = new Map<string, any>()
-      for (const emp of empRes.rows) employeeBySourceId.set(String(emp.source_employee_id), emp) 
-
-    console.log('restaurantValue:', restaurantValue)
-    console.log('employees found:', empRes.rows.length)
-    console.log('sample source_employee_id type:', typeof empRes.rows[0]?.source_employee_id, empRes.rows[0]?.source_employee_id)
+      for (const emp of empRes.rows) {
+        const status = String(emp.status ?? '').trim().toLowerCase()
+        if (status !== 'active') continue
+        employeeBySourceId.set(String(emp.source_employee_id), emp)
+      }
  
       // ---- 2. Load all report periods for this restaurant ONCE ----
       const rpRes = restaurantValue === 'Both'
@@ -200,9 +209,8 @@ export async function POST(req: Request) {
         const leaveEarlyMinutes = Math.max(0, Math.round(Number(r.leave_early_minutes ?? r.undertimeMinutes ?? 0) || 0))
         const overtimeMinutes = Math.max(0, Math.round(Number(r.overtime_minutes ?? 0) || 0))
         const isHalfday = r.is_halfday === true
-        const isAbsent = typeof r.is_absent === 'boolean'
-          ? r.is_absent
-          : (r.status ?? '').toLowerCase() === 'absent'
+        const isOnLeave = typeof r.on_leave === 'boolean' ? r.on_leave : false
+        const isAbsent = (typeof r.is_absent === 'boolean' ? r.is_absent : (r.status ?? '').toLowerCase() === 'absent') && !isOnLeave
 
         rows.push({
           key,
@@ -219,6 +227,7 @@ export async function POST(req: Request) {
             leaveEarlyMinutes,
             totalMinutes,
             isAbsent,
+            isOnLeave,
             overtimeMinutes,
             isHalfday,
           ],
@@ -245,7 +254,7 @@ export async function POST(req: Request) {
           insert into attendance(
             restaurant, employee_id, period_id, work_date,
             first_on_duty, first_off_duty, second_on_duty, second_off_duty,
-            late_minutes, leave_early_minutes, total_minutes, is_absent, overtime_minutes, is_halfday,
+            late_minutes, leave_early_minutes, total_minutes, is_absent, on_leave, overtime_minutes, is_halfday,
             created_at, updated_at
           )
           values ${valueRows.join(', ')}
@@ -258,6 +267,7 @@ export async function POST(req: Request) {
             leave_early_minutes = excluded.leave_early_minutes,
             total_minutes = excluded.total_minutes,
             is_absent = excluded.is_absent,
+            on_leave = excluded.on_leave,
             overtime_minutes = excluded.overtime_minutes,
             is_halfday = excluded.is_halfday,
             updated_at = now()

@@ -13,6 +13,7 @@ const statusColor: Record<Status, string> = {
   Present: 'bg-emerald-100 text-emerald-700',
   Absent: 'bg-red-100 text-red-700',
   Leave: 'bg-violet-100 text-violet-700',
+  'On Leave': 'bg-violet-100 text-violet-700',
   'Rest Day': 'bg-slate-100 text-slate-500',
   Holiday: 'bg-blue-100 text-blue-700',
   Incomplete: 'bg-amber-100 text-amber-700',
@@ -167,18 +168,50 @@ export default function AttendanceRecords() {
       const emap = new Map<number, any>()
       for (const e of (eJson.employees || [])) emap.set(Number(e.id ?? e.employee_id), e)
 
-      const parseDateOnly = (value: string | null | undefined) => {
-        if (!value) return null
-        const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
-        if (!match) return null
-        const [_, year, month, day] = match
-        return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+      const formatDateOnly = (value: string | null | undefined) => {
+        const raw = String(value ?? '').trim()
+        if (!raw) return ''
+
+        // Try ISO format YYYY-MM-DD at start
+        const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+        if (isoMatch) {
+          const [, year, month, day] = isoMatch
+          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+          const monthIndex = Number(month) - 1
+          return `${monthNames[monthIndex] ?? month} ${Number(day)}, ${year}`
+        }
+
+        // Fallback: parse as UTC to avoid timezone shift
+        let parsed: Date
+        // If string has explicit timezone (Z, +HH:MM, -HH:MM), use as-is; otherwise assume UTC
+        if (/Z|[+-]\d{2}:?\d{2}$/.test(raw)) {
+          parsed = new Date(raw)
+        } else {
+          // No timezone indicator -> treat as UTC
+          parsed = new Date(raw + 'Z')
+        }
+        if (Number.isNaN(parsed.getTime())) return raw
+
+        return `${parsed.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })} ${parsed.getUTCDate()}, ${parsed.getUTCFullYear()}`
+      }
+
+      const formatDayName = (value: string | null | undefined) => {
+        const raw = String(value ?? '').trim()
+        if (!raw) return ''
+
+        const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+        if (!isoMatch) return ''
+
+        const [, year, month, day] = isoMatch
+        const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+        return date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }).toUpperCase()
       }
 
       const mapped = att.map(row => {
         const emp = emap.get(Number(row.employee_id)) || null
         const workDate = row.work_date
-        const dt = parseDateOnly(workDate)
+        const dateMatch = String(workDate ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
+        const dt = dateMatch ? new Date(Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))) : null
 
         const formatTime = (t: any) => {
           if (!t) return null
@@ -193,13 +226,25 @@ export default function AttendanceRecords() {
           return `${hh}:${String(mm).padStart(2,'0')} ${ampm}`
         }
 
-        const dateStr = dt ? dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : (row.work_date || '')
-        const dayStr = dt ? dt.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }).toUpperCase() : ''
+        const dateStr = formatDateOnly(workDate)
+        const dayStr = formatDayName(workDate)
 
         const firstOn = row.first_on_duty ?? null
         const firstOff = row.first_off_duty ?? null
-
-        const status = row.is_absent ? 'Absent' : (row.total_minutes === 0 ? 'Incomplete' : 'Present')
+        const hasRecordedPunch = Boolean(firstOn || firstOff || row.time_in || row.time_out)
+        const isWeekend = !!dt && (dt.getUTCDay() === 0 || dt.getUTCDay() === 6)
+        const hasLeave = Boolean(row.on_leave)
+        const status = hasLeave
+          ? 'On Leave'
+          : row.is_absent
+            ? 'Absent'
+            : isWeekend && hasRecordedPunch
+              ? 'Present'
+              : isWeekend
+                ? 'Rest Day'
+                : row.total_minutes === 0
+                  ? 'Incomplete'
+                  : 'Present'
 
         return {
           id: String(row.attendance_id ?? row.id ?? ''),
@@ -302,7 +347,7 @@ export default function AttendanceRecords() {
           <div className="w-full">
             <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
               <option value="">Status: All</option>
-              {['Present', 'Absent', 'Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
+              {['Present', 'Absent', 'Leave', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
         </div>
@@ -323,7 +368,7 @@ export default function AttendanceRecords() {
           </select>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
             <option value="">Status: All</option>
-            {['Present', 'Absent', 'Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
+            {['Present', 'Absent', 'Leave', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
           </select>
         </div>
       )}
@@ -606,7 +651,7 @@ export default function AttendanceRecords() {
                     <div>
                       <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Status</label>
                       <select value={editStatus} onChange={e => setEditStatus(e.target.value as Status)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display">
-                        {(['Present', 'Absent', 'Leave', 'Rest Day', 'Holiday', 'Incomplete'] as Status[]).map(s => <option key={s}>{s}</option>)}
+                        {(['Present', 'Absent', 'Leave', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'] as Status[]).map(s => <option key={s}>{s}</option>)}
                       </select>
                     </div>
                   </div>

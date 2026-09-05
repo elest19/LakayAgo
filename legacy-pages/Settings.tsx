@@ -77,7 +77,7 @@ export default function SettingsPage() {
           id: h.id,
           date: new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
           holiday: h.holiday_name || h.holiday || '',
-          type: h.type === 'SPECIAL_NON_WORKING' ? 'Special Non-Working Holiday' : h.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday',
+          type: (h.type === 'SPECIAL' || h.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : h.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday',
           status: h.active ? 'Active' : 'Inactive',
           raw: h,
         }))
@@ -584,7 +584,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
         <div className="bg-white rounded-t rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <p className="text-sm font-semibold text-slate-700 font-display">Holidays</p>
-            <button className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
+            <button onClick={() => setEditingHoliday({ index: -1, item: { holiday: '', date: '', type: 'Regular Holiday', status: 'Active', raw: null } })} className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
               <Plus size={14} /> Add Holiday
             </button>
           </div>
@@ -809,7 +809,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Date</label>
                 <input
-                  value={editingHoliday.item.date}
+                  type="date"
+                  value={editingHoliday.item.date || ''}
                   onChange={e => setEditingHoliday(prev => prev ? { ...prev, item: { ...prev.item, date: e.target.value } } : prev)}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 />
@@ -846,7 +847,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                   const item: any = editingHoliday.item
                   const mapTypeToDb = (t: string) => {
                     if (t === 'Company Holiday') return 'COMPANY'
-                    if (t === 'Special Non-Working Holiday') return 'SPECIAL_NON_WORKING'
+                    // prefer new 'SPECIAL' enum value, but backend accepts both
+                    if (t === 'Special Non-Working Holiday') return 'SPECIAL'
                     return 'REGULAR'
                   }
 
@@ -874,14 +876,14 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                       const res = await fetch(`/api/settings/holidays/${item.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
                       if (!res.ok) throw new Error('Update failed')
                       const updated = await res.json()
-                      const mapped = { id: updated.id, date: new Date(updated.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), holiday: updated.holiday_name, type: updated.type === 'SPECIAL_NON_WORKING' ? 'Special Non-Working Holiday' : updated.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday', status: updated.active ? 'Active' : 'Inactive', raw: updated }
+                      const mapped = { id: updated.id, date: new Date(updated.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), holiday: updated.holiday_name, type: (updated.type === 'SPECIAL' || updated.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : updated.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday', status: updated.active ? 'Active' : 'Inactive', raw: updated }
                       setHolidayList(prev => prev.map((it) => it.id === mapped.id ? mapped : it))
                       showToast({ type: 'success', message: 'Holiday updated', description: `${mapped.holiday} was updated successfully.` })
                     } else {
                       const res = await fetch('/api/settings/holidays', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
                       if (!res.ok) throw new Error('Create failed')
                       const created = await res.json()
-                      const mapped = { id: created.id, date: new Date(created.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), holiday: created.holiday_name, type: created.type === 'SPECIAL_NON_WORKING' ? 'Special Non-Working Holiday' : created.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday', status: created.active ? 'Active' : 'Inactive', raw: created }
+                      const mapped = { id: created.id, date: new Date(created.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), holiday: created.holiday_name, type: (created.type === 'SPECIAL' || created.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : created.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday', status: created.active ? 'Active' : 'Inactive', raw: created }
                       setHolidayList(prev => [mapped, ...prev])
                       showToast({ type: 'success', message: 'Holiday created', description: `${mapped.holiday} was added.` })
                     }
@@ -1211,9 +1213,14 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
               <p className="text-sm font-medium">{selectedHoliday.status}</p>
             </div>
           </div>
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
             <button onClick={() => setSelectedHoliday(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
-            <button onClick={() => { setSelectedHoliday(null); setEditingHoliday({ index: holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date), item: selectedHoliday }) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
+            <button onClick={() => {
+                const idx = holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date)
+                const isoDate = selectedHoliday?.raw?.date ? new Date(selectedHoliday.raw.date).toISOString().slice(0,10) : (selectedHoliday?.date ? new Date(selectedHoliday.date).toISOString().slice(0,10) : '')
+                setSelectedHoliday(null)
+                setEditingHoliday({ index: idx, item: { ...selectedHoliday, date: isoDate } })
+              }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
             <button onClick={() => { setSelectedHoliday(null); setDeleteTarget({ kind: 'holiday', index: holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date), item: selectedHoliday }) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Delete</button>
           </div>
         </Modal>

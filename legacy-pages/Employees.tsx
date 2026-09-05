@@ -9,7 +9,7 @@ import type { Employee } from "../types"
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2 }).format(n)
 
-function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive }: { employee: Employee; onClose: () => void; onUpdate?: (u: Employee) => void; onArchive?: (e: Employee) => void }) {
+function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingEmployees }: { employee: Employee; onClose: () => void; onUpdate?: (u: Employee) => void; onArchive?: (e: Employee) => void; existingEmployees: Employee[] }) {
   const { showToast } = useApp()
   const isMobile = useIsMobile()
   const [tab, setTab] = useState<"overview" | "attendance" | "leave" | "payroll-history">("overview")
@@ -32,9 +32,124 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive }: { emplo
   const [loading, setLoading] = useState(false)
   const [selectedAttendance, setSelectedAttendance] = useState<any | null>(null)
   const [selectedPayroll, setSelectedPayroll] = useState<any | null>(null)
+  const [attendanceRows, setAttendanceRows] = useState<any[]>([])
+  const [leaveRows, setLeaveRows] = useState<any[]>([])
+  const [payrollRows, setPayrollRows] = useState<any[]>([])
+  const [tabLoading, setTabLoading] = useState({ attendance: false, leave: false, payroll: false })
+
+  const formatDateForDisplay = (value?: string | null) => {
+    if (!value) return '—'
+    const match = String(value).match(/^\d{4}-\d{2}-\d{2}/)
+    if (!match) return String(value)
+    const [year, month, day] = match[0].split('-').map(Number)
+    return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  }
+
+  const formatTabTime = (value?: string | null) => {
+    if (!value) return '—'
+    const parts = String(value).split(':')
+    if (parts.length < 2) return value
+    let hh = Number(parts[0])
+    const mm = Number(parts[1]) || 0
+    const ampm = hh >= 12 ? 'PM' : 'AM'
+    if (hh === 0) hh = 12
+    if (hh > 12) hh -= 12
+    return `${hh}:${String(mm).padStart(2, '0')} ${ampm}`
+  }
+
+  const getAttendanceStatus = (row: any) => {
+    const date = new Date(`${row.work_date}T00:00:00Z`)
+    const isWeekend = date.getUTCDay() === 0 || date.getUTCDay() === 6
+    const hasRecordedPunch = Boolean(row.first_on_duty || row.first_off_duty)
+
+    if (row.on_leave) return 'On Leave'
+    if (row.is_absent) return 'Absent'
+    if (isWeekend && hasRecordedPunch) return 'Present'
+    if (isWeekend) return 'Rest Day'
+    if ((Number(row.total_minutes ?? 0)) === 0) return 'Incomplete'
+    return 'Present'
+  }
+
+  useEffect(() => {
+    if (isEditing) return
+
+    if (tab === 'attendance') {
+      let active = true
+      setTabLoading(prev => ({ ...prev, attendance: true }))
+      fetch(`/api/attendance?employee_id=${encodeURIComponent(String(employee.id))}`)
+        .then(async (res) => {
+          if (!res.ok) throw new Error('Failed to load attendance')
+          const body = await res.json()
+          if (!active) return
+          setAttendanceRows(body.attendance || [])
+        })
+        .catch(() => {
+          if (active) setAttendanceRows([])
+        })
+        .finally(() => {
+          if (active) setTabLoading(prev => ({ ...prev, attendance: false }))
+        })
+
+      return () => { active = false }
+    }
+
+    if (tab === 'leave') {
+      let active = true
+      setTabLoading(prev => ({ ...prev, leave: true }))
+      fetch('/api/leave_requests')
+        .then(async (res) => {
+          if (!res.ok) throw new Error('Failed to load leave requests')
+          const body = await res.json()
+          if (!active) return
+          const filtered = (body.leaveRequests || []).filter((item: any) => String(item.employeeId) === String(employee.id))
+          setLeaveRows(filtered)
+        })
+        .catch(() => {
+          if (active) setLeaveRows([])
+        })
+        .finally(() => {
+          if (active) setTabLoading(prev => ({ ...prev, leave: false }))
+        })
+
+      return () => { active = false }
+    }
+
+    if (tab === 'payroll-history') {
+      let active = true
+      setTabLoading(prev => ({ ...prev, payroll: true }))
+      fetch('/api/payslips')
+        .then(async (res) => {
+          if (!res.ok) throw new Error('Failed to load payslips')
+          const body = await res.json()
+          if (!active) return
+          const filtered = (body.payslips || []).filter((item: any) => String(item.employee_id) === String(employee.id))
+          setPayrollRows(filtered)
+        })
+        .catch(() => {
+          if (active) setPayrollRows([])
+        })
+        .finally(() => {
+          if (active) setTabLoading(prev => ({ ...prev, payroll: false }))
+        })
+
+      return () => { active = false }
+    }
+
+    return undefined
+  }, [tab, employee.id, isEditing])
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (formData.status === "Active" && hasDuplicateActiveEmployee(existingEmployees, formData.source_employee_id, formData.restaurant, employee.id)) {
+      showToast({
+        type: "error",
+        message: "Duplicate active employee",
+        description: `An active employee with ID ${formData.source_employee_id} already exists for ${formData.restaurant}.`,
+      })
+      return
+    }
+
     setLoading(true)
     try {
       const res = await fetch(`/api/employees/${employee.id}`, {
@@ -183,8 +298,8 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive }: { emplo
                   <select value={formData.restaurant} onChange={(e) => setFormData({ ...formData, restaurant: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required>
                     <option value="">Select Restaurant</option>
                     <option value="Lakay Ago">Lakay Ago</option>
-                    <option value="Aroo">Aroo 2</option>
-                    <option value="Both">Both 3</option>
+                    <option value="Aroo">Aroo</option>
+                    <option value="Both">Both</option>
                   </select>
                 </div>
               </div>
@@ -212,18 +327,20 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive }: { emplo
                   <span className="text-xs text-slate-500">PHP</span>
                 </div>
               </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1 font-display">13th Month Pay (PHP)</label>
-                <input type="number" step="0.01" value={formData.month_pay_13th || ''} onChange={(e) => setFormData({ ...formData, month_pay_13th: e.target.value === '' ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
-                <span className="text-xs text-slate-500">PHP</span>
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1 font-display">Status</label>
-                <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as Employee["status"] })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100">
-                  <option value="Active">Active</option>
-                  <option value="Inactive">Inactive</option>
-                  <option value="On Leave">On Leave</option>
-                </select>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">13th Month Pay (PHP)</label>
+                  <input type="number" step="0.01" value={formData.month_pay_13th || ''} onChange={(e) => setFormData({ ...formData, month_pay_13th: e.target.value === '' ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                  <span className="text-xs text-slate-500">PHP</span>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">Status</label>
+                  <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as Employee["status"] })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100">
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="On Leave">On Leave</option>
+                  </select>
+                </div>
               </div>
               <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => setIsEditing(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
@@ -233,25 +350,115 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive }: { emplo
           )}
 
           {tab === "attendance" && (
-            <div>
-              <p className="text-sm text-slate-500 text-center py-8">Attendance records not available in this view</p>
+            <div className="w-3xl">
+              {tabLoading.attendance ? (
+                <p className="text-sm text-slate-500 text-center py-8">Loading attendance...</p>
+              ) : attendanceRows.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No attendance records found for this employee.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        {['Date', 'Day', 'Time In', 'Time Out', 'Status'].map(h => (
+                          <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {attendanceRows.map((row: any) => {
+                        const status = getAttendanceStatus(row)
+                        return (
+                          <tr key={row.attendance_id ?? row.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 text-sm text-slate-600">{formatDateForDisplay(row.work_date)}</td>
+                            <td className="py-2 px-3 text-sm text-slate-600">{new Date(`${row.work_date}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }).toUpperCase()}</td>
+                            <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatTabTime(row.first_on_duty)}</td>
+                            <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatTabTime(row.first_off_duty)}</td>
+                            <td className="py-2 px-3">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${status === 'Present' ? 'bg-emerald-100 text-emerald-700' : status === 'Absent' ? 'bg-red-100 text-red-700' : status === 'On Leave' ? 'bg-violet-100 text-violet-700' : status === 'Rest Day' ? 'bg-slate-100 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>
+                                {status}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
           {tab === "leave" && (
-            <div>
-              <p className="text-sm text-slate-500 text-center py-8">Leave records not available in this view</p>
+            <div className="w-3xl">
+              {tabLoading.leave ? (
+                <p className="text-sm text-slate-500 text-center py-8">Loading leave records...</p>
+              ) : leaveRows.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No leave records found for this employee.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        {['Type', 'Start', 'End', 'Days', 'Status'].map(h => (
+                          <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {leaveRows.map((row: any) => (
+                        <tr key={row.id ?? row.leave_request_id} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 text-sm text-slate-600">{row.leaveType || row.leave_type_name || '—'}</td>
+                          <td className="py-2 px-3 text-sm text-slate-600">{formatDateForDisplay(row.startDate || row.start_date)}</td>
+                          <td className="py-2 px-3 text-sm text-slate-600">{formatDateForDisplay(row.endDate || row.end_date)}</td>
+                          <td className="py-2 px-3 text-sm font-mono text-slate-600">{row.days ?? 0}</td>
+                          <td className="py-2 px-3">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${row.status === 'Approved' ? 'bg-emerald-100 text-emerald-700' : row.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {row.status || 'Pending'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
           {tab === "payroll-history" && (
-            <div>
-              <p className="text-sm text-slate-500 text-center py-8">Payroll history not available in this view</p>
+            <div className="w-3xl">
+              {tabLoading.payroll ? (
+                <p className="text-sm text-slate-500 text-center py-8">Loading payroll history...</p>
+              ) : payrollRows.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No payroll history found for this employee.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        {['Gross Pay', 'Deductions', 'Net Pay'].map(h => (
+                          <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {payrollRows.map((row: any) => (
+                        <tr key={row.payslip_id ?? row.id} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatCurrency(Number(row.gross_pay ?? 0))}</td>
+                          <td className="py-2 px-3 text-sm font-mono text-red-600">{formatCurrency(Number(row.total_deduction ?? 0))}</td>
+                          <td className="py-2 px-3 text-sm font-mono text-slate-700">{formatCurrency(Number(row.net_pay ?? 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {!isEditing && (
+        {tab === "overview" && !isEditing && (
           <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
             <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Close</button>
             <button onClick={() => setIsEditing(true)} className="px-4 py-2 text-sm font-medium border border-slate-200 text-white bg-green-700 rounded-lg hover:bg-green-600 font-display">Edit</button>
@@ -274,6 +481,22 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive }: { emplo
   )
 }
 
+const normalizeEmployeeStatus = (status?: string | null) => String(status ?? "").trim().toLowerCase()
+
+const hasDuplicateActiveEmployee = (employees: Employee[] = [], sourceEmployeeId: string, restaurant: string, currentEmployeeId?: string) => {
+  const trimmedEmployeeId = String(sourceEmployeeId ?? "").trim()
+  const trimmedRestaurant = String(restaurant ?? "").trim()
+
+  if (!trimmedEmployeeId || !trimmedRestaurant) return false
+
+  return employees.some((employee) => {
+    if (currentEmployeeId && String(employee.id) === String(currentEmployeeId)) return false
+    if (String(employee.source_employee_id).trim() !== trimmedEmployeeId) return false
+    if (String(employee.restaurant).trim() !== trimmedRestaurant) return false
+    return normalizeEmployeeStatus(employee.status) === "active"
+  })
+}
+
 const StatusBadge = ({ status }: { status: Employee["status"] }) => {
   const map: Record<string, string> = {
     Active: "bg-emerald-100 text-emerald-700",
@@ -288,7 +511,7 @@ const StatusBadge = ({ status }: { status: Employee["status"] }) => {
   )
 }
 
-function AddEmployeeModal({ onClose, onSave }: { onClose: () => void; onSave: (employee: Employee) => void }) {
+function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () => void; onSave: (employee: Employee) => void; existingEmployees: Employee[] }) {
   const { showToast } = useApp()
   const [formData, setFormData] = useState({
     source_employee_id: "",
@@ -312,6 +535,16 @@ function AddEmployeeModal({ onClose, onSave }: { onClose: () => void; onSave: (e
       showToast({ type: "error", message: "Missing required fields", description: "All fields except Email and Contact Number are required." })
       return
     }
+
+    if (formData.status === "Active" && hasDuplicateActiveEmployee(existingEmployees, formData.source_employee_id, formData.restaurant)) {
+      showToast({
+        type: "error",
+        message: "Duplicate active employee",
+        description: `An active employee with ID ${formData.source_employee_id} already exists for ${formData.restaurant}.`,
+      })
+      return
+    }
+
     setLoading(true)
     try {
       const res = await fetch("/api/employees", {
@@ -323,10 +556,11 @@ function AddEmployeeModal({ onClose, onSave }: { onClose: () => void; onSave: (e
         department: formData.department || null,
         pay_per_day: formData.pay_per_day || null,
         restaurant: formData.restaurant,
+        status: formData.status,
         email: formData.email || null,
         contactNumber: formData.contactNumber || null,
         sss: formData.sss || null,
-        philhealth: formData.philHealth || null,   // note: key renamed to match API
+        philhealth: formData.philHealth || null,
         pagibig: formData.pagibig || null,
         month_pay_13th: formData.month_pay_13th || null,
       }),
@@ -537,9 +771,13 @@ export default function Employees() {
     return !q || e.name.toLowerCase().includes(q) || e.source_employee_id.toLowerCase().includes(q)
   })
 
-  const totalPages = Math.ceil(filtered.length / PER_PAGE)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
   const pageData = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
   const emptyRowsCount = Math.max(0, PER_PAGE - pageData.length)
+
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, totalPages))
+  }, [totalPages])
 
   return (
     <div className="p-6">
@@ -567,7 +805,7 @@ export default function Employees() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Employee', 'ID', 'Department', 'Status', 'Salary', '13th Month'].map((h) => (
+                  {['Employee', 'ID', 'Restaurant', 'Status', 'Salary', '13th Month'].map((h) => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -587,7 +825,7 @@ export default function Employees() {
                       </div>
                     </td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-600">{emp.source_employee_id}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600">{emp.department}</td>
+                    <td className="py-3 px-4 text-sm text-slate-600">{emp.restaurant}</td>
                     <td className="py-3 px-4"><StatusBadge status={emp.status} /></td>
                     <td className="py-3 px-4 font-mono text-sm text-slate-700">{formatCurrency(Number(emp.pay_per_day || 0))}</td>
                     <td className="py-3 px-4 font-mono text-sm text-slate-700">{emp.month_pay_13th ? formatCurrency(emp.month_pay_13th) : '—'}</td>
@@ -634,21 +872,41 @@ export default function Employees() {
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-end gap-2">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1.5 border rounded-md text-sm font-medium hover:bg-slate-50" disabled={page === 1}>
-            Prev
+      <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-white rounded-b-xl">
+        <p className="text-xs text-slate-500">
+          Showing {filtered.length === 0 ? 0 : (page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length} employees
+        </p>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40">
+            <ChevronLeft size={16} />
           </button>
-          <span className="text-sm text-slate-500">
-            Page {page} of {totalPages}
-          </span>
-          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="px-3 py-1.5 border rounded-md text-sm font-medium hover:bg-slate-50" disabled={page === totalPages}>
-            Next
+          {Array.from({ length: totalPages }, (_, i) => {
+            const p = i + 1
+            const show = p === 1 || p === totalPages || Math.abs(p - page) <= 2
+            if (!show) {
+              if (i === 1 || i === totalPages - 2) return <span key={p} className="px-1 text-slate-400">…</span>
+              return null
+            }
+            return (
+              <button
+                key={p}
+                onClick={() => setPage(p)}
+                className={`w-7 h-7 rounded-lg text-xs font-medium font-display ${page === p ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"}`}
+              >
+                {p}
+              </button>
+            )
+          })}
+          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40">
+            <ChevronRight size={16} />
           </button>
+        </div>
       </div>
 
       {selectedEmployee && (
         <EmployeeDetailModal
           employee={selectedEmployee}
+          existingEmployees={employees}
           onClose={() => setSelectedEmployee(null)}
           onArchive={e => { setSelectedEmployee(null); setArchiveConfirm(e) }}
           onUpdate={(updated) => {
@@ -664,7 +922,7 @@ export default function Employees() {
         />
       )}
 
-      {showAdd && <AddEmployeeModal onClose={() => setShowAdd(false)} onSave={(emp) => { loadEmployees(); showToast({ type: "success", message: "Employee created" }); setShowAdd(false) }} />}
+      {showAdd && <AddEmployeeModal existingEmployees={employees} onClose={() => setShowAdd(false)} onSave={(emp) => { loadEmployees(); showToast({ type: "success", message: "Employee created" }); setShowAdd(false) }} />}
 
       {archiveConfirm && (
         <Modal open={!!archiveConfirm} title="Archive Employee" onClose={() => setArchiveConfirm(null)}>

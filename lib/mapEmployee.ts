@@ -1,5 +1,13 @@
 import type { Employee } from "../types"
 
+const formatEmployeeStatus = (status?: string | null): Employee["status"] => {
+  const normalized = String(status ?? '').trim().toLowerCase()
+
+  if (normalized === 'inactive') return 'Inactive'
+  if (normalized === 'fired') return 'Inactive'
+  return 'Active'
+}
+
 // Central mapper: PostgreSQL row → frontend Employee shape
 // Ensures GET / POST / PUT all return the same structure
 export function mapEmployee(row: any): Employee {
@@ -10,7 +18,7 @@ export function mapEmployee(row: any): Employee {
     department: row.department ?? '',
     restaurant: row.restaurant ?? '',
     pay_per_day: Number(row.pay_per_day ?? 0),
-    status: row.status ?? 'Active',
+    status: formatEmployeeStatus(row.status),
     email: row.email ?? '',
     contactNumber: row.contact_number ?? '',
     sss: row.sss != null ? Number(row.sss) : undefined,

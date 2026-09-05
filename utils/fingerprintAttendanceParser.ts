@@ -499,14 +499,35 @@ const parseArooAttendanceReport = async (filePath: string | File | Blob): Promis
       }
 
       const punches = extractPunchTimes(cellRaw)
-      const checkInRaw = punches.times[0] ?? null
-      const checkOutRaw = punches.times[punches.times.length - 1] ?? null
-      const checkIn = canonicalizeTime(checkInRaw)
-      const checkOut = canonicalizeTime(checkOutRaw)
+      let checkInRaw: string | null = null
+      let checkOutRaw: string | null = null
+
+      if (punches.times.length === 1) {
+        const singlePunch = punches.times[0]
+        const [hourText] = singlePunch.split(':')
+        const hour = Number(hourText)
+
+        if (Number.isFinite(hour) && hour >= 12) {
+          checkOutRaw = singlePunch
+        } else {
+          checkInRaw = singlePunch
+        }
+      } else {
+        checkInRaw = punches.times[0] ?? null
+        checkOutRaw = punches.times[punches.times.length - 1] ?? null
+      }
+
+      // For a single punch, we intentionally split it into exactly one side and leave the other null.
+      // This preserves the correct incomplete status for SAT/SUN records as well as weekdays.
+      const canonicalCheckIn = canonicalizeTime(checkInRaw)
+      const canonicalCheckOut = canonicalizeTime(checkOutRaw)
 
       const dateObj = new Date(`${isoDate}T00:00:00Z`)
       const weekday = DAY_NAMES[dateObj.getUTCDay()]
       const isWeekend = weekday === 'SAT' || weekday === 'SUN'
+
+      const deriveStatus: NormalizedAttendanceRecord['status'] = deriveAttendanceStatus(canonicalCheckIn, canonicalCheckOut, isWeekend, checkInRaw, checkOutRaw)
+      console.log('[parseArooAttendanceReport]', { date: isoDate, weekday, isWeekend, checkIn: canonicalCheckIn, checkOut: canonicalCheckOut, checkInRaw, checkOutRaw })
 
       records.push({
         employee_id: String(employeeId),
@@ -514,10 +535,10 @@ const parseArooAttendanceReport = async (filePath: string | File | Blob): Promis
         date: isoDate,
         weekday,
         is_weekend: isWeekend,
-        check_in: checkIn,
-        check_out: checkOut,
+        check_in: canonicalCheckIn,
+        check_out: canonicalCheckOut,
         source_column_group: 'regular',
-        status: deriveAttendanceStatus(checkIn, checkOut, isWeekend, checkInRaw, checkOutRaw),
+        status: deriveStatus,
         second_shift_check_in: null,
         second_shift_check_out: null,
         overtime_check_in: null,

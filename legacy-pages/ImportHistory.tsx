@@ -34,6 +34,8 @@ interface AttendanceRecord {
   late_minutes: number | null
   leave_early_minutes: number | null
   overtime_minutes: number | null
+  total_minutes?: number | null
+  on_leave?: boolean | null
   is_absent: boolean
 }
 
@@ -53,6 +55,7 @@ const attendanceStatusColor: Record<string, string> = {
   Present: 'bg-emerald-100 text-emerald-700',
   Absent: 'bg-red-100 text-red-700',
   Leave: 'bg-violet-100 text-violet-700',
+  'On Leave': 'bg-violet-100 text-violet-700',
   'Rest Day': 'bg-slate-100 text-slate-500',
   Holiday: 'bg-blue-100 text-blue-700',
   Incomplete: 'bg-amber-100 text-amber-700',
@@ -76,9 +79,17 @@ function formatTime(timeStr?: string | null) {
   return `${hh}:${String(mm).padStart(2, '0')} ${ampm}`
 }
 
-function statusLabel(status: string | boolean) {
-  const key = String(status)
-  return attendanceStatusColor[key] ? key : (status ? 'Present' : 'Absent')
+function getAttendanceStatus(record: AttendanceRecord) {
+  const date = new Date(`${record.work_date}T00:00:00Z`)
+  const isWeekend = date.getUTCDay() === 0 || date.getUTCDay() === 6
+  const hasRecordedPunch = Boolean(record.first_on_duty || record.first_off_duty)
+
+  if (record.on_leave) return 'On Leave'
+  if (record.is_absent) return 'Absent'
+  if (isWeekend && hasRecordedPunch) return 'Present'
+  if (isWeekend) return 'Rest Day'
+  if ((record.total_minutes ?? 0) === 0) return 'Incomplete'
+  return 'Present'
 }
 
 function addDaysISO(dateStr?: string, days = 0) {
@@ -361,8 +372,8 @@ export default function ImportHistory() {
                           <td className="py-2 px-3 text-sm font-mono text-orange-600">{minutesToHHMM(rec.leave_early_minutes)}</td>
                           <td className="py-2 px-3 text-sm font-mono text-blue-600">{minutesToHHMM(rec.overtime_minutes)}</td>
                           <td className="py-2 px-3">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${attendanceStatusColor[statusLabel(!rec.is_absent)] || 'bg-slate-100 text-slate-500'}`}>
-                              {!rec.is_absent ? statusLabel(!rec.is_absent) : statusLabel(!rec.is_absent)}
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${attendanceStatusColor[getAttendanceStatus(rec)] || 'bg-slate-100 text-slate-500'}`}>
+                              {getAttendanceStatus(rec)}
                             </span>
                           </td>
                         </tr>

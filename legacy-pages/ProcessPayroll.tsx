@@ -12,6 +12,17 @@ const fmt = (n: number) =>
 const fmtMinutes = (n: number) =>
   new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(Number.isFinite(n) ? n : 0)
 
+const formatIsoToShort = (iso?: string) => {
+  if (!iso) return ''
+  const s = String(iso).slice(0,10)
+  const parts = s.split('-')
+  if (parts.length !== 3) return s
+  const [y, m, d] = parts
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const mi = Number(m) - 1
+  return `${months[mi] ?? m} ${Number(d)}, ${y}`
+}
+
 type Step = 'attendance' | 'calculation' | 'review' | 'approved'
 
 type PayrollRow = {
@@ -20,6 +31,8 @@ type PayrollRow = {
   pay_per_day: number
   present_total: number
   absent_total: number
+  on_leave_total: number
+  paid_leave_pay: number
   halfday_total: number
   worked_minutes_total: number
   overtime_minutes_total: number
@@ -34,6 +47,7 @@ type PayrollRow = {
   rate_in_minutes: number
   deductions: number
   net_pay: number
+  holiday_pay?: number
   gross_pay: number
   overtime_pay: number
   halfday_payment: number
@@ -88,6 +102,7 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
   const overtimePay = Number(row.overtime_pay || 0)
   const halfdayPay = Number(row.halfday_payment || 0)
   const holidayPay = Number(row.holiday_pay || row.holiday_payment || row.holidayPay || 0)
+  const paidLeavePay = Number(row.paid_leave_pay || 0)
   const undertimeDeductionValue = Number(row.undertime_deduction_total || 0)
   const lateDeductionValue = Number(row.sum_late_min || 0)
   const healthDeduction = Number(row.health_deduction || 0)
@@ -123,6 +138,12 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
         label: 'Holiday Pay',
         amount: holidayPay,
         detail: `Holiday pay: ${fmt(holidayPay)}`,
+      },
+      {
+        id: 'paid-leave-pay',
+        label: 'Paid Leave',
+        amount: paidLeavePay,
+        detail: `${Number(row.on_leave_total || 0)} paid leave day(s) × ${fmt(payPerDay)}`,
       },
       {
         id: 'halfday-pay',
@@ -167,14 +188,12 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
         <div className="w-md px-3 py-2 space-y-5">
           <div className="bg-slate-50 rounded-xl p-2">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3 font-display">Attendance Summary</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {[
                 { label: 'Regular Hours', value: `${regularHours.toFixed(1)} hrs` },
-                { label: 'Overtime', value: `${fmt(Number(row.overtime_pay || 0))}` },
-                { label: 'Late', value: `${fmt(Number(row.sum_late_min || 0))}` },
-                { label: 'Undertime', value: `${fmt(Number(row.undertime_deduction_total || 0))}` },
                 { label: 'Absence', value: `${Number(row.absent_total || 0)} days` },
                 { label: 'Present', value: `${Number(row.present_total || 0)} days` },
+                { label: 'On Leave', value: `${Number(row.on_leave_total || 0)} days` },
               ].map(f => (
                 <div key={f.label}>
                   <p className="text-xs text-slate-400 font-display">{f.label}</p>
@@ -212,7 +231,7 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
               ))}
               <div className="flex justify-between text-sm font-semibold border-t border-slate-100 pt-2 mt-1">
                 <span className="text-slate-700">Gross Pay</span>
-                <span className="font-mono text-slate-800">{fmt(Number(row.gross_pay || basePay + overtimePay + holidayPay + halfdayPay || 0))}</span>
+                <span className="font-mono text-slate-800">{fmt(Number(row.gross_pay || basePay + overtimePay + holidayPay + halfdayPay + paidLeavePay || 0))}</span>
               </div>
             </div>
 
@@ -275,22 +294,25 @@ export default function ProcessPayroll() {
   const [isApproving, setIsApproving] = useState(false)
   const [isMarkingReview, setIsMarkingReview] = useState(false)
   const [advancesForReview, setAdvancesForReview] = useState<any[]>([])
+  const [holidaysInPeriod, setHolidaysInPeriod] = useState<any[]>([])
   const [loadingAdvancesForReview, setLoadingAdvancesForReview] = useState(false)
   const [cashAdvanceDeductions, setCashAdvanceDeductions] = useState<Record<string, number>>({})
   const cashAdvanceDeductionsRef = useRef<Record<string, number>>(cashAdvanceDeductions)
-  const [showPayrollTable, setShowPayrollTable] = useState(false)
   const [deductionDrafts, setDeductionDrafts] = useState<Record<string, string>>({})
   const [showDeductConfirm, setShowDeductConfirm] = useState(false)
   const [selectedAdvanceForConfirm, setSelectedAdvanceForConfirm] = useState<any | null>(null)
   const [editingNetFor, setEditingNetFor] = useState<string | null>(null)
   const [netDrafts, setNetDrafts] = useState<Record<string, string>>({})
   const [advancesOpen, setAdvancesOpen] = useState(false)
+  const [holidaysOpen, setHolidaysOpen] = useState(true)
+  const [payrollPage, setPayrollPage] = useState(0)
+  const PAYROLL_PAGE_SIZE = 10
+  const holidaysInnerRef = useRef<HTMLDivElement | null>(null)
+  const holidaysWrapperRef = useRef<HTMLDivElement | null>(null)
+  const [holidaysMaxHeight, setHolidaysMaxHeight] = useState('0px')
   const advancesInnerRef = useRef<HTMLDivElement | null>(null)
   const advancesWrapperRef = useRef<HTMLDivElement | null>(null)
   const [advancesMaxHeight, setAdvancesMaxHeight] = useState('0px')
-  const payrollInnerRef = useRef<HTMLDivElement | null>(null)
-  const payrollWrapperRef = useRef<HTMLDivElement | null>(null)
-  const [payrollMaxHeight, setPayrollMaxHeight] = useState('0px')
   const advancesRequestId = useRef(0)
   const payrollRequestId = useRef(0)
 
@@ -300,6 +322,7 @@ export default function ProcessPayroll() {
   const totalDeductions = payrollRowsState.reduce((sum, row) => sum + Number(row.total_deduction || row.deductions || 0), 0)
   const totalNetPayroll = payrollRowsState.reduce((sum, row) => sum + Number(row.net_pay || 0), 0)
   const totalOvertime = payrollRowsState.reduce((sum, row) => sum + Number(row.overtime_pay || 0), 0)
+  const totalHolidayPay = payrollRowsState.reduce((sum, row) => sum + Number(row.holiday_pay || 0), 0)
 
   const activePayrollIndex = stepToIndex[step]
   const maxCarouselIndex = Math.max(0, payrollWorkflowSteps.length - 3)
@@ -330,6 +353,41 @@ export default function ProcessPayroll() {
     return () => { mounted = false }
   }, [activePayrollPeriod])
 
+  // load holidays for the active payroll period and show them in Calculation step
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      if (!activePayrollPeriod) return
+      try {
+        const res = await fetch('/api/settings/holidays')
+        if (!res.ok) return
+        const body = await res.json()
+        if (!mounted) return
+        const start = new Date(activePayrollPeriod.period_start)
+        const end = new Date(activePayrollPeriod.period_end)
+        const list = (body || []).filter((h: any) => {
+          try {
+            const d = new Date(h.date)
+            // include only active holidays within range
+            return h.active && d >= start && d <= end
+          } catch (e) {
+            return false
+          }
+        }).map((h: any) => ({
+          id: h.id,
+          date: new Date(h.date).toISOString().slice(0,10),
+          label: h.holiday_name || h.holiday || '',
+          type: (h.type === 'SPECIAL' || h.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : h.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday',
+          raw: h,
+        }))
+        setHolidaysInPeriod(list)
+      } catch (err) {
+        console.error('Failed to load holidays for period', err)
+      }
+    })()
+    return () => { mounted = false }
+  }, [activePayrollPeriod])
+
   async function fetchPayrollRows(periodId: number) {
     const requestId = ++payrollRequestId.current
     try {
@@ -350,6 +408,8 @@ export default function ProcessPayroll() {
           pay_per_day: Number(r.pay_per_day ?? r.payPerDay ?? 0),
           present_total: Number(r.present_total ?? 0),
           absent_total: Number(r.absent_total ?? 0),
+          on_leave_total: Number(r.on_leave_total ?? 0),
+          paid_leave_pay: Number(r.paid_leave_pay ?? 0),
           halfday_total: Number(r.halfday_total ?? 0),
           worked_minutes_total: Number(r.worked_minutes_total ?? 0),
           overtime_minutes_total: Number(r.overtime_minutes_total ?? 0),
@@ -364,7 +424,8 @@ export default function ProcessPayroll() {
           rate_in_minutes: Number(r.rate_in_minutes ?? 0),
           deductions: Number(r.deductions ?? r.total_deduction ?? 0),
           net_pay: Number(r.net_pay ?? r.netPay ?? 0),
-          gross_pay: Number(r.gross_pay ?? 0),
+          // ensure gross includes holiday, halfday, and paid leave when backend doesn't provide gross_pay
+          gross_pay: Number(r.gross_pay ?? (Number(r.gross_base ?? 0) + Number(r.overtime_pay ?? 0) + Number(r.holiday_pay ?? 0) + Number(r.halfday_payment ?? 0) + Number(r.paid_leave_pay ?? 0))),
           holiday_pay: Number(r.holiday_pay ?? r.holidayPay ?? r.holiday_payment ?? 0),
           overtime_pay: Number(r.overtime_pay ?? 0),
           halfday_payment: Number(r.halfday_payment ?? 0),
@@ -476,17 +537,17 @@ export default function ProcessPayroll() {
   }, [advancesOpen, advancesForReview, loadingAdvancesForReview])
 
   useEffect(() => {
-    const el = payrollInnerRef.current
+    const el = holidaysInnerRef.current
     if (!el) {
-      setPayrollMaxHeight('0px')
+      setHolidaysMaxHeight('0px')
       return
     }
-    if (showPayrollTable) {
-      setPayrollMaxHeight(`${el.scrollHeight}px`)
+    if (holidaysOpen) {
+      setHolidaysMaxHeight(`${el.scrollHeight}px`)
     } else {
-      setPayrollMaxHeight('0px')
+      setHolidaysMaxHeight('0px')
     }
-  }, [showPayrollTable, payrollRowsState, search, isMobile])
+  }, [holidaysOpen, holidaysInPeriod])
 
   // Recalculate per-row deductions (attendance, total) when payroll rows or cash advance map changes
   // keep a ref in sync so async functions can read the latest deductions
@@ -503,7 +564,18 @@ export default function ProcessPayroll() {
       const cashAdvance = Number(cashAdvanceDeductionsRef.current[empId] || 0)
       const health = Number(r.health_deduction || 0)
       const totalDeduction = attendanceDeduction + health + cashAdvance
-      const gross = Number(r.gross_pay || 0)
+      const gross = Number(r.gross_pay ?? (Number(r.gross_base || 0) + Number(r.overtime_pay || 0) + Number(r.holiday_pay || 0) + Number(r.halfday_payment || 0)))
+
+      if (r.net_pay_overridden) {
+        return {
+          ...r,
+          attendance_deduction: attendanceDeduction,
+          cash_advance_deduction: cashAdvance,
+          total_deduction: totalDeduction,
+          net_pay: Number(r.net_pay ?? r.original_net_pay ?? gross - totalDeduction),
+        }
+      }
+
       const net = gross - totalDeduction
       return { ...r, attendance_deduction: attendanceDeduction, cash_advance_deduction: cashAdvance, total_deduction: totalDeduction, net_pay: net }
     })
@@ -538,29 +610,40 @@ export default function ProcessPayroll() {
         showToast({ type: 'error', message: 'Invalid amount', description: 'Enter a valid deduction amount.' })
         return
       }
-      // Validate against remaining balance on client-side before posting
+
       const remainingBal = Number(adv.balance_remaining ?? adv.amount ?? 0)
       if (amount > remainingBal) {
         showToast({ type: 'error', message: 'Deduction exceeds remaining balance', description: `Remaining balance is ${fmt(remainingBal)}` })
         return
       }
-      const res = await fetch(`/api/cash_advances/${adv.cash_advances_id}/payments`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ report_period_id: periodId, amount_deducted: amount }) })
+
+      const res = await fetch(`/api/cash_advances/${adv.cash_advances_id}/payments`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ report_period_id: periodId, amount_deducted: amount }),
+      })
       const body = await res.json()
       if (!res.ok) {
         console.error('Failed to post deduction', body)
         showToast({ type: 'error', message: 'Deduction failed', description: body?.error || 'Server error' })
         return
       }
-      if (requestId !== advancesRequestId.current) return // superseded by newer action
-      // mark as deducted in UI
-      setAdvancesForReview(prev => prev.map(p => p.cash_advances_id === adv.cash_advances_id ? { ...p, balance_remaining: Number((p.balance_remaining || 0) - amount), deducted: Number((p.balance_remaining || 0) - amount) <= 0 } : p))
-      if (requestId !== advancesRequestId.current) return
-      // update cash advance deductions map for employee (current period)
-      const empId = String(adv.employee_id)
-      setCashAdvanceDeductions(prev => ({ ...prev, [empId]: (prev[empId] || 0) + amount }))
+
       if (requestId !== advancesRequestId.current) return
 
-      // update payroll row totals immediately for this employee
+      const updatedAdvance = body?.cash_advance || null
+      const remainingAfter = Number(updatedAdvance?.balance_remaining ?? (remainingBal - amount))
+      const empId = String(adv.employee_id)
+
+      setAdvancesForReview(prev => prev.map(p => p.cash_advances_id === adv.cash_advances_id ? {
+        ...p,
+        balance_remaining: remainingAfter,
+        status: updatedAdvance?.status ?? p.status,
+        deducted: remainingAfter <= 0 || Boolean(updatedAdvance?.payments?.length),
+      } : p))
+
+      setCashAdvanceDeductions(prev => ({ ...prev, [empId]: (prev[empId] || 0) + amount }))
+
       setPayrollRowsState(prev => prev.map(r => {
         if (String(r.employee_id) !== empId) return r
         const attendanceDeduction = Number(r.sum_late_min || 0) + Number(r.undertime_deduction_total || 0)
@@ -571,49 +654,25 @@ export default function ProcessPayroll() {
         const net = gross - totalDeduction
         return { ...r, attendance_deduction: attendanceDeduction, cash_advance_deduction: cashAdvance, total_deduction: totalDeduction, net_pay: net }
       }))
+
       if (requestId !== advancesRequestId.current) return
       showToast({ type: 'success', message: 'Deduction applied', description: `${adv.employee_name} will be deducted ${fmt(amount)} for this period.` })
 
-      // refresh payroll rows to reflect deduction
-      try {
-        const rawPeriodId = (activePayrollPeriod as any).report_period_id ?? (activePayrollPeriod as any).period_id ?? (activePayrollPeriod as any).id
-        const pid = Number(rawPeriodId)
-        if (Number.isFinite(pid)) await fetchPayrollRows(pid)
-      } catch (e) {
-        console.error('Failed to refresh payroll rows after deduction', e)
-      }
+      const defaults: Record<string, string> = {}
+      const nextAdvanceList = (updatedAdvance ? [{
+        cash_advances_id: updatedAdvance.cash_advances_id,
+        employee_id: updatedAdvance.employee_id,
+        employee_name: updatedAdvance.employee_name,
+        amount: Number(updatedAdvance.amount ?? 0),
+        balance_remaining: Number(updatedAdvance.balance_remaining ?? 0),
+        status: updatedAdvance.status,
+        deducted: Number(updatedAdvance.balance_remaining ?? 0) <= 0 || (updatedAdvance.payments || []).length > 0,
+      }] : [])
 
-      // reload advances
-      try {
-        const res2 = await fetch('/api/cash_advances')
-        if (res2.ok) {
-          const body2 = await res2.json()
-          if (requestId !== advancesRequestId.current) return
-          const periodId = Number((activePayrollPeriod as any).report_period_id ?? (activePayrollPeriod as any).period_id ?? (activePayrollPeriod as any).id)
-          const restaurant = (activePayrollPeriod as any).restaurant
-          const all = (body2.cash_advances || [])
-          const candidates = all.filter((c: any) => (c.status === 'approved' || c.status === 'released') && Number(c.balance_remaining) > 0 && (c.restaurant === restaurant || c.restaurant === 'Both'))
-          const mapped = candidates.map((c: any) => {
-            const hasPayment = (c.payments || []).some((p: any) => Number(p.report_period_id) === periodId)
-            return {
-              cash_advances_id: c.cash_advances_id,
-              employee_id: c.employee_id,
-              employee_name: c.employee_name,
-              amount: Number(c.amount ?? 0),
-              balance_remaining: Number(c.balance_remaining ?? 0),
-              status: c.status,
-              deducted: hasPayment,
-            }
-          })
-          if (requestId !== advancesRequestId.current) return
-          setAdvancesForReview(mapped)
-          if (requestId !== advancesRequestId.current) return
-          const defaults: Record<string, string> = {}
-          mapped.forEach((m: any) => { defaults[m.cash_advances_id] = String(m.balance_remaining ?? m.amount ?? 0) })
-          setDeductionDrafts(defaults)
-        }
-      } catch (e) {
-        console.error('Failed to reload advances', e)
+      if (nextAdvanceList.length > 0) {
+        const draftValue = String(nextAdvanceList[0].balance_remaining ?? nextAdvanceList[0].amount ?? 0)
+        defaults[nextAdvanceList[0].cash_advances_id] = draftValue
+        setDeductionDrafts(prev => ({ ...prev, ...defaults }))
       }
     } catch (err) {
       console.error('Deduct advance error', err)
@@ -643,6 +702,9 @@ export default function ProcessPayroll() {
     const empName = `${r.employee_name || `${r.emp.firstName} ${r.emp.lastName}`}`.toLowerCase()
     return !q || empName.includes(q)
   })
+
+  const totalPages = Math.ceil(filteredRows.length / PAYROLL_PAGE_SIZE)
+  const paginatedRows = filteredRows.slice(payrollPage * PAYROLL_PAGE_SIZE, (payrollPage + 1) * PAYROLL_PAGE_SIZE)
 
   if (!activePayrollPeriod) {
     return (
@@ -689,6 +751,51 @@ export default function ProcessPayroll() {
 
       {step === 'calculation' && (
         <div className="space-y-5">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {[
+              { label: 'Employees', value: String(totalEmployees), color: 'text-slate-800' },
+              { label: 'Total Deductions', value: fmt(totalDeductions), color: 'text-red-600' },
+              { label: 'Net Payroll', value: fmt(totalNetPayroll), color: 'text-emerald-600' },
+              { label: 'Holiday Pay', value: fmt(totalHolidayPay), color: 'text-purple-600' },
+              { label: 'Overtime', value: fmt(totalOvertime), color: 'text-yellow-600' },
+            ].map(s => (
+              <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">
+                <p className={`font-bold font-display ${s.color} ${isMobile ? 'text-sm' : 'text-lg'}`}>{s.value}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Holidays in this payroll period */}
+          <div className="bg-white rounded-xl border border-slate-200 p-0 shadow-sm">
+            <button type="button" onClick={() => setHolidaysOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3">
+              <div className="flex items-center gap-3">
+                {holidaysOpen ? <ChevronDown size={16} className="text-slate-600" /> : <ChevronRight size={16} className="text-slate-600" />}
+                <p className="text-sm font-semibold text-slate-700 font-display">Holidays in this period</p>
+              </div>
+              <div className="text-xs text-slate-400">{holidaysInPeriod.length} items</div>
+            </button>
+            <div ref={holidaysWrapperRef} style={{ maxHeight: holidaysMaxHeight, overflow: 'hidden', transition: 'max-height 240ms ease' }} className="border-t border-slate-100">
+              <div ref={holidaysInnerRef} className="p-4">
+              {holidaysInPeriod.length === 0 ? (
+                <p className="text-sm text-slate-500">No holidays for this period.</p>
+              ) : (
+                <div className="space-y-2">
+                  {holidaysInPeriod.map(h => (
+                    <div key={h.id} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
+                      <div>
+                        <div className="font-medium text-slate-700">{h.label}</div>
+                        <div className="text-xs text-slate-500">{formatIsoToShort(h.date)} • {h.type}</div>
+                      </div>
+                      <div />
+                    </div>
+                  ))}
+                </div>
+              )}
+              </div>
+            </div>
+          </div>
           {/* Cash Advances shown before payroll table */}
           <div className="bg-white rounded-xl border border-slate-200 p-0 shadow-sm">
             <button type="button" onClick={() => setAdvancesOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3">
@@ -717,7 +824,7 @@ export default function ProcessPayroll() {
                             <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Paid</span>
                           ) : (
                             <div className="flex items-center gap-2">
-                              <button onClick={() => { setSelectedAdvanceForConfirm(a); setShowDeductConfirm(true) }} className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md font-semibold">Deduct</button>
+                              <button onClick={() => { setSelectedAdvanceForConfirm(a); setShowDeductConfirm(true) }} className="text-sm bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-md font-semibold">Deduct</button>
                             </div>
                           )}
                         </div>
@@ -729,41 +836,14 @@ export default function ProcessPayroll() {
             </div>
           </div>
 
-          {/* Toggle for payroll table */}
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => setShowPayrollTable(s => !s)}
-              className="text-sm font-medium text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50 font-display"
-            >
-              {showPayrollTable ? 'Hide Payroll Table' : 'Show Payroll Table'}
-            </button>
-          </div>
-
-          <div ref={payrollWrapperRef} style={{ maxHeight: payrollMaxHeight, overflow: 'hidden', transition: 'max-height 240ms ease' }}>
-            <div ref={payrollInnerRef}>
-              {/* Summary Cards */}
-              <div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {[
-                    { label: 'Employees', value: String(totalEmployees), color: 'text-slate-800' },
-                    { label: 'Total Deductions', value: fmt(totalDeductions), color: 'text-red-600' },
-                    { label: 'Net Payroll', value: fmt(totalNetPayroll), color: 'text-emerald-600' },
-                    { label: 'Overtime', value: fmt(totalOvertime), color: 'text-yellow-600' },
-                  ].map(s => (
-                    <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">
-                      <p className={`font-bold font-display ${s.color} ${isMobile ? 'text-sm' : 'text-lg'}`}>{s.value}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
-                    </div>
-                  ))}
-                </div>
-
+          <div>
+            <div>
                 {/* Table */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-3">
                   <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100">
                     <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-1.5 flex-1 max-w-xs focus-within:border-indigo-400">
                       <Search size={13} className="text-slate-400 shrink-0" />
-                      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+                      <input value={search} onChange={e => { setSearch(e.target.value); setPayrollPage(0) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
                     </div>
                   </div>
                   <div className="overflow-x-auto">
@@ -771,7 +851,7 @@ export default function ProcessPayroll() {
                       <table className="w-full">
                         <thead>
                           <tr className="border-b border-slate-100 bg-slate-50">
-                            {['Employee Name', 'Pay Per Day', 'Present Total', 'Absent Total', 'Deductions', 'Net Pay'].map(h => (
+                            {['Employee Name', 'Pay Per Day', 'Present Total', 'Absent Total', 'On Leave', 'Deductions', 'Net Pay'].map(h => (
                               <th key={h} className="text-left py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                             ))}
                           </tr>
@@ -779,12 +859,12 @@ export default function ProcessPayroll() {
                         <tbody className="divide-y divide-slate-50">
                           {filteredRows.length === 0 ? (
                             <tr>
-                              <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">
+                              <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
                                 No payroll rows available for this period.
                               </td>
                             </tr>
                           ) : (
-                            filteredRows.map(r => (
+                            paginatedRows.map(r => (
                               <tr
                                 key={String(r.employee_id)}
                                 className="hover:bg-slate-50 group cursor-pointer"
@@ -812,6 +892,7 @@ export default function ProcessPayroll() {
                                 <td className="py-3 px-4 font-mono text-xs text-slate-700">{fmt(r.pay_per_day)}</td>
                                 <td className="py-3 px-4 font-mono text-xs text-slate-700">{r.present_total}</td>
                                 <td className="py-3 px-4 font-mono text-xs text-slate-700">{r.absent_total}</td>
+                                <td className="py-3 px-4 font-mono text-xs text-violet-700">{r.on_leave_total}</td>
                                 <td className="py-3 px-4 font-mono text-xs text-red-600">{fmt(r.total_deduction)}</td>
                                 <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700">{fmt(r.net_pay)}</td>
                               </tr>
@@ -821,7 +902,7 @@ export default function ProcessPayroll() {
                       </table>
                     ) : (
                       <div className="flex flex-col">
-                        {filteredRows.map(r => (
+                        {paginatedRows.map(r => (
                           <button key={String(r.employee_id)} onClick={() => setViewRow(r)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-slate-700">{r.employee_name}</div>
@@ -832,8 +913,30 @@ export default function ProcessPayroll() {
                         ))}
                       </div>
                     )}
-                  </div>
                 </div>
+              </div>
+
+                {totalPages > 1 && (
+                <div className="flex items-center justify-end gap-3 mt-4 mb-5">
+                  <button
+                    onClick={() => setPayrollPage(p => Math.max(0, p - 1))}
+                    disabled={payrollPage === 0}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-slate-500 font-display">
+                    Page {payrollPage + 1} of {Math.max(totalPages, 1)}
+                  </span>
+                  <button
+                    onClick={() => setPayrollPage(p => Math.min(totalPages - 1, p + 1))}
+                    disabled={payrollPage >= totalPages - 1}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
+                  >
+                    Next
+                  </button>
+                </div>
+                )}
 
                 <div className="flex justify-end gap-3 mt-3">
                   <button onClick={() => setStep('attendance')} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back</button>
@@ -859,7 +962,6 @@ export default function ProcessPayroll() {
                 </div>
               </div>
             </div>
-          </div>
         </div>
       )}
 
@@ -886,15 +988,15 @@ export default function ProcessPayroll() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    {['Employee Name', 'Deductions', 'Net Pay'].map(h => (
-                      <th key={h} className="text-left py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                    {['Employee Name', 'Deductions', 'Net Pay', 'Actions'].map(h => (
+                      <th key={h} className={` ${h === 'Employee Name' ? 'text-left' : 'text-center'} py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="px-4 py-12 text-center text-sm text-slate-500">No payroll rows available for this period.</td>
+                      <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">No payroll rows available for this period.</td>
                     </tr>
                   ) : (
                     filteredRows.map(r => {
@@ -912,12 +1014,19 @@ export default function ProcessPayroll() {
                               </div>
                             </div>
                           </td>
-                          <td className="py-3 px-4 font-mono text-xs text-red-600">{fmt(r.total_deduction)}</td>
-                          <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700">
+                          <td className="py-3 px-4 font-mono text-xs text-red-600 text-center">{fmt(r.total_deduction)}</td>
+                          <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700 text-center">
                             {editingNetFor === empId ? (
-                              <div className="flex items-center gap-2">
-                                <input type="number" step="0.01" className="border border-slate-200 rounded-lg px-2 py-1 text-sm w-28" value={netDrafts[empId] ?? String(r.net_pay ?? 0)} onChange={e => setNetDrafts(prev => ({ ...prev, [empId]: e.target.value }))} />
-                                <button className="px-2 py-1 bg-indigo-600 text-white rounded text-sm" onClick={async (e) => {
+                              <input type="number" step="0.01" className="border border-slate-200 rounded-lg px-2 py-1 text-sm w-28" value={netDrafts[empId] ?? (Number(r.net_pay ?? 0).toFixed(2))} onChange={e => setNetDrafts(prev => ({ ...prev, [empId]: e.target.value }))} />
+                            ) : (
+                              <span>{fmt(r.net_pay)}</span>
+                            )}
+                            {r.net_pay_overridden && !editingNetFor && <span className="ml-2 text-[11px] bg-yellow-100 text-yellow-600 px-2 py-0.5 rounded">Adjusted</span>}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {editingNetFor === empId ? (
+                              <div>
+                                <button className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded-md font-semibold mr-2" onClick={async (e) => {
                                   e.stopPropagation()
                                   const val = Number(netDrafts[empId])
                                   if (Number.isNaN(val)) {
@@ -926,8 +1035,19 @@ export default function ProcessPayroll() {
                                   }
                                   const prevRow = payrollRowsState.find(p => String(p.employee_id) === empId)
                                   const oldNet = Number(prevRow?.net_pay ?? 0)
-                                  // update local state
-                                  setPayrollRowsState(prev => prev.map(p => String(p.employee_id) === empId ? { ...p, original_net_pay: p.original_net_pay ?? p.net_pay, net_pay: val, net_pay_overridden: true } : p))
+                                  const newNet = Number(val)
+                                  if (newNet !== oldNet) {
+                                    setPayrollRowsState(prev => prev.map(p => {
+                                      if (String(p.employee_id) !== empId) return p
+                                      const next = {
+                                        ...p,
+                                        original_net_pay: p.original_net_pay ?? p.net_pay,
+                                        net_pay: newNet,
+                                        net_pay_overridden: true,
+                                      }
+                                      return next
+                                    }))
+                                  }
                                   setEditingNetFor(null)
                                   // post audit log
                                   try {
@@ -937,14 +1057,10 @@ export default function ProcessPayroll() {
                                     console.error('Failed to log audit', err)
                                   }
                                 }}>Save</button>
-                                <button className="px-2 py-1 border border-slate-200 rounded text-sm" onClick={(e) => { e.stopPropagation(); setEditingNetFor(null) }}>Cancel</button>
+                                <button className="text-sm bg-red-600 hover:bg-red-700 text-white px-5 py-1.5 rounded-md font-semibold" onClick={(e) => { e.stopPropagation(); setEditingNetFor(null) }}>Cancel</button>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-2">
-                                <span>{fmt(r.net_pay)}</span>
-                                <button className="text-xs text-slate-500 hover:text-slate-700" onClick={(e) => { e.stopPropagation(); setEditingNetFor(empId); setNetDrafts(prev => ({ ...prev, [empId]: String(r.net_pay ?? 0) })) }}>Edit</button>
-                                {r.net_pay_overridden && <span className="ml-2 text-[11px] bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">Adjusted</span>}
-                              </div>
+                              <button className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded-md font-semibold" onClick={(e) => { e.stopPropagation(); setEditingNetFor(empId); setNetDrafts(prev => ({ ...prev, [empId]: Number(r.net_pay ?? 0).toFixed(2) })) }}>Edit</button>
                             )}
                           </td>
                         </tr>

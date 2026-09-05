@@ -9,9 +9,45 @@ import { AnimatePresence, motion } from 'motion/react'
 import { deriveAttendanceStatus, dispatchAttendanceReport, type FingerprintAttendanceSummary, type NormalizedAttendanceRecord } from '../utils/fingerprintAttendanceParser'
 import type { AttendanceRecord } from '../types'
 
-const buildAttendancePreview = (records: NormalizedAttendanceRecord[]): FingerprintAttendanceSummary => {
+const buildAttendancePreview = (
+  records: NormalizedAttendanceRecord[],
+  approvedLeaves: any[] = [],
+  sourceIdToEmployeeId: Map<string, string> = new Map(),
+): FingerprintAttendanceSummary => {
+  const isApprovedLeaveStatus = (value: any) => String(value ?? '').trim().toLowerCase() === 'approved'
+
+  const fmtDate = (d: any) => {
+    if (!d) return ''
+    const s = String(d).trim()
+    const isoMatch = s.match(/^(\d{4}-\d{2}-\d{2})/)
+    if (isoMatch) return isoMatch[1]
+    const date = new Date(s)
+    if (isNaN(date.getTime())) return s
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+  const leaveDatesByEmployee = new Map<string, Array<{ start: string; end: string }>>()
+  for (const leave of approvedLeaves) {
+    if (!isApprovedLeaveStatus(leave.status)) continue
+    const employeeId = String(leave.employeeId ?? leave.employee_id ?? '')
+    if (!employeeId) continue
+    const current = leaveDatesByEmployee.get(employeeId) ?? []
+    current.push({ start: fmtDate(leave.startDate ?? leave.start_date ?? ''), end: fmtDate(leave.endDate ?? leave.end_date ?? '') })
+    leaveDatesByEmployee.set(employeeId, current)
+  }
+
+  const matchesApprovedLeave = (employeeId: string, referenceDate: string) => {
+    const windows = leaveDatesByEmployee.get(String(employeeId)) ?? []
+    return windows.some((window) => {
+      if (!window.start || !window.end) return false
+      return referenceDate >= window.start && referenceDate <= window.end
+    })
+  }
+
   const attendanceRecords: AttendanceRecord[] = records.map(record => {
     const normalizedStatus = deriveAttendanceStatus(record.check_in, record.check_out, record.is_weekend, record.check_in ?? '', record.check_out ?? '')
+    const resolvedEmployeeId = sourceIdToEmployeeId.get(String(record.employee_id)) ?? record.employee_id
+    const onLeave = matchesApprovedLeave(resolvedEmployeeId, record.date)
+    const isWeekend = record.is_weekend || record.weekday === 'SAT' || record.weekday === 'SUN'
 
     return {
       id: `${record.employee_id}-${record.date}`,
@@ -30,20 +66,23 @@ const buildAttendancePreview = (records: NormalizedAttendanceRecord[]): Fingerpr
       overtimeCheckOut: record.overtime_check_out ?? null,
       lateMinutes: 0,
       undertimeMinutes: 0,
-      overtimeHours: record.is_weekend ? 1 : 0,
+      overtimeHours: 0,
       overtimeMinutes: 0,
-      // Treat weekend days as Rest Day (do not count as Present)
-      status: record.is_weekend
-        ? 'Rest Day'
+      status: onLeave
+        ? 'On Leave'
         : normalizedStatus === 'present'
           ? 'Present'
-          : normalizedStatus === 'absent'
-            ? 'Absent'
-            : normalizedStatus === 'incomplete'
-              ? 'Incomplete'
-              : 'Absent',
+          : normalizedStatus === 'incomplete'
+            ? 'Incomplete'
+            : normalizedStatus === 'absent'
+              ? 'Absent'
+              : isWeekend
+                ? 'Rest Day'
+                : 'Absent',
     }
   })
+
+  
 
   const sortedDates = attendanceRecords.map(record => record.date).sort()
   const dateRange = sortedDates.length > 0
@@ -104,7 +143,7 @@ function EditAttendanceRowModal({ record, onClose, onSave }: { record: Attendanc
               onChange={e => setDraft(prev => ({ ...prev, status: e.target.value as AttendanceRecord['status'] }))}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display"
             >
-              {(['Present', 'Absent', 'Leave', 'Rest Day', 'Holiday', 'Incomplete', 'Overtime'] as AttendanceRecord['status'][]).map(option => (
+              {(['Present', 'Absent', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete', 'Overtime'] as AttendanceRecord['status'][]).map(option => (
                 <option key={option} value={option}>{option}</option>
               ))}
             </select>
@@ -357,7 +396,29 @@ export default function ImportAttendance() {
         return
       }
 
-      const previewData = buildAttendancePreview(parsed)
+      // Fetch approved leave requests to mark "On Leave" in preview
+      let approvedLeaves: any[] = []
+      let sourceIdToEmployeeId = new Map<string, string>()
+      try {
+        const leaveRes = await fetch('/api/leave_requests')
+        if (leaveRes.ok) {
+          const leaveBody = await leaveRes.json()
+          approvedLeaves = Array.isArray(leaveBody.leaveRequests)
+            ? leaveBody.leaveRequests.filter((item: any) => String(item.status ?? '').trim().toLowerCase() === 'approved')
+            : []
+
+          const employees = Array.isArray(leaveBody.employees) ? leaveBody.employees : []
+          sourceIdToEmployeeId = new Map(
+            employees
+              .filter((emp: any) => emp.sourceEmployeeId)
+              .map((emp: any) => [String(emp.sourceEmployeeId), String(emp.id)])
+          )
+        }
+      } catch (err) {
+        console.warn('Could not fetch leave requests for preview', err)
+      }
+
+      const previewData = buildAttendancePreview(parsed, approvedLeaves, sourceIdToEmployeeId)
 
       if (selectedPayrollPeriod && previewData.dateRange) {
         const attendanceStart = previewData.dateRange.start
@@ -435,6 +496,45 @@ export default function ImportAttendance() {
           return h * 60 + m
         }
 
+        const leaveRes = await fetch('/api/leave_requests').catch(() => null)
+        const leaveBody = leaveRes && leaveRes.ok ? await leaveRes.json() : { leaveRequests: [], employees: [] }
+        const approvedLeaves = Array.isArray(leaveBody.leaveRequests)
+          ? leaveBody.leaveRequests.filter((item: any) => String(item.status ?? '').trim().toLowerCase() === 'approved')
+          : []
+
+        const employeesFromLeaveApi = Array.isArray(leaveBody.employees) ? leaveBody.employees : []
+        const sourceIdToEmployeeId = new Map<string, string>(
+          employeesFromLeaveApi
+            .filter((emp: any) => emp.sourceEmployeeId)
+            .map((emp: any) => [String(emp.sourceEmployeeId), String(emp.id)] as [string, string])
+        )
+
+        const fmtDate = (d: any) => {
+          if (!d) return ''
+          const s = String(d).trim()
+          const isoMatch = s.match(/^(\d{4}-\d{2}-\d{2})/)
+          if (isoMatch) return isoMatch[1]
+          const date = new Date(s)
+          if (isNaN(date.getTime())) return s
+          return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+        }
+        const leaveDatesByEmployee = new Map<string, Array<{ start: string; end: string }>>()
+        for (const leave of approvedLeaves) {
+          const employeeId = String(leave.employeeId ?? leave.employee_id ?? '')
+          if (!employeeId) continue
+          const current = leaveDatesByEmployee.get(employeeId) ?? []
+          current.push({ start: fmtDate(leave.startDate ?? leave.start_date ?? ''), end: fmtDate(leave.endDate ?? leave.end_date ?? '') })
+          leaveDatesByEmployee.set(employeeId, current)
+        }
+
+        const matchesApprovedLeave = (employeeId: string, referenceDate: string) => {
+          const windows = leaveDatesByEmployee.get(String(employeeId)) ?? []
+          return windows.some((window) => {
+            if (!window.start || !window.end) return false
+            return referenceDate >= window.start && referenceDate <= window.end
+          })
+        }
+
         const startMinutes = toMinutes(attSettings.start_time)
         const endMinutes = toMinutes(attSettings.end_time)
         const halfDayMinutes = toMinutes(attSettings.half_day)
@@ -445,6 +545,8 @@ export default function ImportAttendance() {
         const enrichedRecords = preview.records.map(rec => {
           const timeInMinutes = toMinutes(rec.firstOnDuty ?? rec.timeIn)
           const timeOutMinutes = toMinutes(rec.firstOffDuty ?? rec.timeOut)
+          const resolvedEmployeeId = sourceIdToEmployeeId.get(String(rec.employeeId)) ?? String(rec.employeeId)
+          const onLeave = matchesApprovedLeave(resolvedEmployeeId, String(rec.date))
 
           // late_minutes: clamp to 0 if on-time/early or within grace period (gracePeriod in minutes)
           let lateMinutes = 0
@@ -473,7 +575,7 @@ export default function ImportAttendance() {
           }
 
           // is_halfday: true if employee is present (not absent) and time_in is later than half_day
-          const isAbsent = rec.status === 'Absent'
+          const isAbsent = rec.status === 'Absent' && !onLeave
           let isHalfday = false
           if (!isAbsent && timeInMinutes != null && halfDayMinutes != null) {
             const isLateAfterHalfDay = timeInMinutes >= halfDayMinutes
@@ -489,7 +591,8 @@ export default function ImportAttendance() {
             leave_early_minutes: leaveEarlyMinutes,
             overtime_minutes: overtimeMinutes,
             is_halfday: isHalfday,
-            is_absent: rec.status === 'Absent',
+            is_absent: isAbsent,
+            on_leave: onLeave,
           }
         })
 
@@ -737,7 +840,7 @@ export default function ImportAttendance() {
               { label: 'Employees', value: preview.employeesFound },
               { label: 'Records', value: preview.attendanceRecords },
               { label: 'Regular', value: preview.regularAttendance },
-              { label: 'Weekend OT', value: preview.weekendOvertime },
+              { label: 'Weekend', value: preview.weekendOvertime },
               { label: 'Absent', value: preview.absent },
             ].map(item => (
               <div key={item.label} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm text-center">
@@ -915,8 +1018,7 @@ export default function ImportAttendance() {
                   >
                     <option value="id">ID</option>
                     <option value="name">Employee</option>
-                    <option value="present">Present (Weekdays)</option>
-                    <option value="overtime">Present (Weekends)</option>
+                    <option value="present">Present</option>
                     <option value="absent">Absent</option>
                   </select>
 
@@ -973,8 +1075,7 @@ export default function ImportAttendance() {
                         {[
                           { key: 'id', label: 'ID' },
                           { key: 'name', label: 'Employee' },
-                          { key: 'present', label: 'Present (Weekdays)' },
-                          { key: 'overtime', label: 'Present (Weekends)' },
+                          { key: 'present', label: 'Present' },
                           { key: 'absent', label: 'Absent' },
                         ].map(({ key, label }) => {
                           const isActive = sortColumn === key
@@ -1010,7 +1111,6 @@ export default function ImportAttendance() {
                           <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeId}</td>
                           <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeName}</td>
                           <td className="py-2.5 px-4 text-sm text-emerald-700">{employee.present}</td>
-                          <td className="py-2.5 px-4 text-sm text-blue-700">{employee.overtime}</td>
                           <td className="py-2.5 px-4 text-sm text-red-700">{employee.absent}</td>
                         </tr>
                       ))}
