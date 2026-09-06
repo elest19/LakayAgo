@@ -269,6 +269,7 @@ export default function App() {
 
   // fetch current session/user
   useEffect(() => {
+    const modalShownOnMount = { value: false }
     let mounted = true
     const fetchMe = async () => {
       try {
@@ -277,6 +278,12 @@ export default function App() {
         if (res.ok) {
           const body = await res.json()
           setUser(body.user ?? null)
+          // Only show the mode confirmation once on initial page load / session restore.
+          if (body.user && !modalShownOnMount.value) {
+            modalShownOnMount.value = true
+            // defer so appMode resolution can run first
+            requestAnimationFrame(() => setShowModeConfirmation(true))
+          }
           // Initialize profileForm with user data when user is first loaded
           if (body.user) {
             const nameParts = (body.user.name || '').split(' ')
@@ -320,8 +327,9 @@ export default function App() {
   // expose a global setter for legacy pages to set user after login
   useEffect(() => {
     ;(window as any).__app_set_user = (u: any) => setUser(u)
+    ;(window as any).__app_show_mode_confirmation = () => setShowModeConfirmation(true)
     ;(window as any).routePageMap = routePageMap
-    return () => { delete (window as any).__app_set_user; delete (window as any).routePageMap }
+    return () => { delete (window as any).__app_set_user; delete (window as any).__app_show_mode_confirmation; delete (window as any).routePageMap }
   }, [])
 
   // global fetch interceptor: if any fetch returns 401, clear session and redirect to login
@@ -661,6 +669,9 @@ export default function App() {
   }, [inventoryItems, kitchenStock, showToast])
 
   const toggleAppMode = useCallback((nextMode: 'aroo' | 'lakayAgo') => {
+    // Only users assigned to 'Both' may toggle the app mode
+    if (user?.restaurant !== 'Both') return
+
     if (isMobileView) {
       setMobileSidebarOpen(false)
     }
@@ -668,6 +679,7 @@ export default function App() {
     // Respect reduced-motion preferences
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setAppMode(nextMode)
+      try { if (user?.restaurant === 'Both') localStorage.setItem(`appMode:${user.user_id}`, nextMode) } catch {}
       setShowModeConfirmation(true)
       return
     }
@@ -676,6 +688,7 @@ export default function App() {
 
     if (!button) {
       setAppMode(nextMode)
+      try { if (user?.restaurant === 'Both') localStorage.setItem(`appMode:${user.user_id}`, nextMode) } catch {}
       setShowModeConfirmation(true)
       return
     }
@@ -690,13 +703,6 @@ export default function App() {
       Math.max(y, window.innerHeight - y)
     )
 
-    /*
-    * Firefox has noticeably different rendering performance for
-    * full-screen clip-path animations.
-    *
-    * Use a transform-based circular overlay in Firefox.
-    * Chrome/Edge/Brave keep the original clip-path animation.
-    */
     const isFirefox = /firefox/i.test(navigator.userAgent)
 
     const overlay = document.createElement('div')
@@ -713,13 +719,6 @@ export default function App() {
       willChange: isFirefox ? 'transform, opacity' : 'clip-path, opacity',
     })
 
-    /*
-    * Firefox fallback:
-    *
-    * Create a huge circle centered on the switch button and
-    * scale it from almost nothing to a size that covers the
-    * entire viewport.
-    */
     if (isFirefox) {
       overlay.style.left = `${x}px`
       overlay.style.top = `${y}px`
@@ -750,12 +749,9 @@ export default function App() {
 
       expand.onfinish = () => {
         setAppMode(nextMode)
+        try { if (user?.restaurant === 'Both') localStorage.setItem(`appMode:${user.user_id}`, nextMode) } catch {}
         setShowModeConfirmation(true)
 
-        /*
-        * Wait for React to render the new theme before
-        * removing the overlay.
-        */
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             const fade = overlay.animate(
@@ -779,10 +775,6 @@ export default function App() {
       return
     }
 
-    /*
-    * Chromium / other browsers:
-    * Keep the original clip-path circle animation.
-    */
     Object.assign(overlay.style, {
       inset: '0',
       width: '',
@@ -794,6 +786,7 @@ export default function App() {
     document.body.appendChild(overlay)
 
     setAppMode(nextMode)
+    try { if (user?.restaurant === 'Both') localStorage.setItem(`appMode:${user.user_id}`, nextMode) } catch {}
 
     const expand = overlay.animate(
       {
@@ -827,7 +820,22 @@ export default function App() {
         overlay.remove()
       }
     }
-  }, [isMobileView])
+  }, [isMobileView, user])
+
+  // Resolve appMode based on user's restaurant assignment and persisted preference
+  useEffect(() => {
+    if (!user) return
+    try {
+      if (user.restaurant === 'Aroo') {
+        setAppMode('aroo')
+      } else if (user.restaurant === 'Lakay Ago') {
+        setAppMode('lakayAgo')
+      } else if (user.restaurant === 'Both') {
+        const saved = localStorage.getItem(`appMode:${user.user_id}`)
+        setAppMode(saved === 'aroo' ? 'aroo' : 'lakayAgo')
+      }
+    } catch (err) {}
+  }, [user, currentPage])
 
   const toggleGroup = (label: string) => {
     setExpandedGroups(prev => {
@@ -924,7 +932,7 @@ export default function App() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-2">
-        {showLabels && (
+        {showLabels && user?.restaurant === 'Both' && (
           <div>
             <button
               ref={themeToggleRef}

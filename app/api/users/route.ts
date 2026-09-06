@@ -10,18 +10,16 @@ export async function GET(req: Request) {
     if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const res = await query('SELECT user_id, name, username, email, role, restaurant FROM users ORDER BY name')
-    const users = await Promise.all(res.rows.map(async (u: any) => {
-      const r = await query('SELECT restaurants_id FROM restaurants WHERE name = $1 LIMIT 1', [u.restaurant])
-      return {
-        user_id: u.user_id,
-        name: u.name,
-        username: u.username,
-        email: u.email,
-        role: u.role,
-        restaurant: u.restaurant,
-        restaurant_id: r.rows[0]?.restaurants_id ?? null,
-        status: 'Active',
-      }
+    // The `restaurants` table may not exist in all deployments; avoid joining it here.
+    const users = res.rows.map((u: any) => ({
+      user_id: u.user_id,
+      name: u.name,
+      username: u.username,
+      email: u.email,
+      role: u.role,
+      restaurant: u.restaurant,
+      restaurant_id: null,
+      status: 'Active',
     }))
     return NextResponse.json(users)
   } catch (err) {
@@ -57,8 +55,7 @@ export async function POST(req: Request) {
     )
 
     const u = res.rows[0]
-    const r = await query('SELECT restaurants_id FROM restaurants WHERE name = $1 LIMIT 1', [u.restaurant])
-    return NextResponse.json({ user_id: u.user_id, name: u.name, email: u.email, role: u.role, restaurant: u.restaurant, restaurant_id: r.rows[0]?.restaurants_id ?? null })
+    return NextResponse.json({ user_id: u.user_id, name: u.name, email: u.email, role: u.role, restaurant: u.restaurant, restaurant_id: null })
   } catch (err) {
     console.error('Create user error', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

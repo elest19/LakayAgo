@@ -17,6 +17,9 @@ export default function Modal({
 }: ModalProps) {
   const [mounted, setMounted] = useState(open)
   const [show, setShow] = useState(false)
+  const [animateIn, setAnimateIn] = useState(false)
+  let inTimer: any = null
+  let outTimer: any = null
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -31,6 +34,9 @@ export default function Modal({
       // Allow the modal to mount before triggering the animation
       requestAnimationFrame(() => {
         setShow(true)
+        setAnimateIn(true)
+        if (inTimer) clearTimeout(inTimer)
+        inTimer = setTimeout(() => setAnimateIn(false), 320)
       })
 
       window.addEventListener('keydown', onKey)
@@ -40,11 +46,14 @@ export default function Modal({
 
       window.removeEventListener('keydown', onKey)
 
-      const t = setTimeout(() => {
+      if (inTimer) clearTimeout(inTimer)
+      outTimer = setTimeout(() => {
         setMounted(false)
       }, 260)
 
-      return () => clearTimeout(t)
+      return () => {
+        if (outTimer) clearTimeout(outTimer)
+      }
     }
 
     return () => {
@@ -62,14 +71,12 @@ export default function Modal({
     >
       {/* Backdrop */}
       <div
-        className={`absolute inset-0 bg-black/50 modal-backdrop ${
-          show ? 'show' : ''
-        }`}
+        className={`absolute inset-0 bg-black/50 modal-backdrop ${show ? 'show' : ''} ${animateIn ? 'animate-in' : ''}`}
       />
 
       {/* Modal */}
       <div
-        className={`relative z-10 flex min-w-0 max-h-[90vh] flex-col overflow-hidden rounded-xl bg-white shadow-xl sm:max-w-2xl modal-content ${show ? 'show' : ''} ${className}`}
+        className={`relative z-10 flex min-w-0 max-h-[90vh] flex-col overflow-hidden rounded-xl bg-white shadow-xl sm:max-w-2xl modal-content ${show ? 'show' : ''} ${animateIn ? 'animate-in' : ''} ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

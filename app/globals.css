@@ -121,6 +121,11 @@ button:disabled {
   opacity: 1;
 }
 
+/* Entrance animation when modal is programmatically opened */
+.modal-backdrop.animate-in {
+  animation: modal-backdrop-in var(--motion-fast) var(--motion-ease-in) both;
+}
+
 .modal-content {
   opacity: 0;
   transform: translateY(-6px) scale(0.985);
@@ -132,6 +137,19 @@ button:disabled {
 .modal-content.show {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+.modal-content.show.animate-in {
+  animation: modal-pop-in var(--motion-medium) var(--motion-ease-in) both;
+}
+
+@keyframes modal-pop-in {
+  from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .modal-content,
 .modal-content * {

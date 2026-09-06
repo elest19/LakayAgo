@@ -1,11 +1,11 @@
 'use client'
 import { useState } from 'react'
-import { Lock, Mail, Eye, EyeOff } from 'lucide-react'
+import { Lock, User, Eye, EyeOff } from 'lucide-react'
 import { useApp } from '../App'
 
 export default function LoginPage() {
   const { showToast, navigate, logoSrc, setUser } = useApp()
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -16,36 +16,38 @@ export default function LoginPage() {
     fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     })
       .then(async res => {
-        setLoading(false)
-        const body = await res.json()
-        if (!res.ok) {
-          showToast({ type: 'error', message: body.error || 'Login failed' })
-          return
-        }
-        showToast({ type: 'success', message: 'Logged in', description: `Welcome back, ${body.user?.name || email.split('@')[0] || 'user'}` })
-        // update app-level auth state if available
-        try {
-          if (setUser) setUser(body.user ?? null)
-          ;(window as any).__app_set_user?.(body.user ?? null)
-        } catch {}
-        // handle redirect param if present and safe
-        try {
-          const params = new URLSearchParams(window.location.search)
-          const redirect = params.get('redirect')
-          const allowed = ['/','/dashboard','/employees','/attendance/records','/attendance/import','/attendance/import-history','/payroll/periods','/payroll/history','/payroll/process','/payroll/payslips','/leave-management','/sales-summary','/sales','/inventory/catalog','/inventory/production','/inventory/kitchen','/expenses','/reports','/settings','/audit-logs']
-          if (redirect && allowed.includes(redirect)) {
-            window.history.pushState({}, '', redirect)
-            const page = (window as any).routePageMap?.[redirect] ?? 'dashboard'
-            navigate(page)
+          const body = await res.json()
+          setLoading(false)
+          if (!res.ok) {
+            showToast({ type: 'error', message: body.error || 'Login failed' })
             return
           }
-        } catch (err) {}
+          showToast({ type: 'success', message: 'Logged in', description: `Welcome back, ${body.user?.name || username || 'user'}` })
+          // update app-level auth state if available
+          try {
+            if (setUser) setUser(body.user ?? null)
+            ;(window as any).__app_set_user?.(body.user ?? null)
+            ;(window as any).__app_show_mode_confirmation?.()
+          } catch {}
 
-        navigate('dashboard')
-      })
+          // handle redirect param if present and safe
+          try {
+            const params = new URLSearchParams(window.location.search)
+            const redirect = params.get('redirect')
+            const allowed = ['/','/dashboard','/employees','/attendance/records','/attendance/import','/attendance/import-history','/payroll/periods','/payroll/history','/payroll/process','/payroll/payslips','/leave-management','/sales-summary','/sales','/inventory/catalog','/inventory/production','/inventory/kitchen','/expenses','/reports','/settings','/audit-logs']
+            if (redirect && allowed.includes(redirect)) {
+              window.history.pushState({}, '', redirect)
+              const page = (window as any).routePageMap?.[redirect] ?? 'dashboard'
+              navigate(page)
+              return
+            }
+          } catch (err) {}
+
+          navigate('dashboard')
+        })
       .catch(err => {
         setLoading(false)
         showToast({ type: 'error', message: 'Network error' })
@@ -56,15 +58,18 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6 text-slate-800">
       <div className="max-w-md w-full bg-white border border-slate-200 rounded-xl shadow-lg p-6">
         <div className="flex flex-col items-center text-center mb-6">
-          <img src={logoSrc} alt="Brand logo" className="w-16 h-16 object-contain rounded-lg mb-3" />
+          <div className="flex items-center gap-3 mb-3">
+            <img src="/logo.jpg" alt="Lakay Ago logo" className="w-16 h-16 object-contain rounded-lg" />
+            <img src="/Aroo_Logo.jpg" alt="Aroo logo" className="w-16 h-16 object-contain rounded-lg" />
+          </div>
           <h2 className="text-lg font-semibold text-slate-800">Sign in to your account</h2>
         </div>
         <form onSubmit={submit} className="space-y-4">
           <label className="block">
-            <div className="text-xs text-slate-500 mb-1">Email</div>
-            <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2">
-              <Mail size={14} className="text-slate-400" />
-              <input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.ph" className="flex-1 outline-none text-sm" />
+            <div className="text-xs text-slate-500 mb-1">Username</div>
+              <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2">
+                <User size={14} className="text-slate-400" />
+                <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" className="flex-1 outline-none text-sm" />
             </div>
           </label>
 
