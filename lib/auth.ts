@@ -14,7 +14,9 @@ const pool = new Pool({ connectionString })
 
 export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET || 'dev-better-auth-secret-change-me-32chars',
-  baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:8443',
+  // Server-side baseURL: prefer BETTER_AUTH_URL, then NEXT_PUBLIC_API_URL for
+  // consistency with the client. Fallback to localhost for local dev only.
+  baseURL: process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8443',
   database: {
     dialect: new PostgresDialect({ pool }),
     type: 'postgres',
@@ -104,8 +106,10 @@ export const auth = betterAuth({
   },
 })
 
+const clientBaseURL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL
+
 export const authClient = createAuthClient({
-  baseURL: process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || 'http://localhost:8443',
+  ...(clientBaseURL ? { baseURL: clientBaseURL } : {}),
   fetchOptions: {
     credentials: 'include',
   },
