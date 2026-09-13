@@ -1,7 +1,7 @@
- 'use client'
+'use client'
 import { useCallback, useState, useEffect } from 'react'
-import { Search, Upload, Eye, Edit2, ChevronLeft, ChevronRight, X, AlertCircle } from 'lucide-react'
-import type { AttendanceRecord } from '../types'
+import { Search, Upload, Eye, Edit2, ChevronLeft, ChevronRight, X, AlertCircle, ArrowUpDown, ChevronDown } from 'lucide-react'
+import type { AttendanceRecord, PayrollPeriod } from '../types'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
@@ -20,7 +20,53 @@ const statusColor: Record<Status, string> = {
   Overtime: 'bg-blue-100 text-blue-700',
 }
 
-// EditAttendanceModal removed — edit UI is rendered inside the detail modal now
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = "100%", height = "1rem", rounded = "rounded-md", className = "" }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === "number" ? `${width}px` : width,
+        height: typeof height === "number" ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 10, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-50">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="py-2 px-3">
+                <SkeletonBar
+                  width={config?.width ?? "80%"}
+                  height={config?.pill ? "1.1rem" : "0.85rem"}
+                  rounded={config?.pill ? "rounded-full" : "rounded-md"}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
+}
 
 export default function AttendanceRecords() {
   const { navigate, showToast } = useApp()
@@ -29,12 +75,18 @@ export default function AttendanceRecords() {
   const [search, setSearch] = useState('')
   const [dept, setDept] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
-  const [period, setPeriod] = useState('August 1–15, 2026')
+  const [period, setPeriod] = useState<string>('')
+  const [periods, setPeriods] = useState<PayrollPeriod[]>([])
+  const [restaurant, setRestaurant] = useState<'Lakay Ago' | 'Aroo' | 'Both'>('Both')
+  const [specificDate, setSpecificDate] = useState<string>('')
   const [page, setPage] = useState(1)
   const [isEditing, setIsEditing] = useState(false)
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sortBy, setSortBy] = useState<'employee' | 'date'>('date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [noAttendanceSheet, setNoAttendanceSheet] = useState(false)
   // edit form state
   const [timeIn, setTimeIn] = useState<string | undefined>(undefined)
   const [timeOut, setTimeOut] = useState<string | undefined>(undefined)
@@ -73,6 +125,26 @@ export default function AttendanceRecords() {
     })()
     return () => { mounted = false }
   }, [])
+
+  // Fetch payroll periods
+  const loadPeriods = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/report_periods${restaurant !== 'Both' ? `?restaurant=${restaurant}` : ''}`)
+      if (res.ok) {
+        const data = await res.json()
+        setPeriods(data.periods || [])
+        if (data.periods?.length > 0 && !period) {
+          setPeriod(String(data.periods[0].report_period_id))
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [restaurant])
+
+  useEffect(() => {
+    loadPeriods()
+  }, [loadPeriods])
 
   const timeToMinutes = (t: string | undefined): number | null => {
     if (!t) return null
@@ -156,8 +228,43 @@ export default function AttendanceRecords() {
   const loadAttendance = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setNoAttendanceSheet(false)
     try {
-      const aRes = await fetch('/api/attendance')
+      let url = '/api/attendance'
+      const params = new URLSearchParams()
+      
+      const selectedPeriod = periods.find(p => String(p.report_period_id) === period) || null
+      const hasAttendanceSheet = selectedPeriod && selectedPeriod.source_file && selectedPeriod.source_file !== ''
+      
+      // If period selected but no attendance sheet, show empty state (don't fetch)
+      if (period && selectedPeriod && !hasAttendanceSheet) {
+        setRecords([])
+        setNoAttendanceSheet(true)
+        setLoading(false)
+        return
+      }
+
+      // Always pass restaurant filter - backend will respect it for SuperAdmin, 
+      // for non-SuperAdmin it uses session restaurant (periods already filtered by that)
+      if (restaurant !== 'Both') {
+        params.set('restaurant', restaurant)
+      }
+      
+      if (period && selectedPeriod) {
+        params.set('from', selectedPeriod.period_start)
+        params.set('to', selectedPeriod.period_end)
+      }
+      
+      if (specificDate) {
+        params.set('from', specificDate)
+        params.set('to', specificDate)
+      }
+      
+      if (params.toString()) {
+        url += `?${params.toString()}`
+      }
+
+      const aRes = await fetch(url)
       if (!aRes.ok) throw new Error('Failed to fetch attendance')
       const aJson = await aRes.json()
       const att: any[] = aJson.attendance || []
@@ -276,7 +383,7 @@ export default function AttendanceRecords() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [period, periods, specificDate, restaurant])
 
   useEffect(() => {
     let mounted = true
@@ -286,12 +393,30 @@ export default function AttendanceRecords() {
     return () => { mounted = false }
   }, [loadAttendance])
 
+  const handleSort = (field: 'employee' | 'date') => {
+    if (sortBy === field) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(field)
+      setSortDir('asc')
+    }
+    setPage(1)
+  }
+
   const filtered = records.filter(r => {
     const q = search.toLowerCase()
     const matchQ = !q || r.employeeName.toLowerCase().includes(q) || r.employeeId.toLowerCase().includes(q)
     const matchDept = !dept || r.department === dept
     const matchStatus = !statusFilter || r.status === statusFilter
     return matchQ && matchDept && matchStatus
+  }).sort((a, b) => {
+    let comparison = 0
+    if (sortBy === 'employee') {
+      comparison = a.employeeName.localeCompare(b.employeeName)
+    } else {
+      comparison = new Date(a.date).getTime() - new Date(b.date).getTime()
+    }
+    return sortDir === 'asc' ? comparison : -comparison
   })
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE)
@@ -325,60 +450,146 @@ export default function AttendanceRecords() {
           </>
          )}
       </div>
-      {isMobile ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
-          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
-            <Search size={14} className="text-slate-400 shrink-0" />
-            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
-          </div>
-          <div className="w-full">
-            <select value={period} onChange={e => setPeriod(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-              <option>August 1–15, 2026</option>
-              <option>July 16–31, 2026</option>
-              <option>July 1–15, 2026</option>
-            </select>
-          </div>
-          <div className="w-full">
-            <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-              <option value="">Department: All</option>
-              {['Cooks & Chef', 'Waiters', 'Cashiers', 'Management'].map(d => <option key={d}>{d}</option>)}
-            </select>
-          </div>
-          <div className="w-full">
-            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-              <option value="">Status: All</option>
-              {['Present', 'Absent', 'Leave', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
-            </select>
-          </div>
+      
+      {/* Filter Bar */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
+
+        {/* Search Bar */}
+        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+          <Search size={14} className="text-slate-400 shrink-0" />
+          <input 
+            value={search} 
+            onChange={e => { setSearch(e.target.value); setPage(1) }} 
+            placeholder="Search employee..." 
+            className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" 
+          />
         </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
-          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
-            <Search size={14} className="text-slate-400 shrink-0" />
-            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
-          </div>
-          <select value={period} onChange={e => setPeriod(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-            <option>August 1–15, 2026</option>
-            <option>July 16–31, 2026</option>
-            <option>July 1–15, 2026</option>
-          </select>
-          <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-            <option value="">Department: All</option>
-            {['Cooks & Chef', 'Waiters', 'Cashiers', 'Management'].map(d => <option key={d}>{d}</option>)}
-          </select>
-          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-            <option value="">Status: All</option>
-            {['Present', 'Absent', 'Leave', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
+
+        {/* Restaurant Filter */}
+        <div className="flex items-center gap-2">
+          <select 
+            value={restaurant} 
+            onChange={e => { 
+              setRestaurant(e.target.value as 'Lakay Ago' | 'Aroo' | 'Both')
+              setPeriod('')
+              setSpecificDate('')
+              setPage(1)
+            }} 
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px]"
+          >
+            <option value="Both">All Restaurants</option>
+            <option value="Lakay Ago">Lakay Ago</option>
+            <option value="Aroo">Aroo</option>
           </select>
         </div>
-      )}
+
+        {/* Payroll Period Filter */}
+        <div className="relative">
+          <select 
+            value={period} 
+            onChange={e => { 
+              setPeriod(e.target.value)
+              setSpecificDate('')
+              setPage(1)
+            }} 
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[200px] pr-8 appearance-none"
+          >
+            <option value="">Select Payroll Period</option>
+            {periods.map(p => (
+              <option key={p.report_period_id} value={String(p.report_period_id)}>
+                {p.restaurant} - {p.period_start} to {p.period_end} ({p.status})
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none size-4" />
+        </div>
+
+        {/* Specific Date Filter */}
+        <div className="relative">
+          {(() => {
+            const selectedPeriod = periods.find(p => String(p.report_period_id) === period) || null
+            return (
+              <input
+                type="date"
+                value={specificDate}
+                onChange={e => { 
+                  setSpecificDate(e.target.value)
+                  setPage(1)
+                }}
+                min={selectedPeriod?.period_start}
+                max={selectedPeriod?.period_end}
+                disabled={!period}
+                className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px] disabled:bg-slate-50 disabled:text-slate-400"
+                placeholder={period ? "Select date within period" : "Select period first"}
+              />
+            )
+          })()}
+        </div>
+
+        {/* Status Filter */}
+        <select 
+          value={statusFilter} 
+          onChange={e => { setStatusFilter(e.target.value); setPage(1) }} 
+          className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px]"
+        >
+          <option value="">Status: All</option>
+          {['Present', 'Absent', 'Leave', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
+        </select>
+
+        {/* Sort Button */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleSort('employee')}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors font-display ${
+              sortBy === 'employee'
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50'
+            }`}
+          >
+            <ArrowUpDown size={14} />
+            <span>Employee</span>
+            {sortBy === 'employee' && (
+              <span className="text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>
+            )}
+          </button>
+          <button
+            onClick={() => handleSort('date')}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors font-display ${
+              sortBy === 'date'
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50'
+            }`}
+          >
+            <ArrowUpDown size={14} />
+            <span>Date</span>
+            {sortBy === 'date' && (
+              <span className="text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>
+            )}
+          </button>
+        </div>
+      </div>
 
       {/* Table / Mobile list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto w-full">
           {loading && (
-            <div className="py-16 text-center">
-              <p className="text-slate-400 text-sm font-display">Loading attendance...</p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    {['Employee', 'Employee ID', 'Date', 'Day', 'Status', 'Time In', 'Time Out'].map(h => (
+                      <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  <SkeletonTableRows columns={7} columnConfig={[
+                    { width: "25%" }, { width: "20%" }, { width: "20%" },
+                    { width: "15%" }, { width: "20%", pill: true },
+                    { width: "25%" }, { width: "25%" }
+                  ]} />
+                </tbody>
+              </table>
             </div>
           )}
           {error && !loading && (
@@ -399,106 +610,119 @@ export default function AttendanceRecords() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {pageData.map(rec => (
-                  <tr key={rec.id} onClick={() => setSelectedRecord(rec)} className={`hover:bg-slate-50 ${rec.status === 'Incomplete' ? 'bg-amber-50/50' : ''} cursor-pointer`}>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                          <span className="text-indigo-700 text-[10px] font-bold font-display">
-                            {rec.employeeName.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                          </span>
-                        </div>
-                        <span className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{rec.employeeName}</span>
-                      </div>
+                {noAttendanceSheet ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 px-4 text-center text-sm text-slate-400 font-display">
+                      This payroll period doesn&apos;t have an attendance sheet just yet.
                     </td>
-                    <td className="py-3 px-4"><span className="font-mono text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{rec.employeeId}</span></td>
-                    <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{rec.date}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{rec.day || '—'}</td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${statusColor[rec.status]}`}>{rec.status}</span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.firstOnDuty ?? rec.timeIn ?? '—'}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.firstOffDuty ?? rec.timeOut ?? '—'}</td>                
-                    {/* Actions moved into row-click detail modal */}
-                    <td className="py-3 px-4" />
                   </tr>
-                ))}
-                {Array.from({ length: emptyRowsCount }).map((_, i) => (
-                  <tr key={`empty-${i}`} className="invisible">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-indigo-100 shrink-0" />
-                        <span className="text-sm font-medium font-display">placeholder</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4"><span className="font-mono text-xs px-2 py-0.5 rounded">000</span></td>
-                    <td className="py-3 px-4 text-sm whitespace-nowrap">00/00</td>
-                    <td className="py-3 px-4 text-sm whitespace-nowrap">Day</td>
-                    <td className="py-3 px-4"><span className="text-xs px-2 py-0.5 rounded-full font-medium font-display">Status</span></td>
-                    <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
-                    <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
-                    <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
-                    <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
-                    <td className="py-3 px-4" />
-                  </tr>
-                ))}
+                ) : (
+                  <>
+                    {pageData.map(rec => (
+                      <tr key={rec.id} onClick={() => setSelectedRecord(rec)} className={`hover:bg-slate-50 ${rec.status === 'Incomplete' ? 'bg-amber-50/50' : ''} cursor-pointer`}>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                              <span className="text-indigo-700 text-[10px] font-bold font-display">
+                                {rec.employeeName.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                              </span>
+                            </div>
+                            <span className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{rec.employeeName}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4"><span className="font-mono text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{rec.employeeId}</span></td>
+                        <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{rec.date}</td>
+                        <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{rec.day || '—'}</td>
+                        <td className="py-3 px-4">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${statusColor[rec.status]}`}>{rec.status}</span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.firstOnDuty ?? rec.timeIn ?? '—'}</td>
+                        <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.firstOffDuty ?? rec.timeOut ?? '—'}</td>                
+                        <td className="py-3 px-4" />
+                      </tr>
+                    ))}
+                    {Array.from({ length: emptyRowsCount }).map((_, i) => (
+                      <tr key={`empty-${i}`} className="invisible">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-indigo-100 shrink-0" />
+                            <span className="text-sm font-medium font-display">placeholder</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4"><span className="font-mono text-xs px-2 py-0.5 rounded">000</span></td>
+                        <td className="py-3 px-4 text-sm whitespace-nowrap">00/00</td>
+                        <td className="py-3 px-4 text-sm whitespace-nowrap">Day</td>
+                        <td className="py-3 px-4"><span className="text-xs px-2 py-0.5 rounded-full font-medium font-display">Status</span></td>
+                        <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
+                        <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
+                        <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
+                        <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
+                        <td className="py-3 px-4" />
+                      </tr>
+                    ))}
+                  </>
+                )}
               </tbody>
             </table>
           ) : (
-            <div className="flex flex-col">
-              {pageData.map(rec => (
-                <button
-                  key={rec.id}
-                  onClick={() => setSelectedRecord(rec)}
-                  className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center gap-3"
-                >
-                  <div className="w-10">
-                    <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center">
-                      <span className="text-indigo-700 text-xs font-bold font-display">{rec.employeeName.split(' ').map(n => n[0]).join('').slice(0,2)}</span>
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-4">
-                      {/* Employee Info */}
-                      <div className="min-w-0 truncate">
-                        <div className="text-sm font-medium text-slate-700 truncate">
-                          {rec.employeeName}
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          {rec.date}
-                        </div>
+            noAttendanceSheet ? (
+              <div className="py-10 text-center">
+                <p className="text-slate-400 text-sm font-display">This payroll period doesn&apos;t have an attendance sheet just yet.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col">
+                {pageData.map(rec => (
+                  <button
+                    key={rec.id}
+                    onClick={() => setSelectedRecord(rec)}
+                    className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center gap-3"
+                  >
+                    <div className="w-10">
+                      <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center">
+                        <span className="text-indigo-700 text-xs font-bold font-display">{rec.employeeName.split(' ').map(n => n[0]).join('').slice(0,2)}</span>
                       </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0 truncate">
+                          <div className="text-sm font-medium text-slate-700 truncate">
+                            {rec.employeeName}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {rec.date}
+                          </div>
+                        </div>
 
-                      {/* Time In / Time Out */}
-                      <div className="shrink-0 text-right">
-                        <div className="text-xs text-slate-500">
-                          <span className="text-slate-400">First In:</span> {rec.firstOnDuty ?? rec.timeIn ?? '—'}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          <span className="text-slate-400">First Out:</span> {rec.firstOffDuty ?? rec.timeOut ?? '—'}
+                        <div className="shrink-0 text-right">
+                          <div className="text-xs text-slate-500">
+                            <span className="text-slate-400">First In:</span> {rec.firstOnDuty ?? rec.timeIn ?? '—'}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            <span className="text-slate-400">First Out:</span> {rec.firstOffDuty ?? rec.timeOut ?? '—'}
+                          </div>
                         </div>
                       </div>
                     </div>
+                  </button>
+                ))}
+                {Array.from({ length: emptyRowsCount }).map((_, i) => (
+                  <div key={`empty-mobile-${i}`} className="invisible p-3 border-b border-slate-50 flex items-center gap-3">
+                    <div className="w-10">
+                      <div className="w-9 h-9 rounded-full bg-indigo-100" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium">placeholder</div>
+                      <div className="text-xs">00/00/0000</div>
+                    </div>
                   </div>
-                </button>
-              ))}
-              {Array.from({ length: emptyRowsCount }).map((_, i) => (
-                <div key={`empty-mobile-${i}`} className="invisible p-3 border-b border-slate-50 flex items-center gap-3">
-                  <div className="w-10">
-                    <div className="w-9 h-9 rounded-full bg-indigo-100" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium">placeholder</div>
-                    <div className="text-xs">00/00/0000</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-              )}
+                ))}
+              </div>
+            )
+          )}
             </>
           )}
         </div>
-        {filtered.length === 0 && (
+        {filtered.length === 0 && !noAttendanceSheet && (
           <div className="py-16 text-center">
             <p className="text-slate-400 text-sm font-display">No attendance records found.</p>
             <button onClick={() => navigate('import-attendance')} className="mt-3 text-sm text-indigo-600 hover:underline font-display">Import Attendance</button>
@@ -523,7 +747,6 @@ export default function AttendanceRecords() {
           </div>
         </div>
       </div>
-
 
 
       {selectedRecord && (

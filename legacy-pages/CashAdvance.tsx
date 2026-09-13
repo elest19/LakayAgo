@@ -22,7 +22,7 @@ type CashAdvanceItem = {
   date_requested: string | null
   date_released: string | null
   status: string
-  approved_by: number | null
+  approved_by: string | null
   approved_name: string | null
   remarks: string
   balance_remaining: number
@@ -48,11 +48,71 @@ const statusStyles: Record<string, string> = {
   pending: 'bg-amber-100 text-amber-700',
   approved: 'bg-blue-100 text-blue-700',
   released: 'bg-violet-100 text-violet-700',
-  deducted: 'bg-emerald-100 text-emerald-700',
-  cancelled: 'bg-red-100 text-red-700',
+  cancelled: 'bg-gray-100 text-gray-700',
+  rejected: 'bg-red-100 text-red-700',
+}
+
+const lockedStatuses = ['cancelled', 'rejected', 'released'] as const
+
+function getStatusOptions(currentStatus: string): string[] {
+  if (currentStatus === 'approved') return ['released']
+  if (lockedStatuses.includes(currentStatus as any)) return []
+  return Object.keys(statusStyles)
+}
+
+function canChangeStatus(currentStatus: string): boolean {
+  return getStatusOptions(currentStatus).length > 0
 }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(value)
+
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = "100%", height = "1rem", rounded = "rounded-md", className = "" }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === "number" ? `${width}px` : width,
+        height: typeof height === "number" ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-100">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="px-4 py-3">
+                <SkeletonBar
+                  width={config?.width ?? "80%"}
+                  height={config?.pill ? "1.1rem" : "0.85rem"}
+                  rounded={config?.pill ? "rounded-full" : "rounded-md"}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
+}
 
 export default function CashAdvancePage() {
   const { showToast } = useApp()
@@ -62,6 +122,8 @@ export default function CashAdvancePage() {
   const [selectedAdvance, setSelectedAdvance] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
+  const [draftStatus, setDraftStatus] = useState('')
+  const [showStatusModal, setShowStatusModal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({ employee: 'all', restaurant: 'all', status: 'all', period: 'all' })
   const [draft, setDraft] = useState({
@@ -90,6 +152,9 @@ export default function CashAdvancePage() {
     [advances, selectedAdvance],
   )
 
+  const selectedStatusOptions = selectedRecord ? getStatusOptions(selectedRecord.status) : []
+  const selectedStatusLocked = selectedRecord ? !canChangeStatus(selectedRecord.status) : false
+
   const filteredAdvances = useMemo(() => {
     return advances.filter(item => {
       const employeeOk = filters.employee === 'all' || String(item.employee_id) === filters.employee
@@ -102,6 +167,7 @@ export default function CashAdvancePage() {
 
   const totalPages = Math.max(1, Math.ceil(filteredAdvances.length / PAGE_SIZE))
   const pageData = filteredAdvances.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const emptyRowsCount = pageData.length === 0 ? 0 : Math.max(0, PAGE_SIZE - pageData.length)
 
   const totalOutstanding = advances.reduce((sum, item) => sum + item.balance_remaining, 0)
   const paidCount = advances.filter(item => item.is_fully_paid).length
@@ -157,7 +223,7 @@ export default function CashAdvancePage() {
         date_requested: item.date_requested ?? null,
         date_released: item.date_released ?? null,
         status: item.status ?? 'pending',
-        approved_by: item.approved_by != null ? Number(item.approved_by) : null,
+        approved_by: item.approved_by ?? null,
         approved_name: item.approved_name ?? null,
         remarks: item.remarks ?? '',
         balance_remaining: Number(item.balance_remaining ?? 0),
@@ -189,6 +255,10 @@ export default function CashAdvancePage() {
     void loadReportPeriods()
     void loadAdvances()
   }, [])
+
+  useEffect(() => {
+    setDraftStatus(selectedRecord?.status ?? '')
+  }, [selectedRecord])
 
   const addAdvance = async () => {
     const amount = Number(draft.amount)
@@ -339,8 +409,57 @@ export default function CashAdvancePage() {
   if (loading) {
     return (
       <div className="p-6">
-        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-sm text-slate-500 shadow-sm">
-          Loading cash advances...
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 font-display">Cash Advance</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Manage employee advances and payroll deductions</p>
+          </div>
+          <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
+            <Plus size={16} /> Add Cash Advance
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <SkeletonBar width="90px" height="12px" rounded="rounded-md" />
+                <SkeletonBar width="18px" height="18px" rounded="rounded-md" />
+              </div>
+              <div className="mt-3">
+                <SkeletonBar width="130px" height="24px" rounded="rounded-md" />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-3">
+            {[0, 1, 2, 3].map(i => (
+              <SkeletonBar key={i} width="100%" height="38px" rounded="rounded-lg" />
+            ))}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+                <tr>
+                  <th className="px-4 py-3">Employee</th>
+                  <th className="px-4 py-3">Restaurant</th>
+                  <th className="px-4 py-3">Amount</th>
+                  <th className="px-4 py-3">Balance</th>
+                  <th className="px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                <SkeletonTableRows columns={5} rows={PAGE_SIZE} columnConfig={[
+                  { width: "70%" }, { width: "45%" },
+                  { width: "45%" }, { width: "45%" },
+                  { width: "40%", pill: true }
+                ]} />
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     )
@@ -438,6 +557,20 @@ export default function CashAdvancePage() {
                   </tr>
                 ))
               )}
+              {emptyRowsCount > 0 && (
+                Array.from({ length: emptyRowsCount }).map((_, ei) => (
+                  <tr key={`empty-${ei}`} className="invisible">
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-slate-700 font-display">Placeholder</div>
+                      <div className="text-xs text-slate-500">Requested: 2020-01-01</div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">Restaurant</td>
+                    <td className="px-4 py-3 text-sm font-medium text-slate-700">PHP 0.00</td>
+                    <td className="px-4 py-3 text-sm font-medium text-slate-700">PHP 0.00</td>
+                    <td className="px-4 py-3"><span className="text-xs px-2 py-1 rounded-full font-medium">Status</span></td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -519,14 +652,32 @@ export default function CashAdvancePage() {
           <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
             <p className="text-sm font-semibold text-slate-700 font-display mb-4">Actions</p>
             <div className="space-y-3">
-              <select value={selectedRecord.status} onChange={e => void updateStatus(selectedRecord.cash_advances_id, e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
-                {Object.keys(statusStyles).map(status => <option key={status} value={status}>{status}</option>)}
-              </select>
-              <button onClick={() => setShowPayment(true)} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
-                <CalendarClock size={15} /> Add payroll deduction
-              </button>
+              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Status</label>
+              <div className="flex items-center gap-2">
+                <select 
+                  value={selectedStatusLocked ? selectedRecord.status : (draftStatus || selectedRecord.status)} 
+                  onChange={(e) => setDraftStatus(e.target.value)}
+                  disabled={selectedStatusLocked}
+                  className={`flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display ${selectedStatusLocked ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : ''}`}
+                >
+                  {selectedStatusOptions.length === 0 ? (
+                    <option value={selectedRecord.status}>{selectedRecord.status} (locked)</option>
+                  ) : (
+                    selectedStatusOptions.map(status => (
+                      <option key={status} value={status}>{status}</option>
+                    ))
+                  )}
+                </select>
+                <button 
+                  onClick={() => setShowStatusModal(true)} 
+                  className="px-3 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={selectedStatusLocked || draftStatus === selectedRecord.status}
+                >
+                  Update Status
+                </button>
+              </div>
               <button onClick={() => deleteAdvance(selectedRecord)} className="w-full flex items-center justify-center gap-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
-                <Trash2 size={15} /> Delete advance
+                <Trash2 size={15} /> Delete Cash Advance Request
               </button>
             </div>
           </div>
@@ -610,6 +761,17 @@ export default function CashAdvancePage() {
             <div className="flex gap-3">
               <button onClick={() => { setDeletePaymentTarget(null); showToast({ type: 'error', message: 'Delete cancelled' }) }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
               <button onClick={() => confirmDeletePayment(deletePaymentTarget!.advanceId, deletePaymentTarget!.paymentId)} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display">Delete</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {showStatusModal && (
+        <Modal open={true} title="Update Cash Advance Status" onClose={() => setShowStatusModal(false)}>
+          <div className="p-6">
+            <p className="mb-4">Are you sure you want to update the status to <span className="font-semibold text-slate-800">{draftStatus}</span>?</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setShowStatusModal(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button onClick={() => { setShowStatusModal(false); updateStatus(selectedRecord.cash_advances_id, draftStatus) }} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Update</button>
             </div>
           </div>
         </Modal>

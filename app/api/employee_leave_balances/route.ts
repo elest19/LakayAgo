@@ -4,7 +4,7 @@ import { query } from '../../../lib/db'
 
 export async function GET(req: Request) {
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const url = new URL(req.url)
@@ -40,7 +40,7 @@ export async function GET(req: Request) {
 // Update available_leave for a given employee + leave_type
 export async function PATCH(req: Request) {
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const body = await req.json()
     const { employee_id, leave_type_id, available_leave } = body

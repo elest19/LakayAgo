@@ -323,12 +323,14 @@ CREATE TABLE IF NOT EXISTS food_packages (
     price numeric NOT NULL,
     restaurant text NOT NULL,
     is_archived boolean DEFAULT false NOT NULL,
+    type text NOT NULL DEFAULT 'catering_package',
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
 ALTER TABLE food_packages ADD CONSTRAINT food_packages_pkey PRIMARY KEY (food_package_id);
 ALTER TABLE food_packages ADD CONSTRAINT food_packages_price_check CHECK ((price >= (0)::numeric));
 ALTER TABLE food_packages ADD CONSTRAINT food_packages_restaurant_check CHECK ((restaurant = ANY (ARRAY['Lakay Ago'::text, 'Aroo'::text, 'Both'::text])));
+ALTER TABLE food_packages ADD CONSTRAINT food_packages_type_check CHECK ((type = ANY (ARRAY['catering_package'::text, 'menu_bundle'::text])));
 CREATE UNIQUE INDEX food_packages_pkey ON public.food_packages USING btree (food_package_id);
 
 -- --------------------------------------------------

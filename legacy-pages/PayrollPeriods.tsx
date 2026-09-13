@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { Plus, ArrowRight, X, Download } from 'lucide-react'
+import { Plus, ArrowRight, X, Download, ChevronLeft, ChevronRight } from 'lucide-react'
 import useIsMobile from '../hooks/isMobile'
 const payrollPeriods: any[] = []
 // note: keep fallback `payrollPeriods` available for safety; prefer backend data when available
@@ -22,6 +22,54 @@ const statusColor: Record<string, string> = {
   Finalized: 'bg-emerald-100 text-emerald-700',
   released: 'bg-emerald-100 text-emerald-700',
   Released: 'bg-emerald-100 text-emerald-700',
+}
+
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = "100%", height = "1rem", rounded = "rounded-md", className = "" }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === "number" ? `${width}px` : width,
+        height: typeof height === "number" ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-50">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="py-2 px-3">
+                <SkeletonBar
+                  width={config?.width ?? "80%"}
+                  height={config?.pill ? "1.1rem" : "0.85rem"}
+                  rounded={config?.pill ? "rounded-full" : "rounded-md"}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
 }
 
 function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }: { onClose: () => void; onSave: () => void; existingPeriods: any[]; existingPeriod?: any | null }) {
@@ -90,7 +138,7 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
   }
 
   return (
-    <Modal open={true} title="Create Payroll Period" onClose={onClose}>
+    <Modal open={true} title={existingPeriod ? "Edit Payroll Period" : "Create Payroll Period"} onClose={onClose}>
       <div className="w-full">
         <div className="w-md px-2 py-5 space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -100,8 +148,6 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
                 type="date"
                 value={periodStart}
                 onChange={e => setPeriodStart(e.target.value)}
-                readOnly={!!existingPeriod}
-                disabled={!!existingPeriod}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
@@ -111,8 +157,6 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
                 type="date"
                 value={periodEnd}
                 onChange={e => setPeriodEnd(e.target.value)}
-                readOnly={!!existingPeriod}
-                disabled={!!existingPeriod}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
@@ -157,6 +201,8 @@ export default function PayrollPeriods() {
   const [editingPeriod, setEditingPeriod] = useState<any | null>(null)
   const [activeTab, setActiveTab] = useState<'periods' | 'history'>('periods')
   const [periods, setPeriods] = useState<any[] | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(10)
 
   const loadPeriods = useCallback(async () => {
     try {
@@ -204,6 +250,41 @@ export default function PayrollPeriods() {
       return s !== 'pending' && s !== 'under review'
     })
   })()
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(visiblePeriods.length / pageSize))
+  const pageData = visiblePeriods.slice((page - 1) * pageSize, page * pageSize)
+
+  useEffect(() => {
+    setPage(1)
+  }, [activeTab])
+
+  const renderPagination = () => (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
+      <p className="text-xs text-slate-500">
+        Showing {visiblePeriods.length === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, visiblePeriods.length)} of {visiblePeriods.length} periods
+      </p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40" aria-label="Previous">
+          <ChevronLeft size={16} />
+        </button>
+        {Array.from({ length: totalPages }, (_, i) => {
+          const p = i + 1
+          const show = p === 1 || p === totalPages || Math.abs(p - page) <= 2
+          if (!show) {
+            return (i === 1 || i === totalPages - 2) ? <span key={p} className="px-1 text-slate-400">…</span> : null
+          }
+          return (
+            <button key={p} onClick={() => setPage(p)}
+              className={`w-7 h-7 rounded-lg text-xs font-medium font-display ${page === p ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>{p}</button>
+          )
+        })}
+        <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40" aria-label="Next">
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <div className="p-6">
@@ -254,7 +335,13 @@ export default function PayrollPeriods() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {visiblePeriods.map(pp => (
+                  {periods === null ? (
+                    <SkeletonTableRows columns={5} rows={6} columnConfig={[
+                      { width: "45%" }, { width: "45%" }, { width: "55%" },
+                      { width: "40%" }, { width: "45%", pill: true }
+                    ]} />
+                  ) : (
+                  pageData.map(pp => (
                     <tr
                       key={pp.report_period_id}
                       className="hover:bg-slate-50 group cursor-pointer"
@@ -291,12 +378,12 @@ export default function PayrollPeriods() {
                         })()}
                       </td>
                     </tr>
-                  ))}
+                  )))}
                 </tbody>
               </table>
             ) : (
               <div className="flex flex-col">
-                {visiblePeriods.map(pp => (
+                {pageData.map(pp => (
                   <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
@@ -310,6 +397,7 @@ export default function PayrollPeriods() {
               </div>
             )}
           </div>
+          {!isMobile && renderPagination()}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -324,7 +412,13 @@ export default function PayrollPeriods() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {visiblePeriods.map(pp => (
+                  {periods === null ? (
+                    <SkeletonTableRows columns={5} rows={6} columnConfig={[
+                      { width: "45%" }, { width: "45%" }, { width: "55%" },
+                      { width: "40%" }, { width: "45%", pill: true }
+                    ]} />
+                  ) : (
+                  pageData.map(pp => (
                     <tr
                       key={pp.report_period_id}
                       className="hover:bg-slate-50 group cursor-pointer"
@@ -361,12 +455,12 @@ export default function PayrollPeriods() {
                         })()}
                       </td>
                     </tr>
-                  ))}
+                  )))}
                 </tbody>
               </table>
             ) : (
               <div className="flex flex-col">
-                {visiblePeriods.map(pp => (
+                {pageData.map(pp => (
                   <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
@@ -379,6 +473,7 @@ export default function PayrollPeriods() {
                 ))}
               </div>
             )}
+            {renderPagination()}
           </div>
         </div>
       )}

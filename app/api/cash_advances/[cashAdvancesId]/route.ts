@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import getSessionFromRequest from '../../../../lib/session'
-import { query } from '../../../../lib/db'
+import { query, getClient } from '../../../../lib/db'
 import { logAudit } from '../../../../lib/audit'
 
 function normalizeCashAdvance(row: any) {
@@ -15,7 +15,7 @@ function normalizeCashAdvance(row: any) {
     date_requested: row.date_requested ? String(row.date_requested).slice(0, 10) : null,
     date_released: row.date_released ? String(row.date_released).slice(0, 10) : null,
     status: row.status ?? 'pending',
-    approved_by: row.approved_by != null ? Number(row.approved_by) : null,
+    approved_by: row.approved_by ?? null,
     approved_name: row.approved_name ?? null,
     remarks: row.remarks ?? '',
     balance_remaining: Number(row.balance_remaining ?? 0),
@@ -68,7 +68,7 @@ async function fetchCashAdvanceById(cashAdvancesId: string) {
       ) as payments
     from cash_advances ca
     left join employees e on e.employee_id = ca.employee_id
-    left join employees ap on ap.employee_id = ca.approved_by
+    left join users ap on ap.user_id = ca.approved_by
     left join cash_advance_payments cap on cap.cash_advances_id = ca.cash_advances_id
     left join report_periods rp on rp.report_period_id = cap.report_period_id
     where ca.cash_advances_id = $1
@@ -83,7 +83,7 @@ async function fetchCashAdvanceById(cashAdvancesId: string) {
 
 export async function GET(_req: Request, context: { params: Promise<{ cashAdvancesId: string }> | { cashAdvancesId: string } }) {
   try {
-    const session = getSessionFromRequest(_req)
+    const session = await getSessionFromRequest(_req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const params = await Promise.resolve(context.params)
@@ -97,9 +97,21 @@ export async function GET(_req: Request, context: { params: Promise<{ cashAdvanc
   }
 }
 
+async function resolveApproverUserId(session: any, body: any): Promise<string | null> {
+  const explicitValue = body.approved_by
+  if (explicitValue !== undefined && explicitValue !== null && explicitValue !== '') {
+    const candidate = String(explicitValue).trim()
+    if (candidate.length > 0) {
+      return candidate
+    }
+  }
+
+  return session?.user_id ?? null
+}
+
 export async function PATCH(req: Request, context: { params: Promise<{ cashAdvancesId: string }> | { cashAdvancesId: string } }) {
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const params = await Promise.resolve(context.params)
@@ -108,6 +120,24 @@ export async function PATCH(req: Request, context: { params: Promise<{ cashAdvan
 
     if (!cashAdvancesId || Number.isNaN(cashAdvancesId)) {
       return NextResponse.json({ error: 'Invalid cash advance id' }, { status: 400 })
+    }
+
+    // Fetch current record to check current status and enforce transition rules
+    const { rows: currentRows } = await query('select status from cash_advances where cash_advances_id = $1', [cashAdvancesId])
+    if (currentRows.length === 0) {
+      return NextResponse.json({ error: 'Cash advance not found' }, { status: 404 })
+    }
+    const currentStatus = currentRows[0].status
+    const nextStatus = body.status ?? currentStatus
+
+    // Enforce status transition rules
+    if (body.status !== undefined && body.status !== currentStatus) {
+      if (currentStatus === 'approved' && nextStatus !== 'released') {
+        return NextResponse.json({ error: 'Approved advances can only be changed to Released' }, { status: 400 })
+      }
+      if (currentStatus === 'cancelled' || currentStatus === 'rejected' || currentStatus === 'released') {
+        return NextResponse.json({ error: 'This advance status cannot be changed' }, { status: 400 })
+      }
     }
 
     const updates: string[] = []
@@ -123,9 +153,15 @@ export async function PATCH(req: Request, context: { params: Promise<{ cashAdvan
       values.push(body.remarks ?? null)
     }
 
+    // Auto-set approved_by when status changes to 'approved'
     if (body.approved_by !== undefined) {
       updates.push(`approved_by = $${values.length + 1}`)
-      values.push(body.approved_by != null ? Number(body.approved_by) : null)
+      values.push(body.approved_by != null ? String(body.approved_by) : null)
+    } else if (String(body.status ?? '').toLowerCase() === 'approved') {
+      if (session?.user_id != null) {
+        updates.push(`approved_by = $${values.length + 1}`)
+        values.push(String(session.user_id))
+      }
     }
 
     if (body.date_released !== undefined) {
@@ -164,32 +200,46 @@ export async function PATCH(req: Request, context: { params: Promise<{ cashAdvan
 
 export async function DELETE(req: Request, context: { params: Promise<{ cashAdvancesId: string }> | { cashAdvancesId: string } }) {
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const params = await Promise.resolve(context.params)
     const cashAdvancesId = Number(params.cashAdvancesId)
-    const hasPayments = await query('select 1 from cash_advance_payments where cash_advances_id = $1 limit 1', [cashAdvancesId])
 
-    if (hasPayments.rows.length > 0) {
-      return NextResponse.json({ error: 'Cannot delete cash advance with payment history' }, { status: 400 })
+    // Use transaction to delete payments and the cash advance
+    const client = await getClient()
+    try {
+      await client.query('begin')
+
+      // Delete all associated payments first
+      await client.query('delete from cash_advance_payments where cash_advances_id = $1', [cashAdvancesId])
+
+      // Then delete the cash advance
+      const { rows } = await client.query('delete from cash_advances where cash_advances_id = $1 returning *', [cashAdvancesId])
+
+      if (rows.length === 0) {
+        await client.query('rollback')
+        return NextResponse.json({ error: 'Cash advance not found' }, { status: 404 })
+      }
+
+      await client.query('commit')
+
+      logAudit({
+        user_id: session.user_id,
+        restaurant: rows[0].restaurant,
+        action: 'delete_cash_advance',
+        table_name: 'cash_advances',
+        record_id: String(rows[0].cash_advances_id),
+        old_data: rows[0],
+      })
+
+      return NextResponse.json({ deleted: true })
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
     }
-
-    const { rows } = await query('delete from cash_advances where cash_advances_id = $1 returning *', [cashAdvancesId])
-    if (!rows[0]) {
-      return NextResponse.json({ error: 'Cash advance not found' }, { status: 404 })
-    }
-
-    logAudit({
-      user_id: session.user_id,
-      restaurant: rows[0].restaurant,
-      action: 'delete_cash_advance',
-      table_name: 'cash_advances',
-      record_id: String(rows[0].cash_advances_id),
-      old_data: rows[0],
-    })
-
-    return NextResponse.json({ deleted: true })
   } catch (error) {
     console.error('cash_advance DELETE failed', error)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

@@ -34,6 +34,54 @@ const leaveColors = [
 
 const leaveTypes = ['Vacation Leave', 'Sick Leave', 'Emergency Leave', 'Maternity Leave', 'Paternity Leave', 'Bereavement Leave', 'Unpaid Leave']
 
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = '100%', height = '1rem', rounded = 'rounded-md', className = '' }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === 'number' ? `${width}px` : width,
+        height: typeof height === 'number' ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-50">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="py-2 px-3">
+                <SkeletonBar
+                  width={config?.width ?? '80%'}
+                  height={config?.pill ? '1.1rem' : '0.85rem'}
+                  rounded={config?.pill ? 'rounded-full' : 'rounded-md'}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
+}
+
 function ApproveRejectModal({ leave, action, onClose, onConfirm }: {
   leave: LeaveRequest; action: 'Approve' | 'Reject'; onClose: () => void; onConfirm: () => void
 }) {
@@ -310,6 +358,8 @@ export default function LeaveManagement() {
   const [employees, setEmployees] = useState<any[]>([])
   const [leaveTypesList, setLeaveTypesList] = useState<any[]>([])
   const [leaveBalances, setLeaveBalances] = useState<any[]>([])
+  const [leaveRequestsLoading, setLeaveRequestsLoading] = useState(true)
+  const [leaveBalancesLoading, setLeaveBalancesLoading] = useState(true)
   const [showAddLeaveType, setShowAddLeaveType] = useState(false)
   const [showAddLeaveRequest, setShowAddLeaveRequest] = useState(false)
   const [balancePage, setBalancePage] = useState(0)
@@ -317,6 +367,7 @@ export default function LeaveManagement() {
   const BALANCE_PAGE_SIZE = 9
 
   const loadLeaveRequests = useCallback(async () => {
+    setLeaveRequestsLoading(true)
     try {
       const res = await fetch('/api/leave_requests')
       if (!res.ok) return
@@ -335,6 +386,8 @@ export default function LeaveManagement() {
       }
     } catch (err) {
       console.error('Failed to load leave requests', err)
+    } finally {
+      setLeaveRequestsLoading(false)
     }
   }, [])
 
@@ -342,6 +395,7 @@ export default function LeaveManagement() {
     let mounted = true
     ;(async () => {
       if (!mounted) return
+      setLeaveBalancesLoading(true)
       await loadLeaveRequests()
       // load leave types and balances
       try {
@@ -356,6 +410,8 @@ export default function LeaveManagement() {
         }
       } catch (err) {
         console.error('Failed to load leave meta', err)
+      } finally {
+        if (mounted) setLeaveBalancesLoading(false)
       }
     })()
     return () => { mounted = false }
@@ -511,53 +567,68 @@ export default function LeaveManagement() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filtered.map(leave => {
-                    const ltIdx = leaveTypes.indexOf(leave.leaveType) % leaveColors.length
-                    return (
-                      <tr
-                        key={leave.id}
-                        className="hover:bg-slate-50 group cursor-pointer"
-                        onClick={() => setSelectedLeave(leave)}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault()
-                            setSelectedLeave(leave)
-                          }
-                        }}
-                      >
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                              <span className="text-indigo-700 text-[10px] font-bold font-display">
-                                {leave.employeeName.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
-                              </span>
+                  {leaveRequestsLoading ? (
+                    <SkeletonTableRows
+                      columns={6}
+                      rows={6}
+                      columnConfig={[
+                        { width: '34%' },
+                        { width: '30%', pill: true },
+                        { width: '22%' },
+                        { width: '22%' },
+                        { width: '18%' },
+                        { width: '26%', pill: true },
+                      ]}
+                    />
+                  ) : (
+                    filtered.map(leave => {
+                      const ltIdx = leaveTypes.indexOf(leave.leaveType) % leaveColors.length
+                      return (
+                        <tr
+                          key={leave.id}
+                          className="hover:bg-slate-50 group cursor-pointer"
+                          onClick={() => setSelectedLeave(leave)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              setSelectedLeave(leave)
+                            }
+                          }}
+                        >
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                                <span className="text-indigo-700 text-[10px] font-bold font-display">
+                                  {leave.employeeName.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{leave.employeeName}</p>
+                                <p className="text-xs text-slate-400">{leave.restaurant || leave.employeeRestaurant || 'Both'}</p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{leave.employeeName}</p>
-                              <p className="text-xs text-slate-400">{leave.restaurant || leave.employeeRestaurant || 'Both'}</p>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${leaveColors[ltIdx]}`}>{leave.leaveType}</span>
                             </div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${leaveColors[ltIdx]}`}>{leave.leaveType}</span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{formatDate(leave.startDate)}</td>
-                        <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{formatDate(leave.endDate)}</td>
-                        <td className="py-3 px-4 font-mono text-xs text-slate-700">{leave.days}</td>
-                        <td className="py-3 px-4">
-                          {(() => {
-                            const key = leave.status as keyof typeof statusColor
-                            return <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[key]}`}>{leave.status}</span>
-                          })()}
-                        </td>
-                        <td className="py-3 px-4">{/* Actions moved into detail modal */}</td>
-                      </tr>
-                    )
-                  })}
+                          </td>
+                          <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{formatDate(leave.startDate)}</td>
+                          <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{formatDate(leave.endDate)}</td>
+                          <td className="py-3 px-4 font-mono text-xs text-slate-700">{leave.days}</td>
+                          <td className="py-3 px-4">
+                            {(() => {
+                              const key = leave.status as keyof typeof statusColor
+                              return <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[key]}`}>{leave.status}</span>
+                            })()}
+                          </td>
+                          <td className="py-3 px-4">{/* Actions moved into detail modal */}</td>
+                        </tr>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
             ) : (
@@ -606,14 +677,27 @@ export default function LeaveManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {leaveTypesList.filter(lt => !restaurantFilter || lt.restaurant === restaurantFilter).map((lt: any) => (
-                  <tr key={lt.leave_type_id}>
-                    <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{lt.name}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 font-mono">{lt.leave_number}</td>
-                    <td className="py-3 px-4 text-sm text-slate-500">{lt.restaurant}</td>
-                    <td className="py-3 px-4 text-sm text-slate-500">{renderPaidBadge(Boolean(lt.is_paid))}</td>
-                  </tr>
-                ))}
+                {leaveBalancesLoading ? (
+                  <SkeletonTableRows
+                    columns={4}
+                    rows={6}
+                    columnConfig={[
+                      { width: '34%' },
+                      { width: '18%' },
+                      { width: '26%' },
+                      { width: '22%', pill: true },
+                    ]}
+                  />
+                ) : (
+                  leaveTypesList.filter(lt => !restaurantFilter || lt.restaurant === restaurantFilter).map((lt: any) => (
+                    <tr key={lt.leave_type_id}>
+                      <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{lt.name}</td>
+                      <td className="py-3 px-4 text-sm text-slate-600 font-mono">{lt.leave_number}</td>
+                      <td className="py-3 px-4 text-sm text-slate-500">{lt.restaurant}</td>
+                      <td className="py-3 px-4 text-sm text-slate-500">{renderPaidBadge(Boolean(lt.is_paid))}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -640,38 +724,57 @@ export default function LeaveManagement() {
                   </select>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {paged.map(emp => {
-                    const balances = getLeaveBalances(emp.id)
-
-                    return (
-                      <div key={emp.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                  {leaveBalancesLoading ? (
+                    Array.from({ length: 3 }).map((_, idx) => (
+                      <div key={idx} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                         <div className="flex items-center gap-3 mb-4">
-                          <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                            <span className="text-indigo-700 text-xs font-bold font-display">{emp.firstName[0]}{emp.lastName[0]}</span>
-                          </div>
-                          <div>
-                            <p className="text-sm font-semibold text-slate-700 font-display">{emp.firstName} {emp.lastName}</p>
-                            <p className="text-xs text-slate-400">{emp.department}</p>
-                            <p className="text-xs text-slate-400">{emp.restaurant}</p>
+                          <SkeletonBar width={36} height={36} rounded="rounded-full" />
+                          <div className="space-y-2 flex-1">
+                            <SkeletonBar width="70%" height="0.8rem" />
+                            <SkeletonBar width="45%" height="0.7rem" />
                           </div>
                         </div>
                         <div className="space-y-3">
-                          {balances.map(balance => (
-                            <div key={balance.type}>
-                              <div className="flex justify-between text-xs mb-1">
-                                <span className="text-slate-600 font-display">{balance.type}</span>
-                                <span className="text-slate-400 font-mono">{balance.used}/{balance.total} days</span>
-                              </div>
-                              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div className={`h-full rounded-full ${balance.used / Math.max(balance.total, 1) > 0.7 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${balance.total === 0 ? 0 : (balance.used / balance.total) * 100}%` }} />
-                              </div>
-                              <p className="text-xs text-slate-400 mt-0.5">{balance.remaining} days remaining</p>
-                            </div>
-                          ))}
+                          <SkeletonBar width="100%" height="0.7rem" />
+                          <SkeletonBar width="100%" height="0.5rem" rounded="rounded-full" />
+                          <SkeletonBar width="50%" height="0.7rem" />
                         </div>
                       </div>
-                    )
-                  })}
+                    ))
+                  ) : (
+                    paged.map(emp => {
+                      const balances = getLeaveBalances(emp.id)
+
+                      return (
+                        <div key={emp.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                              <span className="text-indigo-700 text-xs font-bold font-display">{emp.firstName[0]}{emp.lastName[0]}</span>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-700 font-display">{emp.firstName} {emp.lastName}</p>
+                              <p className="text-xs text-slate-400">{emp.department}</p>
+                              <p className="text-xs text-slate-400">{emp.restaurant}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-3">
+                            {balances.map(balance => (
+                              <div key={balance.type}>
+                                <div className="flex justify-between text-xs mb-1">
+                                  <span className="text-slate-600 font-display">{balance.type}</span>
+                                  <span className="text-slate-400 font-mono">{balance.used}/{balance.total} days</span>
+                                </div>
+                                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full ${balance.used / Math.max(balance.total, 1) > 0.7 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${balance.total === 0 ? 0 : (balance.used / balance.total) * 100}%` }} />
+                                </div>
+                                <p className="text-xs text-slate-400 mt-0.5">{balance.remaining} days remaining</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
                 </div>
                 {totalPages > 1 && (
                   <div className="flex items-center justify-end gap-3 mt-5">

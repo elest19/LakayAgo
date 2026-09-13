@@ -7,7 +7,7 @@ import { mapEmployee } from '../../../../lib/mapEmployee'
 export async function GET(req: Request, context: any) {
   const { params } = context as any
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { employeeId } = await params
@@ -28,7 +28,7 @@ export async function GET(req: Request, context: any) {
 export async function PUT(req: Request, context: any) {
   const { params } = context as any
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { employeeId } = await params

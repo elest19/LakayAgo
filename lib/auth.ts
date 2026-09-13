@@ -1,5 +1,7 @@
 import { betterAuth } from 'better-auth'
+import { username } from 'better-auth/plugins'
 import { createAuthClient } from 'better-auth/react'
+import { usernameClient } from 'better-auth/client/plugins'
 import { PostgresDialect } from 'kysely'
 import { Pool } from 'pg'
 
@@ -21,6 +23,9 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
+  plugins: [
+    username(),
+  ],
   user: {
     modelName: 'users',
     fields: {
@@ -104,6 +109,7 @@ export const authClient = createAuthClient({
   fetchOptions: {
     credentials: 'include',
   },
+  plugins: [usernameClient()],
 })
 
 export default auth

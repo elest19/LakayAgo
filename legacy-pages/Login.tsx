@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { Lock, User, Eye, EyeOff } from 'lucide-react'
 import { useApp } from '../App'
+import { authClient } from '../lib/auth-client'
 
 export default function LoginPage() {
   const { showToast, navigate, logoSrc, setUser } = useApp()
@@ -10,48 +11,48 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const submit = (e?: React.FormEvent) => {
+  const submit = async (e?: React.FormEvent) => {
     e?.preventDefault()
     setLoading(true)
-    fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    })
-      .then(async res => {
-          const body = await res.json()
-          setLoading(false)
-          if (!res.ok) {
-            showToast({ type: 'error', message: body.error || 'Login failed' })
-            return
-          }
-          showToast({ type: 'success', message: 'Logged in', description: `Welcome back, ${body.user?.name || username || 'user'}` })
-          // update app-level auth state if available
-          try {
-            if (setUser) setUser(body.user ?? null)
-            ;(window as any).__app_set_user?.(body.user ?? null)
-            ;(window as any).__app_show_mode_confirmation?.()
-          } catch {}
 
-          // handle redirect param if present and safe
-          try {
-            const params = new URLSearchParams(window.location.search)
-            const redirect = params.get('redirect')
-            const allowed = ['/','/dashboard','/employees','/attendance/records','/attendance/import','/attendance/import-history','/payroll/periods','/payroll/history','/payroll/process','/payroll/payslips','/leave-management','/sales-summary','/sales','/inventory/catalog','/inventory/production','/inventory/kitchen','/expenses','/reports','/settings','/audit-logs']
-            if (redirect && allowed.includes(redirect)) {
-              window.history.pushState({}, '', redirect)
-              const page = (window as any).routePageMap?.[redirect] ?? 'dashboard'
-              navigate(page)
-              return
-            }
-          } catch (err) {}
-
-          navigate('dashboard')
-        })
-      .catch(err => {
-        setLoading(false)
-        showToast({ type: 'error', message: 'Network error' })
+    try {
+      const result = await authClient.signIn.username({
+        username,
+        password,
       })
+
+      if (result?.error) {
+        throw new Error(result.error.message || 'Login failed')
+      }
+
+      const sessionUser = result?.data?.user ?? null
+      const appUser = sessionUser ? { ...sessionUser, user_id: sessionUser.id, id: sessionUser.id } : null
+
+      showToast({ type: 'success', message: 'Logged in', description: `Welcome back, ${appUser?.name || username || 'user'}` })
+      try {
+        if (setUser) setUser(appUser)
+        ;(window as any).__app_set_user?.(appUser)
+        ;(window as any).__app_show_mode_confirmation?.()
+      } catch {}
+
+      try {
+        const params = new URLSearchParams(window.location.search)
+        const redirect = params.get('redirect')
+        const allowed = ['/','/dashboard','/employees','/attendance/records','/attendance/import','/attendance/import-history','/payroll/periods','/payroll/history','/payroll/process','/payroll/payslips','/leave-management','/sales-summary','/sales','/inventory/catalog','/inventory/production','/inventory/kitchen','/expenses','/reports','/settings','/audit-logs']
+        if (redirect && allowed.includes(redirect)) {
+          window.history.pushState({}, '', redirect)
+          const page = (window as any).routePageMap?.[redirect] ?? 'dashboard'
+          navigate(page)
+          return
+        }
+      } catch (err) {}
+
+      navigate('dashboard')
+    } catch (err: any) {
+      showToast({ type: 'error', message: err?.message || 'Login failed' })
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

@@ -10,7 +10,7 @@ function normalizeStatus(value: unknown) {
 
 export async function PATCH(req: Request, context: { params: Promise<{ leaveRequestId: string }> | { leaveRequestId: string } }) {
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { leaveRequestId } = await Promise.resolve(context.params)

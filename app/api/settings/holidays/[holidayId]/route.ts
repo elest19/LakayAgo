@@ -6,7 +6,7 @@ export async function PUT(req: Request, ctx: any) {
   try {
     const { params } = await ctx || {}
     const { holidayId } = await params || {}
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
@@ -29,7 +29,7 @@ export async function DELETE(_req: Request, ctx: any) {
   try {
     const { params } = await ctx || {}
     const { holidayId } = await params || {}
-    const session = getSessionFromRequest(_req)
+    const session = await getSessionFromRequest(_req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 

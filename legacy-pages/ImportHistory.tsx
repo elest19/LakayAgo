@@ -51,6 +51,54 @@ const statusColor: Record<string, string> = {
   Unknown: 'bg-green-100 text-green-600',
 }
 
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = "100%", height = "1rem", rounded = "rounded-md", className = "" }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === "number" ? `${width}px` : width,
+        height: typeof height === "number" ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-50">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="py-2 px-3">
+                <SkeletonBar
+                  width={config?.width ?? "80%"}
+                  height={config?.pill ? "1.1rem" : "0.85rem"}
+                  rounded={config?.pill ? "rounded-full" : "rounded-md"}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
+}
+
 const attendanceStatusColor: Record<string, string> = {
   Present: 'bg-emerald-100 text-emerald-700',
   Absent: 'bg-red-100 text-red-700',
@@ -119,8 +167,10 @@ export default function ImportHistory() {
   const { showToast } = useApp()
   const isMobile = useIsMobile()
   const [imports, setImports] = useState<ImportRecord[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedImport, setSelectedImport] = useState<ImportRecord | null>(null)
   const [employees, setEmployees] = useState<EmployeeRecord[]>([])
+  const [employeesLoading, setEmployeesLoading] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRecord | null>(null)
   const [employeeAttendance, setEmployeeAttendance] = useState<AttendanceRecord[]>([])
   const [employeeLoading, setEmployeeLoading] = useState(false)
@@ -138,6 +188,8 @@ export default function ImportHistory() {
         if (mounted) setImports(body.imports || [])
       } catch (err) {
         console.error('Failed to load import history', err)
+      } finally {
+        if (mounted) setLoading(false)
       }
     })()
     return () => { mounted = false }
@@ -148,12 +200,15 @@ export default function ImportHistory() {
     let mounted = true
     ;(async () => {
       try {
+        setEmployeesLoading(true)
         const res = await fetch(`/api/import-history/${selectedImport.id}`)
         if (!res.ok) return
         const body = await res.json()
         if (mounted) setEmployees(body.employees || [])
       } catch (err) {
         console.error('Failed to load employees', err)
+      } finally {
+        if (mounted) setEmployeesLoading(false)
       }
     })()
     return () => { mounted = false }
@@ -220,35 +275,42 @@ export default function ImportHistory() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {imports.map(imp => (
-                  <tr
-                    key={imp.id}
-                    className="hover:bg-slate-50 group cursor-pointer"
-                    onClick={() => setSelectedImport(imp)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        setSelectedImport(imp)
-                      }
-                    }}
-                  >
-                    <td className="py-3 px-4 text-sm text-slate-600">{imp.dateImported}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <FileText size={14} className="text-emerald-500 shrink-0" />
-                        <span className="text-sm font-medium text-slate-700 font-display">{formatImportPeriod(imp.fileName)}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600">{imp.records.toLocaleString()}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600">{imp.employees}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600">{imp.importedBy}</td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[imp.status] || statusColor.Unknown}`}>{imp.status}</span>
-                    </td>
-                  </tr>
-                ))}
+                {loading ? (
+                  <SkeletonTableRows columns={6} rows={6} columnConfig={[
+                    { width: "45%" }, { width: "75%" }, { width: "35%" },
+                    { width: "35%" }, { width: "55%" }, { width: "40%", pill: true }
+                  ]} />
+                ) : (
+                  imports.map(imp => (
+                    <tr
+                      key={imp.id}
+                      className="hover:bg-slate-50 group cursor-pointer"
+                      onClick={() => setSelectedImport(imp)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setSelectedImport(imp)
+                        }
+                      }}
+                    >
+                      <td className="py-3 px-4 text-sm text-slate-600">{imp.dateImported}</td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <FileText size={14} className="text-emerald-500 shrink-0" />
+                          <span className="text-sm font-medium text-slate-700 font-display">{formatImportPeriod(imp.fileName)}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-600">{imp.records.toLocaleString()}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-600">{imp.employees}</td>
+                      <td className="py-3 px-4 text-sm text-slate-600">{imp.importedBy}</td>
+                      <td className="py-3 px-4">
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[imp.status] || statusColor.Unknown}`}>{imp.status}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           ) : (
@@ -271,32 +333,43 @@ export default function ImportHistory() {
         <Modal open={!!selectedImport} title={formatImportPeriod(selectedImport.fileName)} onClose={() => setSelectedImport(null)}>
           <div className="p-3 w-[900px] max-h-[80vh] overflow-y-auto">
             <div className="space-y-5">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-slate-400">Date Imported</p>
-                  <p className="text-sm font-medium">{selectedImport.dateImported?.split(',')[0]}</p>
+              {employeesLoading ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div><SkeletonBar width="70px" height="12px" /><SkeletonBar width="140px" height="20px" /></div>
+                  <div><SkeletonBar width="70px" height="12px" /><SkeletonBar width="140px" height="20px" /></div>
+                  <div><SkeletonBar width="70px" height="12px" /><SkeletonBar width="140px" height="20px" /></div>
+                  <div><SkeletonBar width="70px" height="12px" /><SkeletonBar width="140px" height="20px" /></div>
+                  <div><SkeletonBar width="70px" height="12px" /><SkeletonBar width="140px" height="20px" /></div>
+                  <div><SkeletonBar width="70px" height="12px" /><SkeletonBar width="140px" height="20px" /></div>
                 </div>
-                <div>
-                  <p className="text-xs text-slate-400">Status</p>
-                  <p className="text-sm font-medium">{selectedImport.status}</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-slate-400">Date Imported</p>
+                    <p className="text-sm font-medium">{selectedImport.dateImported?.split(',')[0]}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Status</p>
+                    <p className="text-sm font-medium">{selectedImport.status}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Records</p>
+                    <p className="text-sm font-medium">{selectedImport.records}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Employees</p>
+                    <p className="text-sm font-medium">{selectedImport.employees}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Restaurant</p>
+                    <p className="text-sm font-medium">{selectedImport.importedBy}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Period</p>
+                    <p className="text-sm font-medium">{formatDate(addDaysISO(selectedImport.periodStart, 1))} to {formatDate(addDaysISO(selectedImport.periodEnd, 1))}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-slate-400">Records</p>
-                  <p className="text-sm font-medium">{selectedImport.records}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Employees</p>
-                  <p className="text-sm font-medium">{selectedImport.employees}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Restaurant</p>
-                  <p className="text-sm font-medium">{selectedImport.importedBy}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Period</p>
-                  <p className="text-sm font-medium">{formatDate(addDaysISO(selectedImport.periodStart, 1))} to {formatDate(addDaysISO(selectedImport.periodEnd, 1))}</p>
-                </div>
-              </div>
+              )}
 
               <div className="pt-4 border-t border-slate-100">
                 <div className="flex items-center justify-between mb-3">
@@ -312,20 +385,26 @@ export default function ImportHistory() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {employees.map(emp => (
-                        <tr key={emp.employeeId} className="hover:bg-slate-50 cursor-pointer" onClick={() => handleEmployeeClick(emp)}>
-                          <td className="py-2 px-4">
-                            <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                                <span className="text-indigo-700 text-[10px] font-bold font-display">{emp.employeeName.slice(0, 2)}</span>
+                      {employeesLoading ? (
+                        <SkeletonTableRows columns={3} rows={6} columnConfig={[
+                          { width: "75%" }, { width: "40%" }, { width: "35%" }
+                        ]} />
+                      ) : (
+                        employees.map(emp => (
+                          <tr key={emp.employeeId} className="hover:bg-slate-50 cursor-pointer" onClick={() => handleEmployeeClick(emp)}>
+                            <td className="py-2 px-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                                  <span className="text-indigo-700 text-[10px] font-bold font-display">{emp.employeeName.slice(0, 2)}</span>
+                                </div>
+                                <span className="text-sm font-medium text-slate-700 font-display">{emp.employeeName}</span>
                               </div>
-                              <span className="text-sm font-medium text-slate-700 font-display">{emp.employeeName}</span>
-                            </div>
-                          </td>
-                          <td className="py-2 px-4 text-sm text-slate-600">{emp.sourceID}</td>
-                          <td className="py-2 px-4 font-mono text-xs text-slate-600">{emp.recordsCount}</td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="py-2 px-4 text-sm text-slate-600">{emp.sourceID}</td>
+                            <td className="py-2 px-4 font-mono text-xs text-slate-600">{emp.recordsCount}</td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>

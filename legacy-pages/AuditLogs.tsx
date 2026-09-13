@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Search } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 
@@ -24,37 +24,97 @@ const actionColor: Record<string, string> = {
   'Finalize Payroll': 'bg-emerald-50 text-emerald-600',
 }
 
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = '100%', height = '1rem', rounded = 'rounded-md', className = '' }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === 'number' ? `${width}px` : width,
+        height: typeof height === 'number' ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-50">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="py-2 px-3">
+                <SkeletonBar
+                  width={config?.width ?? '80%'}
+                  height={config?.pill ? '1.1rem' : '0.85rem'}
+                  rounded={config?.pill ? 'rounded-full' : 'rounded-md'}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
+}
+
 export default function AuditLogs() {
   const isMobile = useIsMobile()
   const [logs, setLogs] = useState<any[]>([])
   const [selectedLog, setSelectedLog] = useState<any | null>(null)
   const [search, setSearch] = useState('')
   const [module, setModule] = useState('')
+  const [logsLoading, setLogsLoading] = useState(true)
   const [action, setAction] = useState('')
   const [user, setUser] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const PAGE_SIZE = 10
 
   useEffect(() => {
     let mounted = true
     ;(async () => {
       try {
-        const res = await fetch('/api/audit-logs')
+        setLogsLoading(true)
+        const params = new URLSearchParams()
+        params.set('page', String(page))
+        params.set('pageSize', String(PAGE_SIZE))
+        if (module) params.set('module', module)
+        if (action) params.set('action', action)
+        if (user) params.set('user', user)
+        const res = await fetch(`/api/audit-logs?${params.toString()}`)
         if (!res.ok) return
         const body = await res.json()
-        if (mounted) setLogs(body.logs || [])
+        if (mounted) {
+          setLogs(body.logs || [])
+          setTotal(body.total || 0)
+        }
       } catch (err) {
         console.error('Failed to load audit logs', err)
+      } finally {
+        if (mounted) setLogsLoading(false)
       }
     })()
     return () => { mounted = false }
-  }, [])
+  }, [page, module, action, user])
 
   const filtered = logs.filter((log: any) => {
     const q = search.toLowerCase()
-    const matchQ = !q || (log.description || '').toLowerCase().includes(q) || (log.user || '').toLowerCase().includes(q)
-    const matchModule = !module || log.module === module
-    const matchAction = !action || log.action === action
-    const matchUser = !user || log.user === user
-    return matchQ && matchModule && matchAction && matchUser
+    return !q || (log.description || '').toLowerCase().includes(q) || (log.user || '').toLowerCase().includes(q)
   })
 
   const uniqueModules = [...new Set(logs.map(l => l.module))]
@@ -75,15 +135,15 @@ export default function AuditLogs() {
             <Search size={14} className="text-slate-400 shrink-0" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search logs..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
           </div>
-          <select value={module} onChange={e => setModule(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+          <select value={module} onChange={e => { setModule(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
             <option value="">Module: All</option>
             {uniqueModules.map(m => <option key={m}>{m}</option>)}
           </select>
-          <select value={action} onChange={e => setAction(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+          <select value={action} onChange={e => { setAction(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
             <option value="">Action: All</option>
             {uniqueActions.map(a => <option key={a}>{a}</option>)}
           </select>
-          <select value={user} onChange={e => setUser(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+          <select value={user} onChange={e => { setUser(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
             <option value="">User: All</option>
             {uniqueUsers.map(u => <option key={u}>{u}</option>)}
           </select>
@@ -95,15 +155,15 @@ export default function AuditLogs() {
             <Search size={14} className="text-slate-400 shrink-0" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search logs..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
           </div>
-          <select value={module} onChange={e => setModule(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+          <select value={module} onChange={e => { setModule(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
             <option value="">Module: All</option>
             {uniqueModules.map(m => <option key={m}>{m}</option>)}
           </select>
-          <select value={action} onChange={e => setAction(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+          <select value={action} onChange={e => { setAction(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
             <option value="">Action: All</option>
             {uniqueActions.map(a => <option key={a}>{a}</option>)}
           </select>
-          <select value={user} onChange={e => setUser(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+          <select value={user} onChange={e => { setUser(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
             <option value="">User: All</option>
             {uniqueUsers.map(u => <option key={u}>{u}</option>)}
           </select>
@@ -122,32 +182,46 @@ export default function AuditLogs() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map(log => (
-                  <tr key={log.id} className="hover:bg-slate-50 group cursor-pointer" role="button" tabIndex={0} onClick={() => setSelectedLog(log)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLog(log) } }}>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <p className="text-xs font-mono text-slate-600">{log.dateTime}</p>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                          <span className="text-indigo-700 text-[9px] font-bold font-display">{log.user.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}</span>
+                {logsLoading ? (
+                  <SkeletonTableRows
+                    columns={5}
+                    rows={6}
+                    columnConfig={[
+                      { width: '18%' },
+                      { width: '22%' },
+                      { width: '18%', pill: true },
+                      { width: '16%', pill: true },
+                      { width: '42%' },
+                    ]}
+                  />
+                ) : (
+                  filtered.map(log => (
+                    <tr key={log.id} className="hover:bg-slate-50 group cursor-pointer" role="button" tabIndex={0} onClick={() => setSelectedLog(log)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLog(log) } }}>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <p className="text-xs font-mono text-slate-600">{log.dateTime}</p>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                            <span className="text-indigo-700 text-[9px] font-bold font-display">{log.user.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}</span>
+                          </div>
+                          <span className="text-sm text-slate-600 font-display whitespace-nowrap">{log.user}</span>
                         </div>
-                        <span className="text-sm text-slate-600 font-display whitespace-nowrap">{log.user}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display whitespace-nowrap ${actionColor[log.action] || 'bg-slate-100 text-slate-600'}`}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${moduleColor[log.module] || 'bg-slate-100 text-slate-500'}`}>
-                        {log.module}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-sm text-slate-600 max-w-sm">{log.description}</td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display whitespace-nowrap ${actionColor[log.action] || 'bg-slate-100 text-slate-600'}`}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${moduleColor[log.module] || 'bg-slate-100 text-slate-500'}`}>
+                          {log.module}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-slate-600 max-w-sm">{log.description}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           ) : (
@@ -164,13 +238,44 @@ export default function AuditLogs() {
             </div>
           )}
         </div>
-        {filtered.length === 0 && (
+        {filtered.length === 0 && !logsLoading && (
           <div className="py-12 text-center">
             <p className="text-sm text-slate-400 font-display">No audit logs match your filters.</p>
           </div>
         )}
         <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
-          <p className="text-xs text-slate-500">Showing {filtered.length} of {logs.length} entries</p>
+          <p className="text-xs text-slate-500">Showing {total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} entries</p>
+          {total > PAGE_SIZE && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              {Array.from({ length: Math.ceil(total / PAGE_SIZE) }, (_, i) => {
+                const p = i + 1
+                const show = p === 1 || p === Math.ceil(total / PAGE_SIZE) || Math.abs(p - page) <= 2
+                if (!show) {
+                  if (i === 1 || i === Math.ceil(total / PAGE_SIZE) - 2) return <span key={p} className="px-1 text-slate-400">…</span>
+                  return null
+                }
+                return (
+                  <button key={p} onClick={() => setPage(p)} className={`w-7 h-7 rounded-lg text-xs font-medium font-display ${page === p ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
+                    {p}
+                  </button>
+                )
+              })}
+              <button
+                onClick={() => setPage(p => Math.min(Math.ceil(total / PAGE_SIZE), p + 1))}
+                disabled={page === Math.ceil(total / PAGE_SIZE)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

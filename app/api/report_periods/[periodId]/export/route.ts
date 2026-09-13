@@ -4,7 +4,7 @@ import { query } from '../../../../../lib/db'
 import ExcelJS from 'exceljs'
 
 export async function GET(req: Request, context: any) {
-  const session = getSessionFromRequest(req)
+  const session = await getSessionFromRequest(req)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { periodId } = await context.params
 

@@ -4,7 +4,7 @@ import { query } from '../../../lib/db'
 import { logAudit } from '../../../lib/audit'
 
 export async function GET(req: Request) {
-  const session = getSessionFromRequest(req)
+  const session = await getSessionFromRequest(req)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const ALL_RESTAURANTS = ['Lakay Ago', 'Aroo']
@@ -45,7 +45,12 @@ export async function GET(req: Request) {
       return NextResponse.json({ periods: [] })
     }
 
-    params.push(allowedRestaurants)
+    // For 'Both' admins, honor the explicit restaurant param if present
+    const target = session.restaurant === 'Both' && qRestaurant && (qRestaurant === 'Lakay Ago' || qRestaurant === 'Aroo')
+      ? [qRestaurant]
+      : allowedRestaurants
+
+    params.push(target)
     text += ` where restaurant = ANY($${params.length})`
   }
 
@@ -56,7 +61,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = getSessionFromRequest(req)
+  const session = await getSessionFromRequest(req)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await req.json()
   const { period_start, period_end, tabulation_date, source_file, restaurant } = body

@@ -13,17 +13,18 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
     "bcryptjs": "^3.0.3",
-    "exceljs": "^4.4.0",
+    "better-auth": "^1.7.3",
+    "exceljs": "^3.4.0",
     "jsonwebtoken": "^9.0.0",
     "lucide-react": "^1.31.0",
     "motion": "^13.1.1",
     "next": "latest",
-    "pg": "^8.11.0",
+    "pdf-lib": "^1.17.1",
+    "pg": "^8.23.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^3.10.1",
-    "xlsx": "^0.18.5",
-    "pdf-lib": "^1.17.1"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

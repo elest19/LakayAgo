@@ -4,7 +4,7 @@ import { query } from '../../../../lib/db'
 import { logAudit } from '../../../../lib/audit'
 
 export async function GET(req: Request, context: any) {
-  const session = getSessionFromRequest(req)
+  const session = await getSessionFromRequest(req)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { periodId } = await context.params
   const { rows } = await query('select * from report_periods where report_period_id = $1 limit 1', [Number(periodId)])
@@ -15,7 +15,7 @@ export async function GET(req: Request, context: any) {
 }
 
 export async function PUT(req: Request, context: any) {
-  const session = getSessionFromRequest(req)
+  const session = await getSessionFromRequest(req)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { periodId } = await context.params
   const body = await req.json()

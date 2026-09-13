@@ -28,7 +28,7 @@ type IncomingRecord = {
 
 export async function GET(req: Request) {
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const url = new URL(req.url)
@@ -38,15 +38,21 @@ export async function GET(req: Request) {
 
     const params: any[] = []
     let where: string[] = []
+    const qRestaurant = url.searchParams.get('restaurant')
     if (session.role !== 'SuperAdmin') {
-      params.push(session.restaurant)
-      where.push(`restaurant = $${params.length}`)
-    } else {
-      const qRestaurant = url.searchParams.get('restaurant')
-      if (qRestaurant) {
-        params.push(qRestaurant)
+      if (session.restaurant === 'Both') {
+        const target = qRestaurant && (qRestaurant === 'Lakay Ago' || qRestaurant === 'Aroo')
+          ? [qRestaurant]
+          : ['Lakay Ago', 'Aroo']
+        params.push(target)
+        where.push(`restaurant = ANY($${params.length})`)
+      } else {
+        params.push(session.restaurant)
         where.push(`restaurant = $${params.length}`)
       }
+    } else if (qRestaurant) {
+      params.push(qRestaurant)
+      where.push(`restaurant = $${params.length}`)
     }
 
     if (qEmployee) { params.push(Number(qEmployee)); where.push(`employee_id = $${params.length}`) }
@@ -100,7 +106,7 @@ function emptyToNull(v: unknown): string | null {
 
 export async function POST(req: Request) {
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
  
     const body = await req.json()

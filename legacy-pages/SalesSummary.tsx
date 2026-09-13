@@ -1,7 +1,7 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CalendarRange, DollarSign, ReceiptText, TrendingUp } from 'lucide-react'
-import { useApp } from '../App'
+// using local fetching for report data instead of global app context
 import useIsMobile from '../hooks/isMobile'
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -109,13 +109,50 @@ const resolveDateWindow = (filter: DatePreset, customMode: CustomMode, rangeStar
 }
 
 export default function SalesSummary() {
-  const { inventoryItems, salesRecords, expenses } = useApp()
   const isMobile = useIsMobile()
+  const [inventoryItems, setInventoryItems] = useState<any[]>([])
+  const [salesRecords, setSalesRecords] = useState<any[]>([])
+  const [expenses, setExpenses] = useState<any[]>([])
   const [dateFilter, setDateFilter] = useState<DatePreset>('month')
   const [customMode, setCustomMode] = useState<CustomMode>('range')
   const [rangeStart, setRangeStart] = useState('2026-08-01')
   const [rangeEnd, setRangeEnd] = useState('2026-08-30')
   const [singleDate, setSingleDate] = useState('2026-08-21')
+
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        const [menuRes, salesRes, expensesRes] = await Promise.all([
+          fetch('/api/food_and_beverage'),
+          fetch('/api/sales'),
+          fetch('/api/expenses'),
+        ])
+
+        if (menuRes.ok) {
+          const j = await menuRes.json()
+          const rows = j.items || []
+          if (mounted) setInventoryItems(rows.map((r: any) => ({ item: r.name || r.item, id: String(r.food_and_beverage_id || r.id), price: Number(r.price || r.cost || 0) })))
+        }
+
+        if (salesRes.ok) {
+          const j = await salesRes.json()
+          const rows = j.sales || []
+          if (mounted) setSalesRecords(rows.map((s: any) => ({ item: s.item, cost: Number(s.cost || 0), numberOfSales: Number(s.number_of_sales || s.numberOfSales || 0), discount: Number(s.discount || 0), createdAt: s.created_at || s.createdAt })))
+        }
+
+        if (expensesRes.ok) {
+          const j = await expensesRes.json()
+          const rows = j.expenses || []
+          if (mounted) setExpenses(rows.map((e: any) => ({ expense: e.expense || e.name, amount: Number(e.amount || 0), createdAt: e.created_at || e.createdAt })))
+        }
+      } catch (err) {
+        console.error('Failed to load summary data', err)
+      }
+    }
+    load()
+    return () => { mounted = false }
+  }, [])
 
   const dateWindow = useMemo(
     () => resolveDateWindow(dateFilter, customMode, rangeStart, rangeEnd, singleDate),

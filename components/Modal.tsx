@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 
 interface ModalProps {
   open: boolean
@@ -18,48 +18,51 @@ export default function Modal({
   const [mounted, setMounted] = useState(open)
   const [show, setShow] = useState(false)
   const [animateIn, setAnimateIn] = useState(false)
-  let inTimer: any = null
-  let outTimer: any = null
+  const onCloseRef = useRef(onClose)
+  const inTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const outTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
+    onCloseRef.current = onClose
+  }, [onClose])
 
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onCloseRef.current()
+    }
+  }, [])
+
+  useEffect(() => {
     if (open) {
       setMounted(true)
 
-      // Allow the modal to mount before triggering the animation
       requestAnimationFrame(() => {
         setShow(true)
         setAnimateIn(true)
-        if (inTimer) clearTimeout(inTimer)
-        inTimer = setTimeout(() => setAnimateIn(false), 320)
+        if (inTimerRef.current) clearTimeout(inTimerRef.current)
+        inTimerRef.current = setTimeout(() => setAnimateIn(false), 320)
       })
 
-      window.addEventListener('keydown', onKey)
+      window.addEventListener('keydown', handleKeyDown)
     } else {
-      // Play exit animation before unmounting
       setShow(false)
 
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', handleKeyDown)
 
-      if (inTimer) clearTimeout(inTimer)
-      outTimer = setTimeout(() => {
+      if (inTimerRef.current) clearTimeout(inTimerRef.current)
+      outTimerRef.current = setTimeout(() => {
         setMounted(false)
       }, 260)
 
       return () => {
-        if (outTimer) clearTimeout(outTimer)
+        if (outTimerRef.current) clearTimeout(outTimerRef.current)
       }
     }
 
     return () => {
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [open, onClose])
+  }, [open, handleKeyDown])
 
   if (!mounted) return null
 
@@ -89,7 +92,7 @@ export default function Modal({
             <button
               type="button"
               aria-label="Close"
-              onClick={onClose}
+              onClick={() => onCloseRef.current()}
               className="shrink-0 text-slate-400 transition-colors hover:text-slate-600"
             >
               ✕

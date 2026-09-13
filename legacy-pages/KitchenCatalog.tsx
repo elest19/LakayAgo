@@ -418,9 +418,9 @@ export default function KitchenCatalog() {
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               >
                 <option value="">Select item from Production Catalog</option>
-                {productionStock.map(item => (
-                  <option key={item.id} value={item.itemName}>{item.itemName}</option>
-                ))}
+{productionStock.map(item => (
+  <option key={item.id} value={item.name}>{item.name}</option>
+))}
               </select>
               {transferErrors.itemName && <p className="mt-1 text-xs text-red-600">{transferErrors.itemName}</p>}
             </div>

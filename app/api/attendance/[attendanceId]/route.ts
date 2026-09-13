@@ -5,7 +5,7 @@ import { query } from '../../../../lib/db'
 
 export async function PUT(req: Request, context: any) {
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const { params } = await (context as any)
     const attendanceId = Number((await params).attendanceId)

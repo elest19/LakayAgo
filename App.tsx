@@ -24,6 +24,7 @@ import {
 
 import Login from './legacy-pages/Login'
 import Dashboard from './legacy-pages/Dashboard'
+import { authClient } from './lib/auth-client'
 import Employees from './legacy-pages/Employees'
 import AttendanceRecords from './legacy-pages/AttendanceRecords'
 import ImportAttendance from './legacy-pages/ImportAttendance'
@@ -39,9 +40,11 @@ import SettingsPage from './legacy-pages/Settings'
 import AuditLogs from './legacy-pages/AuditLogs'
 import SalesSummary from './legacy-pages/SalesSummary.tsx'
 import Sales from './legacy-pages/Sales'
-import InventoryCatalog from './legacy-pages/InventoryCatalog'
+import AssetsCatalog from './legacy-pages/AssetsCatalog'
 import ProductionCatalog from './legacy-pages/ProductionCatalog'
-import KitchenCatalog from './legacy-pages/KitchenCatalog'
+import FoodAndBeverageCatalog from './legacy-pages/FoodAndBeverageCatalog'
+import FoodPackages from './legacy-pages/FoodPackages'
+import ServicesPage from './legacy-pages/Services'
 import Expenses from './legacy-pages/Expenses'
 // Use the public copy of the logo (served at /LakayAgo_Logo.jpg)
 import Modal from './components/Modal'
@@ -77,6 +80,18 @@ const AppContext = createContext<AppContextType>({
 
 export const useApp = () => useContext(AppContext)
 
+const normalizeAppUser = (value: any) => {
+  if (!value) return null
+  const userId = value.user_id ?? value.id ?? null
+  return {
+    ...value,
+    id: value.id ?? userId,
+    user_id: userId,
+    username: value.username ?? '',
+    role: value.role ?? 'Staff',
+    restaurant: value.restaurant ?? 'Both',
+  }
+}
 
 interface NavItem {
   id: Page
@@ -118,14 +133,16 @@ const navItems: NavEntry[] = [
   },
   {
     type: 'group',
-    label: 'Sales & Expenses',
+    label: 'Inventory Management',
     icon: <ShoppingCart size={18} />,
     items: [
       { id: 'sales-summary', label: 'Summary Report', icon: <BarChart3 size={16} /> },
       { id: 'sales', label: 'Sales', icon: <Wallet size={16} /> },
-      { id: 'inventory-catalog', label: 'Inventory Catalog', icon: <Package2 size={16} /> },
+      { id: 'assets-catalog', label: 'Assets Catalog', icon: <Package2 size={16} /> },
       { id: 'production-catalog', label: 'Production Catalog', icon: <Factory size={16} /> },
-      { id: 'kitchen-catalog', label: 'Kitchen Catalog', icon: <CookingPot size={16} /> },
+      { id: 'food-and-beverage-catalog', label: 'Food & Beverage Catalog', icon: <CookingPot size={16} /> },
+      { id: 'food-packages', label: 'Food Packages', icon: <Package2 size={16} /> },
+      { id: 'services', label: 'Services', icon: <FileText size={16} /> },
       { id: 'expenses', label: 'Expenses', icon: <CreditCard size={16} /> },
     ],
   },
@@ -148,12 +165,14 @@ const pageMeta: Record<Page, { title: string; breadcrumbs: string[] }> = {
   'process-payroll': { title: 'Process Payroll', breadcrumbs: ['Payroll', 'Process'] },
   payslips: { title: 'Payslips', breadcrumbs: ['Payroll', 'Payslips'] },
   'leave-management': { title: 'Leave Management', breadcrumbs: ['Leave Management'] },
-  'sales-summary': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Summary Report'] },
-  sales: { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Sales'] },
-  'inventory-catalog': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Inventory Catalog'] },
-  'kitchen-catalog': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Kitchen Catalog'] },
-  'production-catalog': { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Production Catalog'] },
-  expenses: { title: 'Sales & Expenses', breadcrumbs: ['Sales & Expenses', 'Expenses'] },
+  'sales-summary': { title: 'Inventory Management', breadcrumbs: ['Inventory Management', 'Summary Report'] },
+  sales: { title: 'Inventory Management', breadcrumbs: ['Inventory Management', 'Sales'] },
+  'assets-catalog': { title: 'Inventory Management', breadcrumbs: ['Inventory Management', 'Assets Catalog'] },
+  'food-and-beverage-catalog': { title: 'Inventory Management', breadcrumbs: ['Inventory Management', 'Food & Beverage Catalog'] },
+  'production-catalog': { title: 'Inventory Management', breadcrumbs: ['Inventory Management', 'Production Catalog'] },
+  'food-packages': { title: 'Inventory Management', breadcrumbs: ['Inventory Management', 'Food Packages'] },
+  'services': { title: 'Inventory Management', breadcrumbs: ['Inventory Management', 'Services'] },
+  expenses: { title: 'Inventory Management', breadcrumbs: ['Inventory Management', 'Expenses'] },
   reports: { title: 'Reports', breadcrumbs: ['Reports'] },
   settings: { title: 'Settings', breadcrumbs: ['Settings'] },
   'audit-logs': { title: 'Audit Logs', breadcrumbs: ['Audit Logs'] },
@@ -207,9 +226,11 @@ const routePageMap: Record<string, Page> = {
   '/leave-management': 'leave-management',
   '/sales-summary': 'sales-summary',
   '/sales': 'sales',
-  '/inventory/catalog': 'inventory-catalog',
+  '/inventory/assets': 'assets-catalog',
   '/inventory/production': 'production-catalog',
-  '/inventory/kitchen': 'kitchen-catalog',
+  '/inventory/food-and-beverage': 'food-and-beverage-catalog',
+  '/inventory/food-packages': 'food-packages',
+  '/inventory/services': 'services',
   '/expenses': 'expenses',
   '/reports': 'reports',
   '/settings': 'settings',
@@ -224,17 +245,8 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true)
   const isMobileView = useIsMobile()
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
-  const [productionStock, setProductionStock] = useState<ProductionItem[]>([
-    { id: 'PRO-001', itemName: 'Chicken', department: 'Production', stock: 40, createdAt: '2026-08-01T09:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:00:00Z', updatedBy: 'Admin' },
-    { id: 'PRO-002', itemName: 'Rice', department: 'Production', stock: 60, createdAt: '2026-08-01T09:10:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:10:00Z', updatedBy: 'Admin' },
-    { id: 'PRO-003', itemName: 'Vegetables', department: 'Production', stock: 35, createdAt: '2026-08-01T09:15:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:15:00Z', updatedBy: 'Admin' },
-  ])
-  const [kitchenStock, setKitchenStock] = useState<KitchenItem[]>([
-    { id: 'KIT-001', itemName: 'Adobo Rice Bowl', department: 'Kitchen', stock: 20, createdAt: '2026-08-01T09:00:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:00:00Z', updatedBy: 'Admin' },
-    { id: 'KIT-002', itemName: 'Bicol Express', department: 'Kitchen', stock: 16, createdAt: '2026-08-01T09:05:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:05:00Z', updatedBy: 'Admin' },
-    { id: 'KIT-003', itemName: 'Chicken BBQ Platter', department: 'Kitchen', stock: 14, createdAt: '2026-08-01T09:10:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:10:00Z', updatedBy: 'Admin' },
-    { id: 'KIT-004', itemName: 'Fresh Lumpia', department: 'Kitchen', stock: 18, createdAt: '2026-08-01T09:15:00Z', createdBy: 'Admin', updatedAt: '2026-08-01T09:15:00Z', updatedBy: 'Admin' },
-  ])
+  const [productionStock, setProductionStock] = useState<ProductionItem[]>([])
+  const [kitchenStock, setKitchenStock] = useState<KitchenItem[]>([])
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([])
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([])
   const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([])
@@ -267,47 +279,35 @@ export default function App() {
 
   
 
+  const session = authClient.useSession()
+
   // fetch current session/user
   useEffect(() => {
-    const modalShownOnMount = { value: false }
-    let mounted = true
-    const fetchMe = async () => {
-      try {
-        const res = await fetch('/api/auth/me')
-        if (!mounted) return
-        if (res.ok) {
-          const body = await res.json()
-          setUser(body.user ?? null)
-          // Only show the mode confirmation once on initial page load / session restore.
-          if (body.user && !modalShownOnMount.value) {
-            modalShownOnMount.value = true
-            // defer so appMode resolution can run first
-            requestAnimationFrame(() => setShowModeConfirmation(true))
-          }
-          // Initialize profileForm with user data when user is first loaded
-          if (body.user) {
-            const nameParts = (body.user.name || '').split(' ')
-            setProfileForm({
-              firstName: nameParts[0] || '',
-              lastName: nameParts.slice(1).join(' ') || '',
-              contactNumber: '',
-              role: body.user.role === 'SuperAdmin' ? 'Super Admin' : body.user.role || '',
-              email: body.user.email || '',
-              password: '',
-            })
-          }
-        } else {
-          setUser(null)
-        }
-      } catch (err) {
-        setUser(null)
-      } finally {
-        if (mounted) setAuthLoading(false)
+    const nextUser = normalizeAppUser(session.data?.user ?? null)
+    setUser(nextUser)
+    setAuthLoading(session.isPending)
+
+    if (session.isPending) return
+
+    if (nextUser) {
+      const nameParts = (nextUser.name || '').split(' ')
+      setProfileForm({
+        firstName: nameParts[0] || '',
+        lastName: nameParts.slice(1).join(' ') || '',
+        contactNumber: '',
+        role: nextUser.role === 'SuperAdmin' ? 'Super Admin' : nextUser.role || '',
+        email: nextUser.email || '',
+        password: '',
+      })
+
+      if (!session.data?.user) return
+      const hasModal = (window as any).__app_mode_modal_shown
+      if (!hasModal) {
+        ;(window as any).__app_mode_modal_shown = true
+        requestAnimationFrame(() => setShowModeConfirmation(true))
       }
     }
-    fetchMe()
-    return () => { mounted = false }
-  }, [])
+  }, [session.data, session.isPending])
 
   // sync profileForm with authenticated user
   useEffect(() => {
@@ -326,7 +326,7 @@ export default function App() {
 
   // expose a global setter for legacy pages to set user after login
   useEffect(() => {
-    ;(window as any).__app_set_user = (u: any) => setUser(u)
+    ;(window as any).__app_set_user = (u: any) => setUser(normalizeAppUser(u))
     ;(window as any).__app_show_mode_confirmation = () => setShowModeConfirmation(true)
     ;(window as any).routePageMap = routePageMap
     return () => { delete (window as any).__app_set_user; delete (window as any).__app_show_mode_confirmation; delete (window as any).routePageMap }
@@ -363,27 +363,7 @@ export default function App() {
     }
   }, [authLoading, user, currentPage])
 
-  // Load server data for inventory and sales
-  useEffect(() => {
-    let mounted = true
-    async function load() {
-      try {
-        const [invRes, salesRes] = await Promise.all([fetch('/api/inventory'), fetch('/api/sales')])
-        if (invRes.ok) {
-          const j = await invRes.json()
-          if (mounted) setInventoryItems(j.inventory || j.items || [])
-        }
-        if (salesRes.ok) {
-          const j = await salesRes.json()
-          if (mounted) setSalesRecords(j.sales || [])
-        }
-      } catch (err) {
-        console.error('Failed to load inventory or sales', err)
-      }
-    }
-    load()
-    return () => { mounted = false }
-  }, [])
+  // Pages fetch their own data now (no global mock loads)
 
   useEffect(() => {
     const favicon = document.querySelector("link[rel='icon']") as HTMLLinkElement | null
@@ -437,9 +417,11 @@ export default function App() {
         'leave-management': '/leave-management',
         'sales-summary': '/sales-summary',
         sales: '/sales',
-        'inventory-catalog': '/inventory/catalog',
+        'assets-catalog': '/inventory/assets',
         'production-catalog': '/inventory/production',
-        'kitchen-catalog': '/inventory/kitchen',
+        'food-and-beverage-catalog': '/inventory/food-and-beverage',
+        'food-packages': '/inventory/food-packages',
+        'services': '/inventory/services',
         expenses: '/expenses',
         reports: '/reports',
         settings: '/settings',
@@ -480,7 +462,7 @@ export default function App() {
       return false
     }
 
-    const source = productionStock.find(item => item.itemName.toLowerCase() === trimmedName.toLowerCase() && item.department.toLowerCase() === trimmedDepartment.toLowerCase())
+    const source = productionStock.find(item => item.name.toLowerCase() === trimmedName.toLowerCase() && item.unit.toLowerCase() === trimmedDepartment.toLowerCase())
 
     if (!source) {
       showToast({ type: 'error', message: 'Production stock not found', description: `${trimmedName} is not available in ${trimmedDepartment}.` })
@@ -495,7 +477,7 @@ export default function App() {
     const timestamp = new Date().toISOString()
     const nextTransaction: StockTransaction = {
       id: `TXN-${Date.now()}`,
-      itemName: source.itemName,
+      itemName: source.name,
       type: 'TRANSFER',
       quantity: parsedQty,
       from: 'production',
@@ -876,9 +858,11 @@ export default function App() {
       case 'leave-management': return <LeaveManagement />
       case 'sales-summary': return <SalesSummary />
       case 'sales': return <Sales />
-      case 'inventory-catalog': return <InventoryCatalog />
+      case 'assets-catalog': return <AssetsCatalog />
       case 'production-catalog': return <ProductionCatalog />
-      case 'kitchen-catalog': return <KitchenCatalog />
+      case 'food-and-beverage-catalog': return <FoodAndBeverageCatalog />
+      case 'food-packages': return <FoodPackages />
+      case 'services': return <ServicesPage />
       case 'expenses': return <Expenses />
       case 'reports': return <Reports />
       case 'settings': return <SettingsPage />
@@ -1022,7 +1006,7 @@ export default function App() {
       user,
       setUser,
       authLoading,
-      logout: async () => { try { await fetch('/api/auth/logout', { method: 'POST' }) } catch {} setUser(null); navigate('login') },
+      logout: async () => { try { await authClient.signOut() } catch {} setUser(null); navigate('login') },
       inventoryItems,
       setInventoryItems,
       productionStock,
@@ -1301,7 +1285,7 @@ export default function App() {
                   type="button"
                   onClick={async () => {
                     try {
-                      await fetch('/api/auth/logout', { method: 'POST' })
+                      await authClient.signOut()
                     } catch (err) {}
                     setUser(null)
                     setProfileOpen(false)

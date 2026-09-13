@@ -9,6 +9,54 @@ import { AnimatePresence, motion } from 'motion/react'
 import { deriveAttendanceStatus, dispatchAttendanceReport, type FingerprintAttendanceSummary, type NormalizedAttendanceRecord } from '../utils/fingerprintAttendanceParser'
 import type { AttendanceRecord } from '../types'
 
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = "100%", height = "1rem", rounded = "rounded-md", className = "" }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === "number" ? `${width}px` : width,
+        height: typeof height === "number" ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-50">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="py-2 px-3">
+                <SkeletonBar
+                  width={config?.width ?? "80%"}
+                  height={config?.pill ? "1.1rem" : "0.85rem"}
+                  rounded={config?.pill ? "rounded-full" : "rounded-md"}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
+}
+
 const buildAttendancePreview = (
   records: NormalizedAttendanceRecord[],
   approvedLeaves: any[] = [],
@@ -397,6 +445,7 @@ export default function ImportAttendance() {
     setErrorMessage('')
     setFileName(file.name)
     setFileSelected(true)
+    setValidating(true)
     setSelectedRow(null)
     setSortColumn('name')
     setSortDirection('asc')
@@ -404,6 +453,7 @@ export default function ImportAttendance() {
     try {
       const parsed = await dispatchAttendanceReport(file, appMode)
       if (!parsed.length) {
+        setValidating(false)
         setErrorMessage(appMode === 'aroo'
           ? 'No valid attendance records were found in the workbook. Ensure the Att.log report sheet is present.'
           : 'No valid attendance records were found in the numbered worksheets.')
@@ -444,6 +494,7 @@ export default function ImportAttendance() {
         const payrollEnd = selectedPayrollPeriod.period_end
 
         if (attendanceStart !== payrollStart || attendanceEnd !== payrollEnd) {
+          setValidating(false)
           setErrorMessage(
             `Payroll period (${payrollStart} to ${payrollEnd}) does not match attendance dates in the file (${attendanceStart} to ${attendanceEnd}).`
           )
@@ -454,6 +505,7 @@ export default function ImportAttendance() {
       setPreview(previewData)
       setStage('validate')
     } catch (error) {
+      setValidating(false)
       console.error('Fingerprint attendance import failed', error)
       setErrorMessage('The workbook could not be parsed. Please upload a valid fingerprint attendance Excel file.')
     }
@@ -719,7 +771,24 @@ export default function ImportAttendance() {
           </div>
 
           {payrollPeriods === null ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">Loading payroll periods...</div>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50">
+                      {['Period Start', 'Period End', 'Tabulation Date', 'Restaurant'].map(h => (
+                        <th key={h} className="text-left py-3 px-6 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    <SkeletonTableRows columns={4} rows={6} columnConfig={[
+                      { width: "45%" }, { width: "45%" }, { width: "55%" }, { width: "35%" }
+                    ]} />
+                  </tbody>
+                </table>
+              </div>
+            </div>
           ) : pendingPeriods.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">No payroll periods with Pending status available.</div>
           ) : (
@@ -839,17 +908,80 @@ export default function ImportAttendance() {
           )}
 
           {fileSelected && (
-            <div className="flex justify-end">
-              <button onClick={handleValidate} disabled={validating} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg font-display disabled:opacity-70">
-                {validating ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Validating...
-                  </>
-                ) : (
-                  <>Validate File <ArrowRight size={14} /></>
-                )}
-              </button>
+            <div className="space-y-5">
+              {validating && (
+                <div className="space-y-5">
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="px-4 py-4 border-b border-slate-100 flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-700 font-display">Incomplete Records</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-red-100 bg-red-50">
+                            {[
+                              { key: 'id', label: 'ID' },
+                              { key: 'name', label: 'Employee' },
+                              { key: 'present', label: 'Present (Weekdays)' },
+                              { key: 'overtime', label: 'Present (Weekends)' },
+                              { key: 'absent', label: 'Absent' },
+                              { key: 'incomplete', label: 'Incomplete' },
+                            ].map(({ key, label }) => (
+                              <th key={key} className="text-left py-2.5 px-4 text-xs font-semibold text-red-700 uppercase tracking-wide font-display whitespace-nowrap">{label}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-red-100">
+                          <SkeletonTableRows columns={6} rows={6} columnConfig={[
+                            { width: "40%" }, { width: "70%" },
+                            { width: "35%" }, { width: "45%" },
+                            { width: "35%" }, { width: "40%" }
+                          ]} />
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="px-4 py-4 border-b border-slate-100 flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-700 font-display">Previewed Attendance</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50">
+                            {[
+                              { key: 'id', label: 'ID' },
+                              { key: 'name', label: 'Employee' },
+                              { key: 'present', label: 'Present' },
+                              { key: 'absent', label: 'Absent' },
+                            ].map(({ key, label }) => (
+                              <th key={key} className="text-left py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{label}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          <SkeletonTableRows columns={4} rows={6} columnConfig={[
+                            { width: "40%" }, { width: "70%" }, { width: "35%" }, { width: "35%" }
+                          ]} />
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-end">
+                <button onClick={handleValidate} disabled={validating} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg font-display disabled:opacity-70">
+                  {validating ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Validating...
+                    </>
+                  ) : (
+                    <>Validate File <ArrowRight size={14} /></>
+                  )}
+                </button>
+              </div>
             </div>
           )}
         </div>

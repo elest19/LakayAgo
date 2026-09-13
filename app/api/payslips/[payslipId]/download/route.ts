@@ -6,7 +6,7 @@ import getSessionFromRequest from '../../../../../lib/session'
 import { query } from '../../../../../lib/db'
 
 export async function GET(req: Request, ctx: any) {
-  const session = getSessionFromRequest(req)
+  const session = await getSessionFromRequest(req)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const params = await ctx.params

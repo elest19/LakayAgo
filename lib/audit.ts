@@ -1,7 +1,7 @@
 import { query } from './db'
 
 export async function logAudit(entry: {
-  user_id?: number | null
+  user_id?: string | null
   restaurant?: string | null
   action: string
   table_name?: string | null

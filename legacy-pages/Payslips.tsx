@@ -154,16 +154,65 @@ function PayslipDetailModal({ item, onClose }: { item: any; onClose: () => void 
   )
 }
 
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = "100%", height = "1rem", rounded = "rounded-md", className = "" }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === "number" ? `${width}px` : width,
+        height: typeof height === "number" ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-50">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="py-2 px-3">
+                <SkeletonBar
+                  width={config?.width ?? "80%"}
+                  height={config?.pill ? "1.1rem" : "0.85rem"}
+                  rounded={config?.pill ? "rounded-full" : "rounded-md"}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
+}
+
 export default function Payslips() {
   const isMobile = useIsMobile()
   // component-scoped in-memory cache mapping employee_id -> employee object
   const employeesRef = useRef<Map<string, any>>(new Map())
   const [search, setSearch] = useState('')
-  const [period, setPeriod] = useState('')
+  const [period, setPeriod] = useState('all')
   const [dept, setDept] = useState('')
   const [viewing, setViewing] = useState<any | null>(null)
   const [periods, setPeriods] = useState<any[]>([])
   const [payslips, setPayslips] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 10
 
@@ -232,7 +281,6 @@ export default function Payslips() {
         const body = await res.json()
         if (!mounted) return
         setPeriods(body.periods || [])
-        if ((body.periods || []).length > 0) setPeriod(String((body.periods || [])[0].report_period_id ?? (body.periods || [])[0].id))
       } catch (err) {
         console.error('Failed to load report periods', err)
       }
@@ -243,23 +291,24 @@ export default function Payslips() {
   useEffect(() => {
     let mounted = true
     if (!period) return
+    setLoading(true)
     ;(async () => {
       try {
-        // Fetch payslips first, then ensure employee info exists in the component cache.
-        const psRes = await fetch(`/api/payslips?period_id=${period}`)
+        const url = period === 'all' ? '/api/payslips' : `/api/payslips?period_id=${period}`
+        const psRes = await fetch(url)
         if (!psRes.ok) return
         const psBody = await psRes.json()
         if (!mounted) return
 
-        // initial mapping from raw rows; this uses any cached employee entries already present
         const raws: any[] = psBody.payslips || []
         setPayslips(raws.map(r => buildFromRaw(r)))
 
-        // find missing employee ids to fetch
         const ids = Array.from(new Set(raws.map(r => String(r.employee_id || r.employee_number || '')))).filter(id => id && !employeesRef.current.has(id))
         if (ids.length > 0) await fetchMissingEmployees(ids, { current: mounted })
       } catch (err) {
         console.error('Failed to load payslips', err)
+      } finally {
+        if (mounted) setLoading(false)
       }
     })()
     return () => { mounted = false }
@@ -293,6 +342,7 @@ export default function Payslips() {
           <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
         </div>
         <select value={period} onChange={e => { setPeriod(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+          <option value="all">All Payroll Period</option>
           {periods.length === 0 ? (
             <option value="">Select payroll period</option>
           ) : (
@@ -318,7 +368,16 @@ export default function Payslips() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.length === 0 ? (
+                {loading ? (
+                  <SkeletonTableRows columns={6} rows={PAGE_SIZE} columnConfig={[
+                    { width: "60%" },
+                    { width: "50%" },
+                    { width: "40%" },
+                    { width: "40%" },
+                    { width: "40%" },
+                    { width: "30%", pill: true },
+                  ]} />
+                ) : filtered.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">No payslips available for this period.</td>
                   </tr>
@@ -362,7 +421,13 @@ export default function Payslips() {
             </table>
           ) : (
             <div className="flex flex-col">
-              {filtered.length === 0 ? (
+              {loading ? (
+                <SkeletonTableRows columns={3} rows={PAGE_SIZE} columnConfig={[
+                  { width: "65%" },
+                  { width: "45%" },
+                  { width: "35%" },
+                ]} />
+              ) : filtered.length === 0 ? (
                 <div className="p-4 text-sm text-slate-500">No payslips available for this period.</div>
               ) : (
                 pageData.map(p => (

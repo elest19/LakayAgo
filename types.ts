@@ -13,9 +13,11 @@ export type Page =
   | 'leave-management'
   | 'sales-summary'
   | 'sales'
-  | 'inventory-catalog'
+  | 'assets-catalog'
   | 'production-catalog'
-  | 'kitchen-catalog'
+  | 'food-and-beverage-catalog'
+  | 'food-packages'
+  | 'services'
   | 'expenses'
   | 'reports'
   | 'settings'
@@ -78,6 +80,7 @@ export interface PayrollPeriod {
     | 'Under Review'
     | 'Approved'
     | 'Finalized'
+    | 'Released'
 }
 
 export interface LeaveRequest {
@@ -135,7 +138,7 @@ export interface AuditLog {
   description: string
 }
 
-export type InventoryCategory = 'Menu Item' | 'Others'
+export type InventoryCategory = 'Menu Item' | 'Menu Bundle' | 'Others'
 
 export interface InventoryItem {
   id: string
@@ -157,6 +160,7 @@ export interface SaleRecord {
   numberOfSales: number
   discount: number
   category: InventoryCategory
+  restaurant?: string
   createdAt: string
   createdBy: string
   updatedAt: string
@@ -165,13 +169,18 @@ export interface SaleRecord {
 
 export interface ProductionItem {
   id: string
-  itemName: string
-  department: string
+  name: string
+  restaurant?: string
+  unit: string
   stock: number
+  isArchived: boolean
   createdAt: string
   createdBy: string
   updatedAt: string
   updatedBy: string
+  recipe_unit?: string | null
+  conversion_factor?: number | null
+  ingredient_category?: string | null
 }
 
 export interface KitchenItem {
@@ -202,10 +211,9 @@ export interface ExpenseRecord {
   id: string
   expense: string
   amount: number
+  restaurant?: string
   createdAt: string
   createdBy: string
-  updatedAt: string
-  updatedBy: string
 }
 
 export interface Toast {

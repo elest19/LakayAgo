@@ -1,4 +1,4 @@
-'use client'
+"use client"
 import { useEffect, useRef, useState } from 'react'
 import { Plus, Edit2, Trash2, Eye, EyeOff } from 'lucide-react'
 import { useApp } from '../App'
@@ -33,22 +33,74 @@ const holidayTypeColor: Record<string, string> = {
   'Company Holiday': 'bg-blue-100 text-blue-700',
 }
 
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = '100%', height = '1rem', rounded = 'rounded-md', className = '' }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === 'number' ? `${width}px` : width,
+        height: typeof height === 'number' ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-50">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="py-2 px-3">
+                <SkeletonBar
+                  width={config?.width ?? '80%'}
+                  height={config?.pill ? '1.1rem' : '0.85rem'}
+                  rounded={config?.pill ? 'rounded-full' : 'rounded-md'}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
+}
+
 export default function SettingsPage() {
   const { showToast } = useApp()
   const isMobile = useIsMobile()
   const [showNewUserPassword, setShowNewUserPassword] = useState(false)
   const [holidayList, setHolidayList] = useState<any[]>([])
   const [userList, setUserList] = useState<any[]>([])
+  const [holidayLoading, setHolidayLoading] = useState(true)
+  const [userLoading, setUserLoading] = useState(true)
   useEffect(() => {
     let mounted = true
     ;(async () => {
       try {
+        setUserLoading(true)
         const res = await fetch('/api/users')
         if (!res.ok) return
         const body = await res.json()
         if (!mounted) return
         // API returns array of users: { user_id, name, email, role }
         const mapped = (body || []).map((u: any) => ({
+          user_id: u.user_id,
           name: u.name || u.full_name || '',
           email: u.email,
           username: u.username,
@@ -60,6 +112,8 @@ export default function SettingsPage() {
         if (mapped.length) setUserList(mapped)
       } catch (err) {
         console.error('Failed to load users', err)
+      } finally {
+        if (mounted) setUserLoading(false)
       }
     })()
     return () => { mounted = false }
@@ -69,6 +123,7 @@ export default function SettingsPage() {
     let mounted = true
     ;(async () => {
       try {
+        setHolidayLoading(true)
         const res = await fetch('/api/settings/holidays')
         if (!res.ok) return
         const body = await res.json()
@@ -84,6 +139,8 @@ export default function SettingsPage() {
         setHolidayList(mapped)
       } catch (err) {
         console.error('Failed to load holidays', err)
+      } finally {
+        if (mounted) setHolidayLoading(false)
       }
     })()
     return () => { mounted = false }
@@ -602,30 +659,43 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {holidayList.map((h, i) => (
-                  <tr
-                    key={`${h.date}-${h.holiday}`}
-                    className="hover:bg-slate-50 group cursor-pointer"
-                    onClick={() => setSelectedHoliday(h)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        setSelectedHoliday(h)
-                      }
-                    }}
-                  >
-                    <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{h.date}</td>
-                    <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{h.holiday}</td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${holidayTypeColor[h.type]}`}>{h.type}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{h.status}</span>
-                    </td>
-                  </tr>
-                ))}
+                {holidayLoading ? (
+                  <SkeletonTableRows
+                    columns={4}
+                    rows={6}
+                    columnConfig={[
+                      { width: '20%' },
+                      { width: '32%' },
+                      { width: '28%', pill: true },
+                      { width: '20%', pill: true },
+                    ]}
+                  />
+                ) : (
+                  holidayList.map((h, i) => (
+                    <tr
+                      key={`${h.date}-${h.holiday}`}
+                      className="hover:bg-slate-50 group cursor-pointer"
+                      onClick={() => setSelectedHoliday(h)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setSelectedHoliday(h)
+                        }
+                      }}
+                    >
+                      <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{h.date}</td>
+                      <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{h.holiday}</td>
+                      <td className="py-3 px-4">
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${holidayTypeColor[h.type]}`}>{h.type}</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{h.status}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           ) : (
@@ -662,40 +732,54 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {userList.map((u, i) => (
-                  <tr
-                    key={`${u.email}-${u.name}`}
-                    className="hover:bg-slate-50 group cursor-pointer"
-                    onClick={() => setSelectedUser(u)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        setSelectedUser(u)
-                      }
-                    }}
-                  >
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                          <span className="text-indigo-700 text-xs font-bold font-display">{u.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}</span>
+                {userLoading ? (
+                  <SkeletonTableRows
+                    columns={5}
+                    rows={6}
+                    columnConfig={[
+                      { width: '30%' },
+                      { width: '28%' },
+                      { width: '18%', pill: true },
+                      { width: '18%', pill: true },
+                      { width: '16%', pill: true },
+                    ]}
+                  />
+                ) : (
+                  userList.map((u, i) => (
+                    <tr
+                      key={`${u.email}-${u.name}`}
+                      className="hover:bg-slate-50 group cursor-pointer"
+                      onClick={() => setSelectedUser(u)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setSelectedUser(u)
+                        }
+                      }}
+                    >
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                            <span className="text-indigo-700 text-xs font-bold font-display">{u.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}</span>
+                          </div>
+                          <span className="text-sm font-medium text-slate-700 font-display">{u.name}</span>
                         </div>
-                        <span className="text-sm font-medium text-slate-700 font-display">{u.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-sm text-slate-500">{u.email}</td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${roleColor[u.role] || 'bg-slate-100 text-slate-500'}`}>{u.role}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs ${u.restaurant === "Both" ? "bg-blue-200 text-blue-700" : u.restaurant === "Lakay Ago" ? "bg-green-200 text-green-700" : "bg-yellow-100 text-yellow-700"} px-2 py-0.5 rounded-full font-medium font-display`}>{u.restaurant}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{u.status}</span>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3 px-4 text-sm text-slate-500">{u.email}</td>
+                      <td className="py-3 px-4">
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${roleColor[u.role] || 'bg-slate-100 text-slate-500'}`}>{u.role}</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`text-xs ${u.restaurant === "Both" ? "bg-blue-200 text-blue-700" : u.restaurant === "Lakay Ago" ? "bg-green-200 text-green-700" : "bg-yellow-100 text-yellow-700"} px-2 py-0.5 rounded-full font-medium font-display`}>{u.restaurant}</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{u.status}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           ) : (
@@ -1101,7 +1185,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                       return
                     }
                     const created = await res.json()
-                    const mapped = { username: newUser.username, name: created.name || newUser.name, email: created.email || newUser.email, role: created.role === 'SuperAdmin' ? 'Super Admin' : created.role, restaurant: created.restaurant || newUser.restaurant, status: 'Active' }
+                    const mapped = { user_id: created.user_id, username: newUser.username, name: created.name || newUser.name, email: created.email || newUser.email, role: created.role === 'SuperAdmin' ? 'Super Admin' : created.role, restaurant: created.restaurant || newUser.restaurant, status: 'Active' }
                     setUserList(prev => [mapped, ...prev])
                     setAddUserOpen(false)
                     setNewUser({ username: '', name: '', email: '', password: '', role: 'Staff', status: 'Active', restaurant: 'Both' })
@@ -1240,12 +1324,42 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
             <div className="mt-5 flex gap-3 justify-end">
               <button onClick={() => setShowConfirmSave(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (!editingUser) return
-                  setUserList(prev => prev.map((item, idx) => idx === editingUser.index ? editingUser.item : item))
-                  setEditingUser(null)
-                  setShowConfirmSave(false)
-                  showToast({ type: 'success', message: 'User updated', description: `${editingUser.item.name} was updated successfully.` })
+                  // persist to server if we have a user_id
+                  try {
+                    if (editingUser.item.user_id) {
+                      const payload = {
+                        name: editingUser.item.name,
+                        username: editingUser.item.username,
+                        email: editingUser.item.email,
+                        password: editingUser.item.password,
+                        role: editingUser.item.role,
+                        restaurant: editingUser.item.restaurant,
+                      }
+                      const res = await fetch(`/api/users/${editingUser.item.user_id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+                      if (!res.ok) {
+                        const body = await res.json().catch(() => ({}))
+                        showToast({ type: 'error', message: 'Update failed', description: body?.error || 'Could not update user' })
+                        setShowConfirmSave(false)
+                        return
+                      }
+                      const updated = await res.json()
+                      const mapped = { user_id: updated.user_id, username: updated.username, name: updated.name, email: updated.email, role: updated.role === 'SuperAdmin' ? 'Super Admin' : updated.role, restaurant: updated.restaurant || 'Both', status: 'Active' }
+                      setUserList(prev => prev.map((item, idx) => idx === editingUser.index ? mapped : item))
+                      showToast({ type: 'success', message: 'User updated', description: `${mapped.name} was updated successfully.` })
+                    } else {
+                      // fallback to local-only update
+                      setUserList(prev => prev.map((item, idx) => idx === editingUser.index ? editingUser.item : item))
+                      showToast({ type: 'success', message: 'User updated', description: `${editingUser.item.name} was updated successfully.` })
+                    }
+                  } catch (err) {
+                    console.error('Update user error', err)
+                    showToast({ type: 'error', message: 'Update failed', description: 'Could not update user' })
+                  } finally {
+                    setEditingUser(null)
+                    setShowConfirmSave(false)
+                  }
                 }}
                 className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display"
               >

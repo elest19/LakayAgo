@@ -23,6 +23,54 @@ const formatIsoToShort = (iso?: string) => {
   return `${months[mi] ?? m} ${Number(d)}, ${y}`
 }
 
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = "100%", height = "1rem", rounded = "rounded-md", className = "" }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === "number" ? `${width}px` : width,
+        height: typeof height === "number" ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+interface SkeletonTableRowsProps {
+  columns: number
+  rows?: number
+  columnConfig?: { width?: string; pill?: boolean }[]
+}
+
+function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, rowIdx) => (
+        <tr key={rowIdx} className="border-b border-slate-50">
+          {Array.from({ length: columns }, (_, colIdx) => {
+            const config = columnConfig?.[colIdx]
+            return (
+              <td key={colIdx} className="py-2 px-3">
+                <SkeletonBar
+                  width={config?.width ?? "80%"}
+                  height={config?.pill ? "1.1rem" : "0.85rem"}
+                  rounded={config?.pill ? "rounded-full" : "rounded-md"}
+                />
+              </td>
+            )
+          })}
+        </tr>
+      ))}
+    </>
+  )
+}
+
 type Step = 'attendance' | 'calculation' | 'review' | 'approved'
 
 type PayrollRow = {
@@ -300,6 +348,8 @@ export default function ProcessPayroll() {
   const [viewRow, setViewRow] = useState<any | null>(null)
   const [approveConfirm, setApproveConfirm] = useState(false)
   const [payrollRowsState, setPayrollRowsState] = useState<PayrollRow[]>([])
+  const [payrollLoading, setPayrollLoading] = useState(true)
+  const [payrollLoadError, setPayrollLoadError] = useState<string | null>(null)
   const [isApproving, setIsApproving] = useState(false)
   const [isMarkingReview, setIsMarkingReview] = useState(false)
   const [advancesForReview, setAdvancesForReview] = useState<any[]>([])
@@ -324,6 +374,7 @@ export default function ProcessPayroll() {
   const [advancesMaxHeight, setAdvancesMaxHeight] = useState('0px')
   const advancesRequestId = useRef(0)
   const payrollRequestId = useRef(0)
+  const lastLoadedPeriodRef = useRef<number | null>(null)
 
   const [carouselIndex, setCarouselIndex] = useState(0)
   const totalEmployees = payrollRowsState.length
@@ -401,11 +452,23 @@ export default function ProcessPayroll() {
     return () => { mounted = false }
   }, [activePayrollPeriod])
 
-  async function fetchPayrollRows(periodId: number) {
+  async function fetchPayrollRows(periodId: number, options: { force?: boolean } = {}) {
     const requestId = ++payrollRequestId.current
+    const hasLoadedRowsForPeriod = lastLoadedPeriodRef.current === periodId && payrollRowsState.length > 0
+
+    if (!options.force && hasLoadedRowsForPeriod) {
+      return
+    }
+
+    setPayrollLoadError(null)
+    setPayrollLoading(true)
+
     try {
       const res = await fetch(`/api/payroll/calculate?period_id=${periodId}`)
-      if (!res.ok) return
+      if (!res.ok) {
+        throw new Error(`Payroll request failed: ${res.status}`)
+      }
+
       const body = await res.json()
 
       if (requestId !== payrollRequestId.current) return // stale response — a newer fetch wins
@@ -469,12 +532,26 @@ export default function ProcessPayroll() {
           cash_advance_deduction: Number(r.cash_advance_deduction ?? 0),
         }
       })
+
+      if (requestId !== payrollRequestId.current) return
+
       // store base rows; cash advance merging is handled by a dedicated effect
       setPayrollRowsState(rows)
+      lastLoadedPeriodRef.current = periodId
+      setPayrollLoadError(null)
     } catch (err) {
       console.error('fetchPayrollRows failed', err)
+      if (requestId === payrollRequestId.current) {
+        setPayrollLoadError('Failed to load payroll rows for this period.')
+      }
+    } finally {
+      if (requestId === payrollRequestId.current) {
+        setPayrollLoading(false)
+      }
     }
-  }  useEffect(() => {
+  }
+
+  useEffect(() => {
     let mounted = true
     async function loadApprovedAdvances() {
       if (!activePayrollPeriod) return
@@ -871,6 +948,11 @@ export default function ProcessPayroll() {
                       <input value={search} onChange={e => { setSearch(e.target.value); setPayrollPage(0) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
                     </div>
                   </div>
+                  {payrollLoadError && (
+                    <div className="px-4 py-3 border-b border-rose-100 bg-rose-50 text-sm text-rose-700">
+                      {payrollLoadError}
+                    </div>
+                  )}
                   <div className="overflow-x-auto">
                     {!isMobile ? (
                       <table className="w-full">
@@ -882,7 +964,17 @@ export default function ProcessPayroll() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                          {filteredRows.length === 0 ? (
+                          {payrollLoading ? (
+                            <SkeletonTableRows columns={7} rows={PAYROLL_PAGE_SIZE} columnConfig={[
+                              { width: "60%" },
+                              { width: "40%" },
+                              { width: "30%" },
+                              { width: "30%" },
+                              { width: "30%" },
+                              { width: "40%" },
+                              { width: "40%" },
+                            ]} />
+                          ) : filteredRows.length === 0 ? (
                             <tr>
                               <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
                                 No payroll rows available for this period.
@@ -927,7 +1019,14 @@ export default function ProcessPayroll() {
                       </table>
                     ) : (
                       <div className="flex flex-col">
-                        {paginatedRows.map(r => (
+                        {payrollLoading ? (
+                          <SkeletonTableRows columns={3} rows={PAYROLL_PAGE_SIZE} columnConfig={[
+                            { width: "65%" },
+                            { width: "45%" },
+                            { width: "35%" },
+                          ]} />
+                        ) : (
+                        paginatedRows.map(r => (
                           <button key={String(r.employee_id)} onClick={() => setViewRow(r)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-slate-700">{r.employee_name}</div>
@@ -935,7 +1034,8 @@ export default function ProcessPayroll() {
                             </div>
                             <div className="text-sm font-mono text-emerald-700">{fmt(r.net_pay)}</div>
                           </button>
-                        ))}
+                        ))
+                        )}
                       </div>
                     )}
                 </div>
@@ -1008,6 +1108,11 @@ export default function ProcessPayroll() {
           </div>
           {/* Review table: allow net pay override per employee */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-3">
+            {payrollLoadError && (
+              <div className="px-4 py-3 border-b border-rose-100 bg-rose-50 text-sm text-rose-700">
+                {payrollLoadError}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -1018,7 +1123,14 @@ export default function ProcessPayroll() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredRows.length === 0 ? (
+                  {payrollLoading ? (
+                    <SkeletonTableRows columns={4} rows={6} columnConfig={[
+                      { width: "60%" },
+                      { width: "40%" },
+                      { width: "40%" },
+                      { width: "50%" },
+                    ]} />
+                  ) : filteredRows.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">No payroll rows available for this period.</td>
                     </tr>

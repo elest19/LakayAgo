@@ -50,7 +50,7 @@ function normalizePayrollRow(row: any) {
 }
 
 export async function POST(req: Request) {
-  const session = getSessionFromRequest(req)
+  const session = await getSessionFromRequest(req)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await req.json()
   const periodId = Number(body.period_id)

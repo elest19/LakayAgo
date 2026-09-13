@@ -15,7 +15,7 @@ function normalizeCashAdvance(row: any) {
     date_requested: row.date_requested ? String(row.date_requested).slice(0, 10) : null,
     date_released: row.date_released ? String(row.date_released).slice(0, 10) : null,
     status: row.status ?? 'pending',
-    approved_by: row.approved_by != null ? Number(row.approved_by) : null,
+    approved_by: row.approved_by ?? null,
     approved_name: row.approved_name ?? null,
     remarks: row.remarks ?? '',
     balance_remaining: Number(row.balance_remaining ?? 0),
@@ -68,7 +68,7 @@ async function fetchCashAdvanceById(cashAdvancesId: number) {
       ) as payments
     from cash_advances ca
     left join employees e on e.employee_id = ca.employee_id
-    left join employees ap on ap.employee_id = ca.approved_by
+    left join users ap on ap.user_id = ca.approved_by
     left join cash_advance_payments cap on cap.cash_advances_id = ca.cash_advances_id
     left join report_periods rp on rp.report_period_id = cap.report_period_id
     where ca.cash_advances_id = $1
@@ -83,7 +83,7 @@ async function fetchCashAdvanceById(cashAdvancesId: number) {
 
 export async function POST(req: Request, context: { params: Promise<{ cashAdvancesId: string }> | { cashAdvancesId: string } }) {
   try {
-    const session = getSessionFromRequest(req)
+    const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const params = await Promise.resolve(context.params)
