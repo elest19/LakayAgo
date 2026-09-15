@@ -36,7 +36,6 @@
     "zod": "^4.6.4"
   },
   "devDependencies": {
-    "@modern-core/ui": "1.0.1-beta",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/jsonwebtoken": "^9.0.0",
     "@types/node": "^22.0.0",
