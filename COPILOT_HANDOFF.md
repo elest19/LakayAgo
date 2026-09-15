@@ -1,6 +1,43 @@
 # Copilot Handoff
 
-This document captures the complete context required for a new Copilot Chat to continue backend integration work for the `lakay-ago` repository. It is written for an AI coding assistant and assumes the assistant will inspect the repository before making edits.
+This document captures the complete context required for a new Copilot Chat or teammate to continue work on the `lakay-ago` repository. It is written for an AI coding assistant and assumes the assistant will inspect the repository before making edits.
+
+## 0. READY-TO-USE HANDOFF PROMPT
+
+Copy and paste this into a new AI agent:
+
+> You are continuing work on the Lakay Ago restaurant management app in this repo. This is a Next.js app, not a stale Vite app. The project had leftover Vite dependencies and config, which caused `@modern-core/ui add date-picker` to fail with `Unsupported framework detected.` We fixed the root cause by removing stale Vite leftovers, setting the app back to a clean Next.js setup, and confirming `next` is the active framework. The date-picker component has been added successfully via `@modern-core/ui` and lives under `components/modern-ui/date-picker`.
+>
+> Prioritize the current working state rather than redoing old architecture changes. The app is already using a Supabase + Postgres Realtime strategy instead of Socket.IO, and the repeatedly fixed issues include attendance persistence, expense save/update flow, payroll status release logic, and stock conversion handling.
+>
+> Important files to inspect first:
+> - `components/DateFilter.tsx`
+> - `legacy-pages/SalesSummary.tsx`
+> - `components/modern-ui/date-picker/index.tsx`
+> - `package.json`
+> - `legacy-pages/Expenses.tsx`
+> - `app/api/expenses/[expenseId]/route.ts`
+> - `app/api/attendance/[attendanceId]/route.ts`
+>
+> Bucket A = core app correctness and data integrity: realtime subscriptions, attendance save logic, expense CRUD, payroll approval state flow, server-side API correctness, stock conversion rules, and anything that breaks data persistence or user state.
+>
+> Bucket B = UX and component consistency: the shared date-picker modernization, date filter UI cleanup, pagination consistency, layout adjustments, and polish tasks such as side-by-side grid layouts and shared footer controls.
+>
+> The active task is to finish the date-picker modernization and make all custom date filters use the modern UI component family without breaking existing filter contracts. Use the generated `DatePicker`, `DateRangePicker`, `MonthPicker`, `QuarterPicker`, and `YearPicker` components from `components/modern-ui/date-picker` and keep the current parent state shape and callback behavior intact.
+>
+> Verify the fix with the smallest relevant build or validation command before claiming completion. If a CLI or generator tries to detect the framework, make sure it sees a clean Next.js project and not stale Vite leftovers. Do not reintroduce Vite-only dependencies or preview scripts.
+
+---
+
+## 0.1 CURRENT REPOSITORY STATUS
+
+- Framework: Next.js 16 (App Router) with React 19 and TypeScript.
+- Stale Vite leftovers were cleaned up and the project is now a clean Next.js-only setup.
+- `@modern-core/ui` date-picker was successfully installed via `pnpm dlx @modern-core/ui add date-picker` after the project metadata was corrected.
+- Generated date-picker files are under `components/modern-ui/date-picker` and export: `DatePicker`, `DateRangePicker`, `MonthPicker`, `QuarterPicker`, `YearPicker`.
+- The project already contains a shared date filter in `components/DateFilter.tsx` and a custom summary date filter in `legacy-pages/SalesSummary.tsx`; these are the main surfaces to unify with modern UI controls.
+- Realtime architecture has already been shifted away from Socket.IO toward Supabase Postgres Realtime + client refetch logic, which is the correct serverless-safe model for Vercel.
+- The app has already passed the relevant build validation in this session (`npx next build` / `pnpm build` path), so any new work should be kept small and focused.
 
 ---
 

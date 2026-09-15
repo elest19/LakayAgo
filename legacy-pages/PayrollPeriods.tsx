@@ -6,6 +6,7 @@ const payrollPeriods: any[] = []
 // note: keep fallback `payrollPeriods` available for safety; prefer backend data when available
 import type { PayrollPeriod } from '../types'
 import { useApp } from '../App'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import Modal from '../components/Modal'
 
 const fmt = (n: number) =>
@@ -203,6 +204,8 @@ export default function PayrollPeriods() {
   const [periods, setPeriods] = useState<any[] | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const loadPeriods = useCallback(async () => {
     try {
@@ -241,6 +244,12 @@ export default function PayrollPeriods() {
     return () => { mounted = false }
   }, [loadPeriods])
 
+  useRealtimeEntity('report_periods', {
+    onChange: () => {
+      void loadPeriods()
+    },
+  })
+
   const visiblePeriods = (() => {
     const source = periods ?? payrollPeriods
     if (activeTab === 'periods') return source.filter((p: any) => String((p.status || '')).toLowerCase() === 'pending' || String((p.status || '')).toLowerCase() === 'under review')
@@ -258,6 +267,29 @@ export default function PayrollPeriods() {
   useEffect(() => {
     setPage(1)
   }, [activeTab])
+
+  const handleConfirmDelete = async () => {
+    if (!selectedPeriod) return
+    setDeleting(true)
+    try {
+      const resp = await fetch(`/api/report_periods/${selectedPeriod.report_period_id}`, { method: 'DELETE' })
+      let data: any = null
+      try { data = await resp.json() } catch (_) { /* ignore non-json */ }
+      if (resp.ok) {
+        showToast({ type: 'success', message: 'Payroll period deleted' })
+        setShowDeleteConfirm(false)
+        setSelectedPeriod(null)
+        await loadPeriods()
+      } else {
+        showToast({ type: 'error', message: 'Delete failed', description: data?.error || 'Server error' })
+      }
+    } catch (err) {
+      console.error('Delete failed', err)
+      showToast({ type: 'error', message: 'Network error' })
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const renderPagination = () => (
     <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
@@ -568,17 +600,26 @@ export default function PayrollPeriods() {
               if (s === 'pending') {
                 return (
                   <div className="mt-6 flex justify-end">
-                    <button
-                      onClick={() => {
-                        setEditingPeriod(selectedPeriod)
-                        setShowCreate(true)
-                        setSelectedPeriod(null)
-                      }}
-                      className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display"
-                      title="Edit Payroll Period"
-                    >
-                      Edit
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingPeriod(selectedPeriod)
+                          setShowCreate(true)
+                          setSelectedPeriod(null)
+                        }}
+                        className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display"
+                        title="Edit Payroll Period"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-red-600 text-white hover:bg-red-700 font-display"
+                        title="Delete Payroll Period"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 )
               }
@@ -594,6 +635,18 @@ export default function PayrollPeriods() {
                 </div>
               )
             })()}
+          </div>
+        </Modal>
+      )}
+
+      {showDeleteConfirm && selectedPeriod && (
+        <Modal open={true} title="Delete Payroll Period" onClose={() => setShowDeleteConfirm(false)}>
+          <div className="p-3 w-md">
+            <p className="text-sm text-slate-700">Are you sure you want to delete the payroll period <strong>{selectedPeriod.period_start} – {selectedPeriod.period_end}</strong>? This action cannot be undone.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button onClick={handleConfirmDelete} disabled={deleting} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display">{deleting ? 'Deleting...' : 'Delete'}</button>
+            </div>
           </div>
         </Modal>
       )}

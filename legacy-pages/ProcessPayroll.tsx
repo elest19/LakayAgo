@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react'
 import { CheckCircle2, Circle, AlertTriangle, ChevronRight, X, Search, ChevronDown } from 'lucide-react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import Modal from '../components/Modal'
 import WorkflowStepper from '../components/WorkflowStepper'
 
@@ -410,6 +411,7 @@ export default function ProcessPayroll() {
         }
 
         await fetchPayrollRows(periodId)
+        if (mounted) await syncActivePayrollPeriodStatus()
       } catch (err) {
         console.error('Failed to fetch payroll calculate', err)
       }
@@ -550,6 +552,98 @@ export default function ProcessPayroll() {
       }
     }
   }
+
+  const getActivePayrollPeriodId = () => {
+    if (!activePayrollPeriod) return null
+    const rawPeriodId = (activePayrollPeriod as any).report_period_id ?? (activePayrollPeriod as any).period_id ?? (activePayrollPeriod as any).id
+    const periodId = Number(rawPeriodId)
+    return Number.isFinite(periodId) ? periodId : null
+  }
+
+  const syncActivePayrollPeriodStatus = async () => {
+    const periodId = getActivePayrollPeriodId()
+    if (!periodId) return
+
+    try {
+      const res = await fetch(`/api/report_periods/${periodId}`)
+      if (!res.ok) return
+      const body = await res.json()
+      const latestStatus = String(body?.period?.status ?? '').trim().toLowerCase()
+      if (latestStatus === 'released') {
+        setActivePayrollPeriod(null)
+        showToast({
+          type: 'info',
+          message: 'Payroll already released',
+          description: 'Another user already released this payroll. Returning to the selection screen.',
+        })
+        navigate('payroll-periods')
+      }
+    } catch (error) {
+      console.error('Failed to sync payroll period status', error)
+    }
+  }
+
+  const refreshPayrollPeriodData = async () => {
+    if (!activePayrollPeriod) return
+    const rawPeriodId = (activePayrollPeriod as any).report_period_id ?? (activePayrollPeriod as any).period_id ?? (activePayrollPeriod as any).id
+    const periodId = Number(rawPeriodId)
+    if (!Number.isFinite(periodId)) return
+    await fetchPayrollRows(periodId, { force: true })
+    await syncActivePayrollPeriodStatus()
+
+    try {
+      const res = await fetch('/api/cash_advances')
+      if (!res.ok) return
+      const body = await res.json()
+      const periodRestaurant = (activePayrollPeriod as any).restaurant
+      const all = (body.cash_advances || [])
+      const mapped = all
+        .filter((c: any) => (c.status === 'approved' || c.status === 'released' || c.status === 'deducted') && Number(c.balance_remaining) >= 0 && (c.restaurant === periodRestaurant || c.restaurant === 'Both'))
+        .map((c: any) => ({
+          cash_advances_id: c.cash_advances_id,
+          employee_id: c.employee_id,
+          employee_name: c.employee_name,
+          amount: Number(c.amount ?? 0),
+          balance_remaining: Number(c.balance_remaining ?? c.amount ?? 0),
+          status: c.status,
+          deducted: Number(c.balance_remaining ?? c.amount ?? 0) <= 0,
+          payments: c.payments || [],
+        }))
+      setAdvancesForReview(mapped)
+      const defaults: Record<string, string> = {}
+      mapped.forEach((m: any) => {
+        defaults[m.cash_advances_id] = String(m.balance_remaining ?? m.amount ?? 0)
+      })
+      setDeductionDrafts(defaults)
+    } catch (error) {
+      console.error('Failed to refresh payroll review data', error)
+    }
+  }
+
+  useRealtimeEntity('report_periods', {
+    onChange: () => {
+      void refreshPayrollPeriodData()
+      void syncActivePayrollPeriodStatus()
+    },
+  })
+
+  useRealtimeEntity('cash_advances', {
+    onChange: () => {
+      void refreshPayrollPeriodData()
+    },
+  })
+
+  useRealtimeEntity('cash_advance_payments', {
+    onChange: () => {
+      void refreshPayrollPeriodData()
+    },
+  })
+
+  useRealtimeEntity('payslips', {
+    onChange: () => {
+      void refreshPayrollPeriodData()
+    },
+  })
 
   useEffect(() => {
     let mounted = true

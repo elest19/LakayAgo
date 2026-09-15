@@ -4,6 +4,8 @@ import { Search, Plus, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 
 import useIsMobile from "../hooks/isMobile"
 import Modal from "../components/Modal"
 import { useApp } from "../App"
+import { isRealtimeRowNewer, useRealtimeEntity } from "../hooks/useRealtimeEntity"
+import { mapEmployee } from "../lib/mapEmployee"
 import type { Employee } from "../types"
 
 const formatCurrency = (n: number) =>
@@ -75,6 +77,23 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
   const [leavePage, setLeavePage] = useState(1)
   const [payrollPage, setPayrollPage] = useState(1)
   const PER_PAGE = 10
+  
+  const hasUnsavedChanges = useCallback(() => {
+    return JSON.stringify(formData) !== JSON.stringify({
+      name: employee.name,
+      source_employee_id: employee.source_employee_id,
+      email: employee.email,
+      contactNumber: employee.contactNumber,
+      restaurant: employee.restaurant,
+      department: employee.department,
+      pay_per_day: employee.pay_per_day,
+      sss: employee.sss,
+      philhealth: employee.philhealth,
+      pagibig: employee.pagibig,
+      month_pay_13th: employee.month_pay_13th,
+      status: employee.status,
+    })
+  }, [formData, employee])
 
   const formatDateForDisplay = (value?: string | null) => {
     if (!value) return '—'
@@ -216,7 +235,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
   }
 
   const handleCancel = () => {
-    if (isEditing) {
+    if (hasUnsavedChanges()) {
       setShowDiscardConfirm(true)
     } else {
       onClose()
@@ -224,7 +243,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
   }
 
   const requestClose = () => {
-    if (isEditing) {
+    if (hasUnsavedChanges()) {
       setShowDiscardConfirm(true)
     } else {
       onClose()
@@ -283,8 +302,8 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
                         { label: "Department", value: employee.department },
                         { label: "Restaurant", value: employee.restaurant },
                         { label: "Name", value: employee.name },
-                        { label: "Email", value: employee.email || "—" },
-                        { label: "Contact Number", value: employee.contactNumber || "—" },
+                        { label: "Email", value: employee.email || "N/A" },
+                        { label: "Contact Number", value: employee.contactNumber || "N/A" },
                       ].map(f => (
                         <div key={f.label} className="flex flex-col gap-0.5"><span className="text-xs text-slate-400 font-display">{f.label}</span><span className="text-sm font-medium text-slate-700">{f.value}</span></div>
                       ))}
@@ -879,7 +898,6 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
                 <div>
                   <label className="block text-xs text-slate-500 mb-1 font-display">Pay Per Day</label>
                   <input type="number" step="0.01" inputMode="decimal" value={formData.pay_per_day === 0 ? "" : formData.pay_per_day} placeholder="0.00" onChange={(e) => setFormData({ ...formData, pay_per_day: e.target.value === "" ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
-                  <span className="text-xs text-slate-500">PHP</span>
                 </div>
                 <div>
                   <label className="block text-xs text-slate-500 mb-1 font-display">SSS (PHP) *</label>
@@ -894,7 +912,6 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
                 <div>
                   <label className="block text-xs text-slate-500 mb-1 font-display">Pag-IBIG (PHP) *</label>
                   <input type="number" step="0.01" inputMode="decimal" value={formData.pagibig === 0 ? "" : formData.pagibig} placeholder="0.00" onChange={(e) => setFormData({ ...formData, pagibig: e.target.value === "" ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
-                  <span className="text-xs text-slate-500">PHP</span>
                 </div>
                 <div>
                   <label className="block text-xs text-slate-500 mb-1 font-display">13th Month Pay (PHP) *</label>
@@ -916,6 +933,73 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
 export default function Employees() {
   const { showToast } = useApp()
   const isMobile = useIsMobile()
+
+  const normalizeEmployeeStatus = useCallback((status?: string | null) => {
+    const normalized = String(status ?? '').trim().toLowerCase()
+    if (normalized === 'inactive' || normalized === 'fired') return 'inactive'
+    if (normalized === 'on leave' || normalized === 'on_leave') return 'active'
+    return 'active'
+  }, [])
+
+  const normalizeRealtimeEmployeeRow = useCallback((value: any): Employee | null => {
+    if (!value) return null
+    const hasEmployeeId = value.employee_id != null || value.id != null || value.source_employee_id != null
+    if (!hasEmployeeId) return null
+
+    const row = {
+      ...value,
+      employee_id: value.employee_id ?? value.id ?? null,
+      source_employee_id: value.source_employee_id ?? value.sourceId ?? value.employeeId ?? null,
+      contact_number: value.contact_number ?? value.contactNumber ?? null,
+      pay_per_day: value.pay_per_day ?? value.payPerDay ?? 0,
+      status: value.status ?? value.employee_status ?? 'active',
+      sss: value.sss ?? 0,
+      philhealth: value.philhealth ?? 0,
+      pagibig: value.pagibig ?? 0,
+      month_pay_13th: value.month_pay_13th ?? value.monthPay13th ?? 0,
+      restaurant: value.restaurant ?? 'Both',
+      email: value.email ?? '',
+    }
+
+    return mapEmployee(row)
+  }, [])
+
+  const mergeEmployeeRealtime = useCallback((payload: any) => {
+    const eventType = payload?.eventType ?? payload?.action
+    const rawRow = payload?.new ?? payload?.row ?? null
+    const normalizedRow = normalizeRealtimeEmployeeRow(rawRow)
+    const row = normalizedRow ?? rawRow
+
+    if (!payload || (!row && eventType !== 'DELETE')) return
+
+    const employeeId = String((row as any)?.id ?? (row as any)?.employee_id ?? payload?.old?.id ?? payload?.old?.employee_id ?? payload?.id ?? '')
+    if (!employeeId) return
+
+    setEmployees(prev => {
+      const next = [...prev]
+      const index = next.findIndex(employee => String((employee as any).id ?? (employee as any).employee_id ?? '') === employeeId)
+
+      if (eventType === 'DELETE' || payload?.action === 'deleted') {
+        return next.filter(employee => String((employee as any).id ?? (employee as any).employee_id ?? '') !== employeeId)
+      }
+
+      if (!row) return next
+
+      if (index >= 0 && !isRealtimeRowNewer(next[index], (row as any))) return next
+
+      if (index >= 0) {
+        return next.map(employee => String((employee as any).id ?? (employee as any).employee_id ?? '') === employeeId ? { ...employee, ...row } : employee)
+      }
+
+      return [row, ...next]
+    })
+  }, [normalizeRealtimeEmployeeRow])
+
+  useRealtimeEntity('employees', {
+    restaurant: 'Both',
+    onChange: mergeEmployeeRealtime,
+  })
+
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [archiveConfirm, setArchiveConfirm] = useState<Employee | null>(null)
   const [search, setSearch] = useState("")
@@ -989,7 +1073,7 @@ export default function Employees() {
     }
   }
 
-  const baseEmployees = employees.filter(e => view === "active" ? e.status === "Active" : e.status !== "Active")
+  const baseEmployees = employees.filter(e => view === "active" ? normalizeEmployeeStatus(e.status) === "active" : normalizeEmployeeStatus(e.status) !== "active")
 
   const filtered = baseEmployees.filter((e) => {
     const q = search.toLowerCase()
@@ -1009,7 +1093,7 @@ export default function Employees() {
     setPage((prev) => Math.min(prev, totalPages))
   }, [totalPages])
 
-  const activeCount = employees.filter(e => e.status === "Active").length
+  const activeCount = employees.filter(e => normalizeEmployeeStatus(e.status) === "active").length
   const archivedCount = employees.length - activeCount
 
   const StatusSwitch = ({ emp }: { emp: Employee }) => (
@@ -1079,8 +1163,13 @@ export default function Employees() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Employee', 'ID', 'Restaurant', 'Status', 'Salary', '13th Month', ''].map((h) => (
-                    <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                  {['Employee', 'Restaurant', 'Status','ID','13th Month', 'Salary',].map((h) => (
+                    <th 
+                    key={h} 
+                    className={`${h === 'ID' ? 'text-right' : h === '13th Month' ? 'text-right' : h === 'Salary' ? 'text-right' : 'text-left'} py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap`}
+                    >
+                    {h}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -1105,7 +1194,6 @@ export default function Employees() {
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 px-4 font-mono text-xs text-slate-600">{emp.source_employee_id}</td>
                         <td className="py-3 px-4 text-sm text-slate-600">{emp.restaurant}</td>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
@@ -1113,8 +1201,9 @@ export default function Employees() {
                             <StatusSwitch emp={emp} />
                           </div>
                         </td>
-                        <td className="py-3 px-4 font-mono text-sm text-slate-700">{formatCurrency(Number(emp.pay_per_day || 0))}</td>
-                        <td className="py-3 px-4 font-mono text-sm text-slate-700">{emp.month_pay_13th ? formatCurrency(emp.month_pay_13th) : '—'}</td>
+                        <td className="py-3 px-4 font-mono text-xs text-slate-600 text-right">{emp.source_employee_id}</td>
+                        <td className="py-3 px-4 font-mono text-sm text-slate-700 text-right">{emp.month_pay_13th ? formatCurrency(emp.month_pay_13th) : '—'}</td>
+                        <td className="py-3 px-4 font-mono text-sm text-slate-700 text-right">{formatCurrency(Number(emp.pay_per_day || 0))}</td>
                         <td className="py-3 px-4" />
                       </tr>
                     ))}
@@ -1209,19 +1298,24 @@ export default function Employees() {
           onClose={() => setSelectedEmployee(null)}
           onArchive={e => { setSelectedEmployee(null); setArchiveConfirm(e) }}
           onUpdate={(updated) => {
-            const idx = employees.findIndex(e => e.id === updated.id)
-            if (idx !== -1) {
-              employees[idx] = { ...employees[idx], ...updated }
-              setEmployees([...employees])
-            }
+            setEmployees(prev => {
+              const idx = prev.findIndex(e => e.id === updated.id)
+              if (idx === -1) return [updated, ...prev]
+              return prev.map(e => e.id === updated.id ? { ...e, ...updated } : e)
+            })
             setSelectedEmployee(updated)
             showToast({ type: 'success', message: 'Employee updated', description: `${updated.name} has been updated.` })
-            loadEmployees()
+            void loadEmployees()
           }}
         />
       )}
 
-      {showAdd && <AddEmployeeModal existingEmployees={employees} onClose={() => setShowAdd(false)} onSave={(emp) => { loadEmployees(); showToast({ type: "success", message: "Employee created" }); setShowAdd(false) }} />}
+      {showAdd && <AddEmployeeModal existingEmployees={employees} onClose={() => setShowAdd(false)} onSave={(emp) => {
+        setEmployees(prev => [emp, ...prev])
+        showToast({ type: "success", message: "Employee created" })
+        setShowAdd(false)
+        void loadEmployees()
+      }} />}
 
       {archiveConfirm && (
         <Modal open={!!archiveConfirm} title="Archive Employee" onClose={() => setArchiveConfirm(null)}>

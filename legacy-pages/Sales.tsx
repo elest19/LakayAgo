@@ -4,6 +4,7 @@ import { Search, Plus, Pencil, Trash2 } from 'lucide-react'
 import { useApp } from '../App'
 import Modal from '../components/Modal'
 import useIsMobile from '../hooks/isMobile'
+import DateFilter, { dateInRange, defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
 import type { InventoryCategory, InventoryItem, SaleRecord } from '../types'
 
 interface FoodBundle {
@@ -105,7 +106,9 @@ export default function Sales() {
   const [previewSale, setPreviewSale] = useState<SaleFormState | null>(null)
   const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null)
   const [deleteSaleTarget, setDeleteSaleTarget] = useState<SaleRecord | null>(null)
+  const [returnIngredientsStock, setReturnIngredientsStock] = useState(false)
   const [salesPage, setSalesPage] = useState(1)
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>(defaultDateFilterValue)
   const [loading, setLoading] = useState(false)
 
   const loadInventory = async (restaurant?: string) => {
@@ -152,7 +155,8 @@ export default function Sales() {
     if (!sale) return
     try {
       if (sale.id) {
-        const res = await fetch(`/api/sales/${sale.id}`, { method: 'DELETE' })
+        const params = returnIngredientsStock ? '?return_stock=true' : ''
+        const res = await fetch(`/api/sales/${sale.id}${params}`, { method: 'DELETE' })
         if (!res.ok) throw new Error('Failed to delete sale')
         await loadSales()
         showToast({ type: 'success', message: 'Sale deleted', description: `${sale.item} was removed.` })
@@ -164,21 +168,31 @@ export default function Sales() {
       showToast({ type: 'error', message: 'Failed to delete sale' })
     } finally {
       setDeleteSaleTarget(null)
+      setReturnIngredientsStock(false)
     }
   }
 
   useEffect(() => { loadInventory(); loadFoodBundles(); loadSales(); }, [])
 
+  useEffect(() => {
+    if (deleteSaleTarget) {
+      setReturnIngredientsStock(false)
+    }
+  }, [deleteSaleTarget])
+
   const itemFilterOptions = ['All Items', ...inventoryItems.map(item => item.item)]
+
+  const salesDateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
 
   const filteredSales = useMemo(() => {
     return salesRecords.filter(sale => {
       const matchItem = selectedItemFilter === 'All Items' || sale.item === selectedItemFilter
       const matchCategory = selectedCategoryFilter === 'All' || sale.category === selectedCategoryFilter
       const matchSearch = !search || sale.item.toLowerCase().includes(search.toLowerCase())
-      return matchItem && matchCategory && matchSearch
+      const matchDate = dateInRange(sale.createdAt, salesDateRange)
+      return matchItem && matchCategory && matchSearch && matchDate
     })
-  }, [salesRecords, search, selectedCategoryFilter, selectedItemFilter])
+  }, [salesRecords, search, selectedCategoryFilter, selectedItemFilter, salesDateRange])
 
   const salesMetrics = useMemo(() => {
     const grandTotalSales = filteredSales.reduce((sum, sale) => sum + sale.cost * sale.numberOfSales, 0)
@@ -197,7 +211,7 @@ export default function Sales() {
 
   const salesEmptyCount = paginatedSales.length === 0 ? 0 : Math.max(0, salesPageSize - paginatedSales.length)
 
-  useEffect(() => { setSalesPage(1) }, [search, selectedItemFilter, selectedCategoryFilter, salesRecords.length])
+  useEffect(() => { setSalesPage(1) }, [search, selectedItemFilter, selectedCategoryFilter, dateFilter, salesRecords.length])
 
   const { grandTotalSales, netSales, orderDiscount } = salesMetrics
 
@@ -480,6 +494,8 @@ export default function Sales() {
   <option value="Menu Bundle">Menu Bundle</option>
   <option value="Others">Others</option>
 </select>
+
+        <DateFilter value={dateFilter} onChange={setDateFilter} allLabel="All Sales" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -702,7 +718,18 @@ export default function Sales() {
             <p className="text-sm text-slate-600 mb-4">
               Are you sure you want to delete <span className="font-semibold text-slate-700">{deleteSaleTarget.item}</span>?
             </p>
-            <p className="text-xs text-slate-500 mb-5">This action cannot be undone.</p>
+            <p className="text-xs text-slate-500 mb-4">This action cannot be undone.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={returnIngredientsStock}
+                  onChange={e => setReturnIngredientsStock(e.target.checked)}
+                  className="rounded bg-slate-200 p-1 focus:ring-indigo-500"
+                />
+                Return the ingredients stock
+              </label>
+            </div>
             <div className="flex gap-3 justify-end">
               <button type="button" onClick={() => setDeleteSaleTarget(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
               <button
@@ -760,7 +787,6 @@ export default function Sales() {
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button type="button" onClick={() => { setSelectedSale(null); openEditSale(selectedSale) }} className="px-3 py-2 text-sm text-white bg-green-700 hover:bg-green-600 rounded-lg">Edit</button>
               <button type="button" onClick={() => handleDelete(selectedSale)} className="px-3 py-2 text-sm text-white bg-red-700 hover:bg-red-600 rounded-lg">Delete</button>
             </div>
           </div>

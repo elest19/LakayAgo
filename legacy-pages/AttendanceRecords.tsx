@@ -4,8 +4,10 @@ import { Search, Upload, Eye, Edit2, ChevronLeft, ChevronRight, X, AlertCircle, 
 import type { AttendanceRecord, PayrollPeriod } from '../types'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import Modal from '../components/Modal'
 import { TimePicker } from '../components/TimePicker'
+import CenteredEmptyRows from '../components/CenteredEmptyRows'
 
 type Status = AttendanceRecord['status']
 
@@ -101,9 +103,11 @@ export default function AttendanceRecords() {
 
   useEffect(() => {
     if (selectedRecord && isEditing) {
-      setTimeIn(selectedRecord.firstOnDuty ?? timeTo24h(selectedRecord.timeIn))
-      setTimeOut(selectedRecord.firstOffDuty ?? timeTo24h(selectedRecord.timeOut))
-      setEditStatus(selectedRecord.status)
+      const defaultTimeIn = selectedRecord.firstOnDuty ?? timeTo24h(selectedRecord.timeIn) ?? '08:00'
+      const defaultTimeOut = selectedRecord.firstOffDuty ?? timeTo24h(selectedRecord.timeOut) ?? '17:00'
+      setTimeIn(defaultTimeIn)
+      setTimeOut(defaultTimeOut)
+      setEditStatus(selectedRecord.status === 'Incomplete' ? 'Present' : selectedRecord.status)
       setNotes('')
     }
   }, [selectedRecord, isEditing])
@@ -133,9 +137,6 @@ export default function AttendanceRecords() {
       if (res.ok) {
         const data = await res.json()
         setPeriods(data.periods || [])
-        if (data.periods?.length > 0 && !period) {
-          setPeriod(String(data.periods[0].report_period_id))
-        }
       }
     } catch {
       // ignore
@@ -385,6 +386,30 @@ export default function AttendanceRecords() {
     }
   }, [period, periods, specificDate, restaurant])
 
+  useRealtimeEntity('attendance', {
+    restaurant: 'Both',
+    onChange: () => {
+      void loadAttendance()
+    },
+  })
+
+  useEffect(() => {
+    const handleAttendanceImported = () => {
+      void loadAttendance()
+    }
+
+    const handleAttendanceUpdated = () => {
+      void loadAttendance()
+    }
+
+    window.addEventListener('attendance-imported', handleAttendanceImported)
+    window.addEventListener('attendance-updated', handleAttendanceUpdated)
+    return () => {
+      window.removeEventListener('attendance-imported', handleAttendanceImported)
+      window.removeEventListener('attendance-updated', handleAttendanceUpdated)
+    }
+  }, [loadAttendance])
+
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -616,6 +641,15 @@ export default function AttendanceRecords() {
                       This payroll period doesn&apos;t have an attendance sheet just yet.
                     </td>
                   </tr>
+                ) : filtered.length === 0 ? (
+                  <CenteredEmptyRows
+                    columns={7}
+                    rows={PER_PAGE}
+                    message={<>
+                      <p className="text-slate-400 text-sm font-display">No attendance records found.</p>
+                      <button onClick={() => navigate('import-attendance')} className="mt-3 text-sm text-indigo-600 hover:underline font-display">Import Attendance</button>
+                    </>}
+                  />
                 ) : (
                   <>
                     {pageData.map(rec => (
@@ -722,12 +756,7 @@ export default function AttendanceRecords() {
             </>
           )}
         </div>
-        {filtered.length === 0 && !noAttendanceSheet && (
-          <div className="py-16 text-center">
-            <p className="text-slate-400 text-sm font-display">No attendance records found.</p>
-            <button onClick={() => navigate('import-attendance')} className="mt-3 text-sm text-indigo-600 hover:underline font-display">Import Attendance</button>
-          </div>
-        )}
+        {/* empty-state is shown inside the table via CenteredEmptyRows when filtered is empty */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 md:static sticky bottom-0 z-10 bg-white">
           <p className="text-xs text-slate-500">Showing {Math.min((page - 1) * PER_PAGE + 1, filtered.length)}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length} records</p>
           <div className="flex items-center gap-1">
@@ -915,23 +944,53 @@ export default function AttendanceRecords() {
                       <button onClick={async () => {
                         if (!selectedRecord) return
                         try {
+                          const effectiveTimeIn = timeIn || '08:00'
+                          const effectiveTimeOut = timeOut || '17:00'
+                          const normalizedTimeIn = /^\d{1,2}:\d{2}$/.test(effectiveTimeIn) ? effectiveTimeIn : '08:00'
+                          const normalizedTimeOut = /^\d{1,2}:\d{2}$/.test(effectiveTimeOut) ? effectiveTimeOut : '17:00'
+                          const normalizedLate = Number.isFinite(lateMinutes) ? Math.max(0, Math.round(lateMinutes)) : 0
+                          const normalizedUndertime = Number.isFinite(undertimeMinutes) ? Math.max(0, Math.round(undertimeMinutes)) : 0
+                          const normalizedOvertime = Number.isFinite(overtimeMinutes) ? Math.max(0, Math.round(overtimeMinutes)) : 0
+                          const statusValue = editStatus ?? selectedRecord.status
+                          const normalizedStatus = statusValue === 'Incomplete' ? 'Present' : statusValue
+                          const inMinutes = timeToMinutes(normalizedTimeIn) ?? 8 * 60
+                          const outMinutes = timeToMinutes(normalizedTimeOut) ?? 17 * 60
+                          const computedTotalMinutes = Math.max(0, outMinutes - inMinutes)
+
                           const res = await fetch(`/api/attendance/${selectedRecord.id}`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                              firstOnDuty: timeIn,
-                              firstOffDuty: timeOut,
-                              status: editStatus,
-                              late_minutes: lateMinutes,
-                              leave_early_minutes: undertimeMinutes,
-                              overtime_minutes: overtimeMinutes,
+                              firstOnDuty: normalizedTimeIn,
+                              firstOffDuty: normalizedTimeOut,
+                              first_on_duty: normalizedTimeIn,
+                              first_off_duty: normalizedTimeOut,
+                              status: normalizedStatus,
+                              is_absent: normalizedStatus === 'Absent',
+                              on_leave: normalizedStatus === 'Leave' || normalizedStatus === 'On Leave',
+                              late_minutes: normalizedLate,
+                              lateMinutes: normalizedLate,
+                              leave_early_minutes: normalizedUndertime,
+                              leaveEarlyMinutes: normalizedUndertime,
+                              undertimeMinutes: normalizedUndertime,
+                              overtime_minutes: normalizedOvertime,
+                              overtimeMinutes: normalizedOvertime,
+                              total_minutes: computedTotalMinutes,
+                              totalMinutes: computedTotalMinutes,
                             }),
                           })
                           if (!res.ok) {
-                            const err = await res.json()
-                            throw new Error(err.error || 'Failed to update attendance')
+                            let errMessage = 'Failed to update attendance'
+                            try {
+                              const err = await res.json()
+                              errMessage = err.error || errMessage
+                            } catch {
+                              errMessage = `${res.status} ${res.statusText || 'Request failed'}`
+                            }
+                            throw new Error(errMessage)
                           }
                           showToast({ type: 'success', message: 'Attendance updated', description: 'Attendance record has been corrected successfully.' })
+                          window.dispatchEvent(new CustomEvent('attendance-updated'))
                           await loadAttendance()
                         } catch (err: any) {
                           showToast({ type: 'error', message: 'Update failed', description: err.message || 'Could not update attendance' })

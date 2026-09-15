@@ -1,9 +1,11 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
-import { Search, Plus, Pencil, Trash2, Eye } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Search, Plus, Pencil, Trash2, Eye, Archive } from 'lucide-react'
 import Modal from '../components/Modal'
+import PaginationFooter from '../components/PaginationFooter'
 import useIsMobile from '../hooks/isMobile'
 import { useApp } from '../App'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 
 interface AssetForm {
   name: string
@@ -13,6 +15,9 @@ interface AssetForm {
 }
 
 const emptyForm: AssetForm = { name: '', quantity: '0', restaurant: 'Lakay Ago', penalty_amount: '0.00' }
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(Number.isFinite(value) ? value : 0)
 
 const getErrors = (f: AssetForm) => {
   const e: Partial<Record<keyof AssetForm, string>> = {}
@@ -85,8 +90,12 @@ export default function AssetsCatalog() {
   const [addQuantityId, setAddQuantityId] = useState<string | null>(null)
   const [addQuantityValue, setAddQuantityValue] = useState('')
   const [addQuantityLoading, setAddQuantityLoading] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
 
-  const filtered = useMemo(() => items.filter(i => i.name.toLowerCase().includes(search.toLowerCase())), [items, search])
+  const filtered = useMemo(() => {
+    const base = showArchived ? items.filter(i => i.is_archived) : items.filter(i => !i.is_archived)
+    return base.filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
+  }, [items, search, showArchived])
 
   const resetForm = () => {
     setForm(emptyForm)
@@ -107,9 +116,18 @@ export default function AssetsCatalog() {
     try {
       const res = await fetch(`/api/assets_inventory/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Archive failed')
-      setItems(prev => prev.filter(p => p.asset_id !== id))
+      setItems(prev => prev.map(p => p.asset_id === id ? { ...p, is_archived: true } : p))
       showToast({ type: 'success', message: 'Asset archived' })
     } catch (err) { showToast({ type: 'error', message: 'Failed to archive asset' }) }
+  }
+
+  const deleteItem = async (id: string) => {
+    try {
+      const res = await fetch(`/api/assets_inventory/${id}?hard_delete=true`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      setItems(prev => prev.filter(p => p.asset_id !== id))
+      showToast({ type: 'success', message: 'Asset permanently deleted' })
+    } catch (err) { showToast({ type: 'error', message: 'Failed to delete asset' }) }
   }
 
   const handleAddStock = async (item: any) => {
@@ -161,19 +179,30 @@ export default function AssetsCatalog() {
   }
 
   // load assets
+  const loadAssets = useCallback(async () => {
+    try {
+      const res = await fetch('/api/assets_inventory')
+      if (!res.ok) return
+      const j = await res.json()
+      setItems(j.assets || j.inventory || [])
+    } catch {
+      // keep the current rows on transient fetch failures
+    }
+  }, [])
+
   useEffect(() => {
     let mounted = true
     setLoading(true)
-    fetch('/api/assets_inventory')
-      .then(r => r.json())
-      .then(j => {
-        if (!mounted) return
-        setItems(j.assets || j.inventory || [])
-      })
-      .catch(() => {})
-      .finally(() => { if (mounted) setLoading(false) })
+    loadAssets().finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
-  }, [])
+  }, [loadAssets])
+
+  // Live updates: refetch whenever any user adds, edits, archives, or changes an asset's quantity.
+  // AssetsCatalog shows both restaurants, so subscribe without a restaurant filter.
+  useRealtimeEntity('assets_inventory', {
+    restaurant: 'Both',
+    onChange: loadAssets,
+  })
 
   const lakayAgoItems = filtered.filter(item => item.restaurant === 'Lakay Ago')
   const arooItems = filtered.filter(item => item.restaurant === 'Aroo')
@@ -199,14 +228,13 @@ export default function AssetsCatalog() {
           <table className="w-full table-fixed">
             <colgroup>
               <col style={{ width: '20%' }} />
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '30%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '25%' }} />
+              <col style={{ width: '40%' }} />
             </colgroup>
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Name', 'Quantity', 'Restaurant', 'Penalty Amount', 'Actions'].map(column => (
+                {['Name', 'Quantity', 'Penalty', 'Actions'].map(column => (
                   <th key={column} className={`${column === 'Actions' ? 'text-center' : 'text-left'} py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap`}>
                     {column}
                   </th>
@@ -216,19 +244,18 @@ export default function AssetsCatalog() {
             <tbody className="divide-y divide-slate-50">
               {loading ? (
                 <SkeletonTableRows
-                  columns={5}
-                  rows={6}
+                  columns={4}
+                  rows={10}
                   columnConfig={[
                     { width: "60%" },
                     { width: "30%" },
                     { width: "30%" },
                     { width: "40%" },
-                    { width: "50%" },
                   ]}
                 />
               ) : totalItems.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">No assets found.</td>
+                  <td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-400">No assets found.</td>
                 </tr>
               ) : (
                 displayItems.map(item => (
@@ -247,8 +274,7 @@ export default function AssetsCatalog() {
                   >
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.name}</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-700">{item.quantity}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 ">{item.restaurant}</td>
-                    <td className="py-3 px-4 text-sm text-slate-700">${Number(item.penalty_amount || 0).toFixed(2)}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(Number(item.penalty_amount || 0))}</td>
                     <td className="py-3 px-4 text-sm text-slate-700" onClick={e => e.stopPropagation()}>
                       {addQuantityId === item.asset_id ? (
                         <div className="flex items-center gap-2 justify-center">
@@ -267,7 +293,8 @@ export default function AssetsCatalog() {
                         <div className="flex items-center gap-2 justify-center">
                           <button type="button" onClick={() => { setAddQuantityId(item.asset_id); setAddQuantityValue('') }} className="text-xs font-medium text-green-600 hover:text-green-800">+ Add Qty</button>
                           <button type="button" onClick={() => openEdit(item)} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><Pencil size={14} /> Edit</button>
-                          <button type="button" onClick={() => archiveItem(item.asset_id)} className="text-xs font-medium text-red-600 hover:text-red-800 flex items-center gap-1"><Trash2 size={14} /> Archive</button>
+                          <button type="button" onClick={() => archiveItem(item.asset_id)} className="text-xs font-medium text-violet-600 hover:text-violet-800 flex items-center gap-1"><Archive size={14} /> Archive</button>
+                          <button type="button" onClick={() => deleteItem(item.asset_id)} className="text-xs font-medium text-red-600 hover:text-red-800 flex items-center gap-1"><Trash2 size={14} /> Delete</button>
                         </div>
                       )}
                     </td>
@@ -279,7 +306,6 @@ export default function AssetsCatalog() {
                   <tr key={`empty-${ii}`} className="invisible">
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-700">0</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 ">Restaurant</td>
                     <td className="py-3 px-4 text-sm text-slate-700">PHP 0.00</td>
                     <td className="py-3 px-4 text-sm text-slate-700"><div className="invisible">Actions</div></td>
                   </tr>
@@ -300,29 +326,25 @@ export default function AssetsCatalog() {
                 { width: "30%" },
               ]}
             />
-          ) : items.length === 0 ? (
+          ) : displayItems.length === 0 ? (
             <div className="p-4 text-sm text-slate-400">No assets found.</div>
           ) : (
-            items.map(item => (
+            displayItems.map(item => (
               <button key={item.asset_id} type="button" onClick={() => setSelectedItem(item)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 w-full">
                 <div>
                   <div className="text-sm font-semibold text-slate-700 font-display">{item.name}</div>
                   <div className="text-xs text-slate-400">{item.restaurant}</div>
                 </div>
-                <div className="text-sm font-mono text-slate-700">{item.quantity}</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-mono text-slate-700">{item.quantity}</div>
+                  <button type="button" onClick={e => { e.stopPropagation(); deleteItem(item.asset_id) }} className="p-1 text-red-600 hover:text-red-800" title="Delete"><Trash2 size={14} /></button>
+                </div>
               </button>
             ))
           )}
         </div>
       )}
-      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-        <span>Showing {items.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, items.length)} of {items.length}</span>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={currentPage === 1} className="rounded border border-slate-200 bg-white px-2 py-1 disabled:opacity-40">Prev</button>
-          <span>{currentPage}/{totalPages}</span>
-          <button type="button" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={currentPage >= totalPages} className="rounded border border-slate-200 bg-white px-2 py-1 disabled:opacity-40">Next</button>
-        </div>
-      </div>
+      <PaginationFooter items={totalItems} page={currentPage} setPage={setPage} pageSize={pageSize} noun="assets" />
     </div>
   )
 
@@ -339,17 +361,29 @@ export default function AssetsCatalog() {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 shadow-sm">
-        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
-          <Search size={14} className="text-slate-400 shrink-0" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 flex-1">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={showArchived ? 'archived' : 'active'}
+              onChange={e => setShowArchived(e.target.value === 'archived')}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600"
+            >
+              <option value="active">Active Assets</option>
+              <option value="archived">Archived Assets</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      <div className="space-y-0">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {renderRestaurantTable('Lakay Ago', paginatedLakayItems, lakayAgoItems, lakayPage, lakayPageTotal, setLakayPage, lakayEmptyCount)}
         {renderRestaurantTable('Aroo', paginatedArooItems, arooItems, arooPage, arooPageTotal, setArooPage, arooEmptyCount)}
-        {!loading && filtered.length === 0 && <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center"><p className="text-sm text-slate-400">No assets found.</p></div>}
       </div>
+      {!loading && filtered.length === 0 && <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center mt-6"><p className="text-sm text-slate-400">No assets found.</p></div>}
 
       <Modal open={showModal} title={editingItem ? 'Edit Asset' : 'Add Asset'} onClose={() => { setShowModal(false); resetForm(); }}>
         <div className="space-y-4 w-full">
@@ -408,7 +442,7 @@ export default function AssetsCatalog() {
               </div>
               <div>
                 <p className="text-xs text-slate-400">Penalty</p>
-                <p className="text-sm font-medium">{Number(selectedItem.penalty_amount || 0).toFixed(2)}</p>
+                <p className="text-sm font-medium">{formatCurrency(Number(selectedItem.penalty_amount || 0))}</p>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">

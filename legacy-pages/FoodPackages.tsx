@@ -1,12 +1,17 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
-import { Trash2, Pencil, Search, Plus } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Trash2, Pencil, Search, Plus, Archive, ArchiveRestore, List } from 'lucide-react'
 import Modal from '../components/Modal'
 import PaginationFooter from '../components/PaginationFooter'
 import useIsMobile from '../hooks/isMobile'
 import { useApp } from '../App'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 
 const PACKAGE_TYPES = ['catering_package', 'menu_bundle'] as const
+const packageTabs = [
+  { key: 'catering_package', label: 'Packages' },
+  { key: 'menu_bundle', label: 'Bundles' },
+] as const
 
 type PackageType = typeof PACKAGE_TYPES[number]
 
@@ -80,6 +85,8 @@ export default function FoodPackages() {
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
   const [items, setItems] = useState<any[]>([])
+  const [archiveConfirmTarget, setArchiveConfirmTarget] = useState<any | null>(null)
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<any | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState<PackForm>(emptyForm('catering_package'))
@@ -96,17 +103,39 @@ export default function FoodPackages() {
   const [lakayPage, setLakayPage] = useState(1)
   const [arooPage, setArooPage] = useState(1)
 
+  const tabContainerRef = useRef<HTMLDivElement>(null)
+  const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const [tabIndicator, setTabIndicator] = useState({ x: 0, width: 0 })
+
+  const measureTabIndicator = () => {
+    const btn = tabButtonRefs.current[activeType]
+    const container = tabContainerRef.current
+    if (!btn || !container) return
+    const containerRect = container.getBoundingClientRect()
+    const btnRect = btn.getBoundingClientRect()
+    setTabIndicator({ x: btnRect.left - containerRect.left, width: btnRect.width })
+  }
+
+  useLayoutEffect(() => {
+    measureTabIndicator()
+  }, [activeType])
+
+  useEffect(() => {
+    window.addEventListener('resize', measureTabIndicator)
+    return () => window.removeEventListener('resize', measureTabIndicator)
+  }, [activeType])
+
   const filtered = useMemo(() => {
     return items.filter((pkg) => {
       const matchesType = (pkg.type ?? activeType) === activeType
       const matchesSearch = pkg.name.toLowerCase().includes(search.toLowerCase())
-      const matchesArchive = showArchived || !pkg.is_archived
+      // Exclusive match: Archived view shows ONLY archived rows, Active view shows ONLY non-archived rows.
+      const matchesArchive = showArchived ? Boolean(pkg.is_archived) : !pkg.is_archived
       return matchesType && matchesSearch && matchesArchive
     })
   }, [items, search, showArchived, activeType])
 
-  const loadPackages = async () => {
-    let mounted = true
+  const loadPackages = useCallback(async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
@@ -115,20 +144,27 @@ export default function FoodPackages() {
       const res = await fetch(`/api/food_packages?${params.toString()}`)
       if (!res.ok) throw new Error('Load failed')
       const j = await res.json()
-      if (mounted) setItems(j.packages || [])
+      setItems(j.packages || [])
     } catch (err) {
       console.error('Failed to load packages', err)
-      if (mounted) setItems([])
+      setItems([])
     } finally {
-      if (mounted) setLoading(false)
+      setLoading(false)
     }
-  }
+  }, [activeType, showArchived])
 
   useEffect(() => {
-    let mounted = true
     void loadPackages()
-    return () => { mounted = false }
-  }, [showArchived, activeType])
+  }, [loadPackages])
+
+  // Live updates: refetch whenever any user creates, edits, or archives a package or bundle.
+  // Package items are rewritten in the same API request, so refetching here always
+  // returns the fresh item list. The page shows both restaurants, so subscribe
+  // without a restaurant filter.
+  useRealtimeEntity('food_packages', {
+    restaurant: 'Both',
+    onChange: loadPackages,
+  })
 
   const fetchBundleOptions = (restaurant: string) => {
     fetch(`/api/food_and_beverage?restaurant=${encodeURIComponent(restaurant)}`)
@@ -199,11 +235,14 @@ export default function FoodPackages() {
                   <td className="py-3 px-4 text-center text-sm text-slate-600">{pkg.item_count ?? (Array.isArray(pkg.items) ? pkg.items.length : 0)}</td>
                   <td className="py-3 px-4 text-center text-sm">
                     <div className="flex items-center justify-center gap-2">
-                      <button type="button" onClick={() => openEdit(pkg)} className="text-indigo-600 hover:text-indigo-800">Edit</button>
-                      <button type="button" onClick={() => openPackageEditor(pkg)} className="text-slate-700 hover:text-slate-900">Items</button>
-                      <button type="button" onClick={() => toggleArchivePackage(pkg)} className={pkg.is_archived ? 'text-emerald-600 hover:text-emerald-800' : 'text-red-600 hover:text-red-800'}>
-                        {pkg.is_archived ? 'Restore' : 'Archive'}
-                      </button>
+                      <button type="button" onClick={() => openEdit(pkg)} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><Pencil size={14} /> Edit</button>
+                      <button type="button" onClick={() => openPackageEditor(pkg)} className="text-xs font-medium text-slate-700 hover:text-slate-900 flex items-center gap-1"><List size={14} /> Items</button>
+                      {pkg.is_archived ? (
+                        <button type="button" onClick={() => toggleArchivePackage(pkg)} className="text-xs font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1"><ArchiveRestore size={14} /> Restore</button>
+                      ) : (
+                        <button type="button" onClick={() => setArchiveConfirmTarget(pkg)} className="text-xs font-medium text-violet-600 hover:text-violet-800 flex items-center gap-1"><Archive size={14} /> Archive</button>
+                      )}
+                      <button type="button" onClick={() => setDeleteConfirmTarget(pkg)} className="text-xs font-medium text-red-600 hover:text-red-800 flex items-center gap-1"><Trash2 size={14} /> Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -219,6 +258,7 @@ export default function FoodPackages() {
                         <button type="button" className="invisible">Edit</button>
                         <button type="button" className="invisible">Items</button>
                         <button type="button" className="invisible">Archive</button>
+                        <button type="button" className="invisible">Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -248,8 +288,14 @@ export default function FoodPackages() {
                 <div className="text-xs text-slate-500">{pkg.item_count ?? (Array.isArray(pkg.items) ? pkg.items.length : 0)} items</div>
               </div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => openEdit(pkg)} className="text-indigo-600 text-sm">Edit</button>
-                <button type="button" onClick={() => toggleArchivePackage(pkg)} className="text-red-600 text-sm">{pkg.is_archived ? 'Restore' : 'Archive'}</button>
+                <button type="button" onClick={() => openEdit(pkg)} className="text-indigo-600 text-sm flex items-center gap-1"><Pencil size={14} /> Edit</button>
+                <button type="button" onClick={() => openPackageEditor(pkg)} className="text-slate-700 text-sm flex items-center gap-1"><List size={14} /> Items</button>
+                {pkg.is_archived ? (
+                  <button type="button" onClick={() => toggleArchivePackage(pkg)} className="text-emerald-600 text-sm flex items-center gap-1"><ArchiveRestore size={14} /> Restore</button>
+                ) : (
+                  <button type="button" onClick={() => setArchiveConfirmTarget(pkg)} className="text-violet-600 text-sm flex items-center gap-1"><Archive size={14} /> Archive</button>
+                )}
+                <button type="button" onClick={() => setDeleteConfirmTarget(pkg)} className="text-red-600 text-sm flex items-center gap-1"><Trash2 size={14} /> Delete</button>
               </div>
             </div>
           ))}
@@ -269,7 +315,7 @@ export default function FoodPackages() {
           )}
         </div>
       )}
-      <PaginationFooter items={totalItems} page={currentPage} setPage={setPage} pageSize={pageSize} />
+      <PaginationFooter items={totalItems} page={currentPage} setPage={setPage} pageSize={pageSize} noun="packages" />
     </div>
   )
 
@@ -491,6 +537,28 @@ export default function FoodPackages() {
     }
   }
 
+  const confirmArchivePackage = async () => {
+    const item = archiveConfirmTarget
+    if (!item) return
+    setArchiveConfirmTarget(null)
+    await toggleArchivePackage(item)
+  }
+
+  const deletePackage = async () => {
+    const item = deleteConfirmTarget
+    if (!item) return
+    setDeleteConfirmTarget(null)
+    try {
+      const res = await fetch(`/api/food_packages?id=${item.food_package_id}&hard_delete=true`, { method: 'DELETE' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Delete failed')
+      setItems((prev) => prev.filter((pkg) => pkg.food_package_id !== item.food_package_id))
+      showToast({ type: 'success', message: activeType === 'menu_bundle' ? 'Bundle deleted' : 'Package deleted', description: item.name })
+    } catch (err: any) {
+      showToast({ type: 'error', message: activeType === 'menu_bundle' ? 'Failed to delete bundle' : 'Failed to delete package', description: err.message })
+    }
+  }
+
   const [editingPkgItemId, setEditingPkgItemId] = useState<number | null>(null)
   const [editingPkgItemQty, setEditingPkgItemQty] = useState<string>('')
 
@@ -517,7 +585,7 @@ export default function FoodPackages() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold">{activeType === 'menu_bundle' ? 'Food Bundles' : 'Food Packages'}</h2>
-          <p className="text-sm text-slate-500">{activeType === 'menu_bundle' ? 'Create and manage menu bundles for the regular menu.' : 'Create and manage catering packages.'}</p>
+          <p className="text-sm text-slate-500">{activeType === 'menu_bundle' ? 'Create and manage food bundles for menu items' : 'Create and manage food packages for services.'}</p>
         </div>
         <button onClick={() => {
           setForm(emptyForm(activeType));
@@ -535,17 +603,30 @@ export default function FoodPackages() {
         </button>
       </div>
 
-      <div className="mb-4 flex gap-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-        {PACKAGE_TYPES.map((type) => (
-          <button
-            key={type}
-            type="button"
-            onClick={() => setActiveType(type)}
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition ${activeType === type ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
-          >
-            {type === 'menu_bundle' ? 'Food Bundles' : 'Food Packages'}
-          </button>
-        ))}
+      <div className="mb-4 flex items-center gap-3">
+        <div ref={tabContainerRef} className="relative flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+          <div
+            className="absolute inset-y-1 left-0 rounded-lg bg-indigo-600 shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform"
+            style={{
+              width: tabIndicator.width,
+              transform: `translate3d(${tabIndicator.x}px, 0, 0)`,
+            }}
+          />
+
+          {packageTabs.map((tab) => (
+            <button
+              key={tab.key}
+              ref={(el) => { tabButtonRefs.current[tab.key] = el }}
+              type="button"
+              onClick={() => setActiveType(tab.key as PackageType)}
+              className={`relative z-10 flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-300 ${
+                activeType === tab.key ? 'text-white' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-5 flex flex-col md:flex-row gap-3">
@@ -554,13 +635,22 @@ export default function FoodPackages() {
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${activeType === 'menu_bundle' ? 'bundle' : 'package'} name...`} className="w-full outline-none text-sm" />
         </div>
 
-        <button type="button" onClick={() => setShowArchived((prev) => !prev)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-          {showArchived ? 'Hide archived' : 'Show archived'}
-        </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={showArchived ? 'archived' : 'active'}
+            onChange={e => setShowArchived(e.target.value === 'archived')}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600"
+          >
+            <option value="active">Active {activeType === 'menu_bundle' ? 'Bundles' : 'Packages'}</option>
+            <option value="archived">Archived {activeType === 'menu_bundle' ? 'Bundles' : 'Packages'}</option>
+          </select>
+        </div>
       </div>
 
-      {renderRestaurantTable('Lakay Ago', paginatedLakayItems, lakayAgoItems, lakayPage, lakayPageTotal, setLakayPage, lakayEmptyCount)}
-      {renderRestaurantTable('Aroo', paginatedArooItems, arooItems, arooPage, arooPageTotal, setArooPage, arooEmptyCount)}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {renderRestaurantTable('Lakay Ago', paginatedLakayItems, lakayAgoItems, lakayPage, lakayPageTotal, setLakayPage, lakayEmptyCount)}
+        {renderRestaurantTable('Aroo', paginatedArooItems, arooItems, arooPage, arooPageTotal, setArooPage, arooEmptyCount)}
+      </div>
       {!loading && filtered.length === 0 && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center">
           <p className="text-sm text-slate-400">No {activeType === 'menu_bundle' ? 'bundles' : 'packages'} found.</p>
@@ -739,6 +829,36 @@ export default function FoodPackages() {
           </div>
         </div>
       </Modal>
+
+      {archiveConfirmTarget && (
+        <Modal open={!!archiveConfirmTarget} title="Confirm archive" onClose={() => setArchiveConfirmTarget(null)}>
+          <div className="w-full p-2">
+            <p className="text-sm text-slate-600 mb-4">
+              Are you sure you want to archive <span className="font-semibold text-slate-700">{archiveConfirmTarget.name}</span>?
+            </p>
+            <p className="text-xs text-slate-500 mb-4">It will be hidden from the active list and moved to the archived view. You can restore it later.</p>
+            <div className="flex gap-3 justify-end">
+              <button type="button" onClick={() => setArchiveConfirmTarget(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button type="button" onClick={confirmArchivePackage} className="px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display">Archive</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {deleteConfirmTarget && (
+        <Modal open={!!deleteConfirmTarget} title="Confirm deletion" onClose={() => setDeleteConfirmTarget(null)}>
+          <div className="w-full p-2">
+            <p className="text-sm text-slate-600 mb-4">
+              Are you sure you want to permanently delete <span className="font-semibold text-slate-700">{deleteConfirmTarget.name}</span>?
+            </p>
+            <p className="text-xs text-slate-500 mb-4">This action cannot be undone. Packages still referenced by sales or transactions cannot be deleted.</p>
+            <div className="flex gap-3 justify-end">
+              <button type="button" onClick={() => setDeleteConfirmTarget(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+              <button type="button" onClick={deletePackage} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display">Delete</button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

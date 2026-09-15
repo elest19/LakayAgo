@@ -12,6 +12,7 @@ export async function PUT(req: Request, ctx: any) {
 
     const body = await req.json()
     const { date, holiday_name, type, active } = body
+    console.log('[holiday api PUT] incoming', { holidayId, date, holiday_name, type, active, body })
 
     if (!date || !holiday_name) return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
 
@@ -19,6 +20,7 @@ export async function PUT(req: Request, ctx: any) {
       `UPDATE holidays SET date=$1, holiday_name=$2, type=$3, active=$4 WHERE id=$5 RETURNING *`,
       [date, holiday_name, type, active, holidayId]
     )
+    console.log('[holiday api PUT] saved row', res.rows[0])
     return NextResponse.json(res.rows[0])
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })

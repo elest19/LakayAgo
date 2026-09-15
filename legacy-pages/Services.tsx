@@ -1,10 +1,12 @@
 'use client'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState, useLayoutEffect, useRef, useCallback } from 'react'
 import { Search, Plus, Pencil, Eye } from 'lucide-react'
 import Modal from '../components/Modal'
 import useIsMobile from '../hooks/isMobile'
 import { useApp } from '../App'
+import { useRealtimeEntity, type RealtimePayload } from '../hooks/useRealtimeEntity'
 import PaginationFooter from '../components/PaginationFooter'
+import DateFilter, { dateInRange, defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
 
 interface ServiceForm { service_type: string; price: string; restaurant: string }
 const emptyForm: ServiceForm = { service_type: 'Catering', price: '0.00', restaurant: 'Lakay Ago' }
@@ -101,6 +103,11 @@ function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRow
   )
 }
 
+const tabs = [
+  { key: 'services', label: 'Services' },
+  { key: 'transactions', label: 'Transactions' },
+] as const
+
 export default function Services() {
   const isMobile = useIsMobile()
   const { showToast } = useApp()
@@ -151,9 +158,45 @@ export default function Services() {
   const [servicesPage, setServicesPage] = useState(1)
   const [subServicesPage, setSubServicesPage] = useState(1)
   const [transactionsPage, setTransactionsPage] = useState(1)
+  const [txDateFilter, setTxDateFilter] = useState<DateFilterValue>(defaultDateFilterValue)
+  const [serviceRestaurantFilter, setServiceRestaurantFilter] = useState('All Restaurants')
+  const [txRestaurantFilter, setTxRestaurantFilter] = useState('All Restaurants')
+  const [selectedService, setSelectedService] = useState<any | null>(null)
+  const [selectedTransaction, setSelectedTransaction] = useState<any | null>(null)
   const isFullyPaid = originalTxStatus === 'Fully Paid'
 
-  const filtered = useMemo(() => items.filter(i => i.service_type.toLowerCase().includes(search.toLowerCase())), [items, search])
+  // tab switch indicator
+  const tabContainerRef = useRef<HTMLDivElement>(null)
+  const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const [tabIndicator, setTabIndicator] = useState({ x: 0, width: 0 })
+
+  const measureTabIndicator = () => {
+    const btn = tabButtonRefs.current[activeTab]
+    const container = tabContainerRef.current
+    if (!btn || !container) return
+    const containerRect = container.getBoundingClientRect()
+    const btnRect = btn.getBoundingClientRect()
+    setTabIndicator({ x: btnRect.left - containerRect.left, width: btnRect.width })
+  }
+
+  // Measure synchronously before paint so there's no flash on mount/tab change
+  useLayoutEffect(() => {
+    measureTabIndicator()
+  }, [activeTab])
+
+  // Re-measure on resize (e.g. container width changes responsively)
+  useEffect(() => {
+    window.addEventListener('resize', measureTabIndicator)
+    return () => window.removeEventListener('resize', measureTabIndicator)
+  }, [activeTab])
+
+  const serviceRestaurantOptions = useMemo(() => Array.from(new Set(items.map((i: any) => i.restaurant).filter(Boolean))) as string[], [items])
+  const txRestaurantOptions = useMemo(() => Array.from(new Set(transactions.map((tx: any) => tx.restaurant || tx.service?.restaurant).filter(Boolean))) as string[], [transactions])
+
+  const filtered = useMemo(() => items.filter(i =>
+    i.service_type.toLowerCase().includes(search.toLowerCase()) &&
+    (serviceRestaurantFilter === 'All Restaurants' || i.restaurant === serviceRestaurantFilter)
+  ), [items, search, serviceRestaurantFilter])
   const servicesPageSize = 10
   const paginatedServices = useMemo(
     () => filtered.slice((servicesPage - 1) * servicesPageSize, servicesPage * servicesPageSize),
@@ -173,16 +216,27 @@ export default function Services() {
   const subServicesEmptyCount = paginatedSubServices.length === 0 ? 0 : Math.max(0, servicesPageSize - paginatedSubServices.length)
   const subServicePageTotal = Math.max(1, Math.ceil(filteredSubServices.length / servicesPageSize))
 
+  const txDateRange = useMemo(() => resolveDateRange(txDateFilter), [txDateFilter])
+
+  const filteredTransactions = useMemo(
+    () => transactions.filter(tx => {
+      const txRestaurant = tx.restaurant || tx.service?.restaurant || ''
+      const matchesRestaurant = txRestaurantFilter === 'All Restaurants' || txRestaurant === txRestaurantFilter
+      return matchesRestaurant && dateInRange(tx.service_date, txDateRange)
+    }),
+    [transactions, txDateRange, txRestaurantFilter],
+  )
+
   const paginatedTransactions = useMemo(
-    () => transactions.slice((transactionsPage - 1) * servicesPageSize, transactionsPage * servicesPageSize),
-    [transactions, transactionsPage],
+    () => filteredTransactions.slice((transactionsPage - 1) * servicesPageSize, transactionsPage * servicesPageSize),
+    [filteredTransactions, transactionsPage],
   )
   const transactionsEmptyCount = paginatedTransactions.length === 0 ? 0 : Math.max(0, servicesPageSize - paginatedTransactions.length)
-  const transactionPageTotal = Math.max(1, Math.ceil(transactions.length / servicesPageSize))
+  const transactionPageTotal = Math.max(1, Math.ceil(filteredTransactions.length / servicesPageSize))
 
-  useEffect(() => { setServicesPage(1) }, [search, items.length])
+  useEffect(() => { setServicesPage(1) }, [search, serviceRestaurantFilter, items.length])
   useEffect(() => { setSubServicesPage(1) }, [subServiceSearch, allSubServices.length])
-  useEffect(() => { setTransactionsPage(1) }, [transactions.length])
+  useEffect(() => { setTransactionsPage(1) }, [txDateFilter, txRestaurantFilter, transactions.length])
   const openCreate = () => {
     setForm(emptyForm)
     setErrors({})
@@ -357,7 +411,7 @@ export default function Services() {
   }
 
   const removeAttachedSubService = (subServiceId: number) => {
-    setAttachedSubServices(prev => prev.filter(s => Number(s.sub_service_id) !== subServiceId))
+    setAttachedSubServices(prev => prev.filter(s => Number(s.sub_service_id) !== Number(subServiceId)))
   }
 
   const attachSelectedSubServices = async (serviceId: number | string) => {
@@ -454,28 +508,36 @@ export default function Services() {
         return
       }
 
-      const res = await fetch('/api/sub-services', {
-        method: 'POST',
+      const subServiceId = editingSubServiceId ?? editingId
+      const url = subServiceId ? `/api/sub-services/${subServiceId}` : '/api/sub-services'
+      const method = subServiceId ? 'PUT' : 'POST'
+
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        showToast({ type: 'error', message: err.error || 'Failed to create sub-service.' })
+        showToast({ type: 'error', message: err.error || (subServiceId ? 'Failed to update sub-service.' : 'Failed to create sub-service.') })
         return
       }
 
       const json = await res.json().catch(() => ({ subService: null }))
       const saved = json.subService
-      if (saved && editingId) {
-        setSubServicesByService((prev) => ({
-          ...prev,
-          [editingId]: [saved, ...(prev[editingId] || [])],
-        }))
+      if (saved) {
+        setAllSubServices((prev) => {
+          if (subServiceId) {
+            return prev.map((item) => Number(item.sub_service_id) === Number(subServiceId) ? { ...item, ...saved } : item)
+          }
+          return [saved, ...prev]
+        })
       }
-      showToast({ type: 'success', message: 'Sub-service added' })
+      showToast({ type: 'success', message: subServiceId ? 'Sub-service updated' : 'Sub-service added' })
       setShowModal(false)
+      setEditingId(null)
+      setEditingSubServiceId(null)
       setServiceEntryMode('service')
       setSubServiceForm(emptySubServiceForm)
       return
@@ -522,6 +584,91 @@ export default function Services() {
       setItems(j.services || [])
     }
   }
+
+  const refreshServiceSnapshot = useCallback(async () => {
+    await refetchServices()
+
+    try {
+      const res = await fetch('/api/sub-services?includeArchived=false')
+      if (res.ok) {
+        const json = await res.json().catch(() => ({ subServices: [] }))
+        setAllSubServices(json.subServices || [])
+      }
+    } catch (error) {
+      console.error('Failed to refresh service sub-services', error)
+    }
+
+    if (activeTab === 'transactions') {
+      try {
+        const res = await fetch('/api/service_transactions')
+        const j = await res.json().catch(() => ({ transactions: [] }))
+        const rows = j.transactions || []
+        const hydrated = await Promise.all(rows.map(async (tx: any) => ({
+          ...tx,
+          asset_penalty: await fetchTransactionAssetPenalty(Number(tx.service_transaction_id)),
+        })))
+        setTransactions(hydrated)
+      } catch (error) {
+        console.error('Failed to refresh service transactions', error)
+      }
+    }
+  }, [activeTab])
+
+  // Track the open Assets modal by ref so the realtime handler below can live-reload its
+  // lines when another user saves asset returns, without re-creating the Realtime channel
+  // on every keystroke in the modal.
+  const assetsModalRef = useRef<{ open: boolean; txId: number }>({ open: false, txId: 0 })
+  useEffect(() => {
+    assetsModalRef.current = { open: showAssetsModal, txId: Number(currentTxId || 0) }
+  }, [showAssetsModal, currentTxId])
+
+  // Reload only the per-transaction asset lines (used to keep an open Assets modal live).
+  const reloadAssetLines = useCallback(async (transactionId: number) => {
+    try {
+      const res = await fetch(`/api/service_transaction_assets/${transactionId}`)
+      if (!res.ok) return
+      const j = await res.json().catch(() => ({}))
+      setAssetLines(j.lines || [])
+      setAssetTotalPenalty(Number(j.totalPenalty || 0))
+    } catch (error) {
+      console.error('Failed to reload service transaction assets', error)
+    }
+  }, [])
+
+  // A stable handler identity matters: passing a new function on every render makes the
+  // hook tear down and re-create the Realtime channel repeatedly, which can silently miss
+  // events. All subscriptions below share this one callback.
+  const handleRealtimeChange = useCallback((payload: RealtimePayload) => {
+    void refreshServiceSnapshot()
+
+    // Asset return saves also update the open Assets modal for the same transaction so
+    // every user sees the change immediately instead of refreshing the browser.
+    const { open, txId } = assetsModalRef.current
+    const changedTxId = Number(payload?.new?.service_transaction_id ?? payload?.old?.service_transaction_id ?? 0)
+    if (open && txId && changedTxId === txId) {
+      void reloadAssetLines(txId)
+    }
+  }, [refreshServiceSnapshot, reloadAssetLines])
+
+  useRealtimeEntity('services', {
+    onChange: handleRealtimeChange,
+  })
+
+  useRealtimeEntity('sub_services', {
+    onChange: handleRealtimeChange,
+  })
+
+  useRealtimeEntity('service_transactions', {
+    onChange: handleRealtimeChange,
+  })
+
+  // Asset return saves write ONLY the service_transaction_assets table — the API does not
+  // touch the service_transactions row, so no event fires on the subscriptions above.
+  // Listening here lets every user refetch the transactions (re-hydrating each row's
+  // asset_penalty) and refresh an open Assets modal whenever another user saves returns.
+  useRealtimeEntity('service_transaction_assets', {
+    onChange: handleRealtimeChange,
+  })
 
   useEffect(() => {
     let mounted = true
@@ -614,6 +761,23 @@ export default function Services() {
       showToast({ type: 'error', message: err.error || 'This asset is not assigned to this service' })
     }
   }
+
+  const deleteTransaction = async (tx: any) => {
+    if (!confirm('Delete transaction?')) return
+    try {
+      const res = await fetch(`/api/service_transactions/${tx.service_transaction_id}`, { method: 'DELETE' })
+      if (res.ok) {
+        setTransactions(prev => prev.filter(t => t.service_transaction_id !== tx.service_transaction_id))
+        setSelectedTransaction(null)
+        showToast({ type: 'success', message: 'Transaction deleted' })
+      } else {
+        const err = await res.json().catch(() => ({}))
+        showToast({ type: 'error', message: err.error || 'Failed to delete transaction' })
+      }
+    } catch {
+      showToast({ type: 'error', message: 'Failed to delete transaction' })
+    }
+  }
   
   const handleSaveTx = async () => {
     if (!txForm.restaurant || !txForm.service_id || !txForm.service_date || txForm.price === '') { showToast({ type: 'error', message: 'Missing fields' }); return }
@@ -680,27 +844,58 @@ export default function Services() {
           <h2 className="text-xl font-bold">Services</h2>
           <p className="text-sm text-slate-500">Manage special services and associated packages/assets.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="bg-slate-50 rounded-md p-1 flex">
-            <button onClick={() => setActiveTab('services')} className={`px-3 py-1 text-sm rounded ${activeTab === 'services' ? 'bg-white shadow' : 'text-slate-600'}`}>Services</button>
-            <button onClick={() => setActiveTab('transactions')} className={`px-3 py-1 text-sm rounded ${activeTab === 'transactions' ? 'bg-white shadow' : 'text-slate-600'}`}>Transactions</button>
-          </div>
-          {activeTab === 'services' ? (
+        {activeTab === 'services' ? (
             <button onClick={openCreate} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-sm"><Plus size={14}/> Add Service</button>
           ) : (
             <button onClick={openCreateTx} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-sm"><Plus size={14}/> Add Transaction</button>
           )}
-        </div>
       </div> 
+
+      <div className="flex items-center gap-3 mb-2">
+        <div ref={tabContainerRef} className="relative flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+          {/* sliding highlight — measured pixel position, GPU composited */}
+          <div
+            className="absolute inset-y-1 left-0 rounded-lg bg-indigo-600 shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform"
+            style={{
+              width: tabIndicator.width,
+              transform: `translate3d(${tabIndicator.x}px, 0, 0)`,
+            }}
+          />
+
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              ref={(el) => { tabButtonRefs.current[tab.key] = el }}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`relative z-10 flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-300 ${
+                activeTab === tab.key
+                  ? 'text-white'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {activeTab === 'services' ? (
         <div className="space-y-4">
         <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-slate-50 flex items-center justify-between">
+          <div className="px-4 py-3 border-b bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
             <h3 className="text-sm font-semibold">Services</h3>
-            <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 focus-within:border-indigo-400">
-              <Search size={14} className="text-slate-400" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search services..." className="w-full outline-none text-sm" />
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={serviceRestaurantFilter} onChange={e => setServiceRestaurantFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
+                <option value="All Restaurants">All Restaurants</option>
+                {serviceRestaurantOptions.map(restaurant => (
+                  <option key={restaurant} value={restaurant}>{restaurant}</option>
+                ))}
+              </select>
+              <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 focus-within:border-indigo-400">
+                <Search size={14} className="text-slate-400" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search services..." className="w-full outline-none text-sm" />
+              </div>
             </div>
           </div>
           {!isMobile ? (
@@ -745,16 +940,15 @@ export default function Services() {
 
                     return (
                       <Fragment key={i.service_id}>
-                        <tr className="hover:bg-slate-50">
+                        <tr className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelectedService(i)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedService(i) } }}>
                           <td className="py-3 px-4 font-medium">{i.service_type}</td>
                           <td className="py-3 px-4 text-center font-mono">{i.price}</td>
                           <td className="py-3 px-4 text-center text-sm text-slate-600">{i.restaurant}</td>
                           <td className="py-3 px-4 text-sm text-slate-600">
                             {(i.assets || []).length > 0 ? i.assets.map((a: any) => a.name).join(', ') : 'None'}
                           </td>
-                          <td className="py-3 px-4 text-center text-sm">
+                          <td className="py-3 px-4 text-center text-sm" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-2 flex-wrap">
-                              <button onClick={() => toggleServiceExpansion(i)} className="text-indigo-600 hover:underline text-xs">{expanded ? 'Collapse' : 'Expand'}</button>
                               <button onClick={(e) => {
                                 e.stopPropagation()
                                 const svc = i
@@ -847,7 +1041,7 @@ export default function Services() {
              </div>
           ) : (
             <div>{filtered.length === 0 ? <div className="p-4 text-sm text-slate-400">No services.</div> : filtered.map(i => (
-              <div key={i.service_id} className="p-3 border-b flex justify-between items-center">
+              <div key={i.service_id} className="p-3 border-b flex justify-between items-center cursor-pointer hover:bg-slate-50" onClick={() => setSelectedService(i)}>
                 <div>
                   <div className="font-medium">{i.service_type}</div>
                   <div className="text-xs text-slate-500">{i.restaurant}</div>
@@ -856,7 +1050,7 @@ export default function Services() {
               </div>
             ))}</div>
           )}
-          <PaginationFooter items={filtered} page={servicesPage} setPage={setServicesPage} pageSize={servicesPageSize} />
+          <PaginationFooter items={filtered} page={servicesPage} setPage={setServicesPage} pageSize={servicesPageSize} noun="services" />
         </div>
 
         {/* Separate Sub Services Table */}
@@ -982,14 +1176,23 @@ export default function Services() {
               )}
             </div>
           )}
-          <PaginationFooter items={filteredSubServices} page={subServicesPage} setPage={setSubServicesPage} pageSize={servicesPageSize} />
+          <PaginationFooter items={filteredSubServices} page={subServicesPage} setPage={setSubServicesPage} pageSize={servicesPageSize} noun="sub-services" />
         </div>
       </div>
       ) : (
         <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-slate-50 flex items-center justify-between">
+          <div className="px-4 py-3 border-b bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
             <h3 className="text-sm font-semibold">Service Transactions</h3>
-            <div className="text-xs text-slate-500">{txLoading ? 'Loading...' : `${transactions.length} transactions`}</div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <select value={txRestaurantFilter} onChange={e => setTxRestaurantFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
+                <option value="All Restaurants">All Restaurants</option>
+                {txRestaurantOptions.map(restaurant => (
+                  <option key={restaurant} value={restaurant}>{restaurant}</option>
+                ))}
+              </select>
+              <DateFilter value={txDateFilter} onChange={setTxDateFilter} allLabel="All Transactions" />
+              <div className="text-xs text-slate-500">{txLoading ? 'Loading...' : `${filteredTransactions.length} transactions`}</div>
+            </div>
           </div>
           <div className="p-4">
             <div className="overflow-x-auto">
@@ -1003,13 +1206,12 @@ export default function Services() {
                     <th className="py-2 px-3 text-right">Penalty</th>
                     <th className="py-2 px-3 text-right">Unpaid Balance</th>
                     <th className="py-2 px-3 text-center">Status</th>
-                    <th className="py-2 px-3 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {txLoading ? (
                     <SkeletonTableRows
-                      columns={8}
+                      columns={7}
                       rows={2}
                       columnConfig={[
                         { width: "30%" },
@@ -1019,17 +1221,16 @@ export default function Services() {
                         { width: "35%" },
                         { width: "40%" },
                         { width: "30%", pill: true },
-                        { width: "45%" },
                       ]}
                     />
-                  ) : transactions.length === 0 ? <tr><td colSpan={8} className="p-6 text-center text-sm text-slate-400">No transactions.</td></tr> : paginatedTransactions.map(tx => {
+                  ) : transactions.length === 0 ? <tr><td colSpan={7} className="p-6 text-center text-sm text-slate-400">No transactions.</td></tr> : filteredTransactions.length === 0 ? <tr><td colSpan={7} className="p-6 text-center text-sm text-slate-400">No transactions match the selected filters.</td></tr> : paginatedTransactions.map(tx => {
                       const assetPenalty = Number(tx.asset_penalty || 0)
                       const assetPenaltyApplied = ['Finalized', 'Fully Paid'].includes(tx.status || '') ? assetPenalty : 0
                       const totalPrice = Number(tx.price || 0) + Number(tx.penalty || 0) + assetPenaltyApplied
                       const balance = Number(tx.balance || 0)
                       const unpaidBalance = totalPrice - (Number(tx.downpayment || 0) + Number(tx.discount || 0) + balance)
                       return (
-                        <tr key={tx.service_transaction_id} className="hover:bg-slate-50">
+                        <tr key={tx.service_transaction_id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelectedTransaction(tx)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedTransaction(tx) } }}>
                           <td className="py-2 px-3">{tx.service_date?.slice(0,10)}</td>
                           <td className="py-2 px-3">{tx.service_id ? (items.find(s => s.service_id === tx.service_id)?.service_type || `#${tx.service_id}`) : '-'}</td>
                           <td className="py-2 px-3 text-right font-mono">{Number(tx.expenses || 0).toFixed(2)}</td>
@@ -1046,17 +1247,6 @@ export default function Services() {
                               )}
                             </div>
                           </td>
-                          <td className="py-2 px-3 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              {tx.status === 'Fully Paid' ? (
-                                <button onClick={() => openEditTx(tx)} className="text-indigo-600 hover:underline flex items-center gap-2 text-sm"><Eye size={14} />View</button>
-                              ) : (
-                                <button onClick={() => openEditTx(tx)} className="text-slate-700 hover:underline flex items-center gap-2 text-sm"><Pencil size={14}/>Edit</button>
-                              )}
-                              <button onClick={() => openAssetsModal(tx)} className="text-indigo-600 hover:underline text-sm">Assets</button>
-                              <button onClick={() => { if (!confirm('Delete transaction?')) return; fetch(`/api/service_transactions/${tx.service_transaction_id}`, { method: 'DELETE' }).then(r => { if (r.ok) setTransactions(prev => prev.filter(t => t.service_transaction_id !== tx.service_transaction_id)) }) }} className="text-red-600 hover:underline text-sm">Delete</button>
-                            </div>
-                          </td>
                         </tr>
                       )
                     })}
@@ -1070,19 +1260,18 @@ export default function Services() {
                         <td className="py-2 px-3 text-right font-mono">0.00</td>
                         <td className="py-2 px-3 text-right font-mono">0.00</td>
                         <td className="py-2 px-3 text-center"><div className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">Status</div></td>
-                        <td className="py-2 px-3 text-center"><div className="invisible">Actions</div></td>
                       </tr>
                     ))
                   )}
                   </tbody>
                 </table>
               </div>
-            <PaginationFooter items={transactions} page={transactionsPage} setPage={setTransactionsPage} pageSize={servicesPageSize} />
+            <PaginationFooter items={filteredTransactions} page={transactionsPage} setPage={setTransactionsPage} pageSize={servicesPageSize} />
           </div>
         </div>
       )}
 
-      <Modal open={showModal} title={editingId ? 'Edit Service' : 'Add Service'} onClose={() => { setShowModal(false); setEditingId(null); setForm(emptyForm); setErrors({}); setServiceAssetRows([]); setAssetSelect(''); setAssetQty('1'); setServiceEntryMode('service'); setSubServiceForm(emptySubServiceForm); setSubServiceAttachSelect(null); setAttachedSubServices([]) }} className="max-h-[60vh] overflow-y-auto">
+      <Modal open={showModal} title={editingId ? 'Edit Service' : 'Add Service'} onClose={() => { setShowModal(false); setEditingId(null); setEditingSubServiceId(null); setForm(emptyForm); setErrors({}); setServiceAssetRows([]); setAssetSelect(''); setAssetQty('1'); setServiceEntryMode('service'); setSubServiceForm(emptySubServiceForm); setSubServiceAttachSelect(null); setAttachedSubServices([]) }} className="max-h-[60vh] overflow-y-auto">
         <div className="space-y-4">
           <div className="space-y-3">
             <label className="block text-xs text-slate-600 mb-1">Entry type</label>
@@ -1485,6 +1674,90 @@ export default function Services() {
           </div>
         </div>
       </Modal>
+
+      {selectedService && (
+        <Modal open={!!selectedService} title={selectedService.service_type || 'Service'} onClose={() => setSelectedService(null)}>
+          <div className="space-y-3 w-full p-2">
+            <div className="w-md grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-slate-400">Service Type</p>
+                <p className="text-sm font-medium">{selectedService.service_type}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Price</p>
+                <p className="text-sm font-medium">₱{Number(selectedService.price || 0).toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Restaurant</p>
+                <p className="text-sm font-medium">{selectedService.restaurant || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Assets</p>
+                <p className="text-sm font-medium">{(selectedService.assets || []).length > 0 ? selectedService.assets.map((a: any) => a.name).join(', ') : 'None'}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => setSelectedService(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Close</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {selectedTransaction && (() => {
+        const tx = selectedTransaction
+        const txAssetPenaltyApplied = ['Finalized', 'Fully Paid'].includes(tx.status || '') ? Number(tx.asset_penalty || 0) : 0
+        const txTotalPrice = Number(tx.price || 0) + Number(tx.penalty || 0) + txAssetPenaltyApplied
+        const txUnpaidBalance = txTotalPrice - (Number(tx.downpayment || 0) + Number(tx.discount || 0) + Number(tx.balance || 0))
+        return (
+          <Modal open={!!selectedTransaction} title={items.find(s => s.service_id === tx.service_id)?.service_type || `Transaction #${tx.service_transaction_id}`} onClose={() => setSelectedTransaction(null)}>
+            <div className="space-y-3 w-full p-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-slate-400">Date</p>
+                  <p className="text-sm font-medium">{tx.service_date?.slice(0, 10) || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Status</p>
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium font-display ${statusColor[tx.status] || 'bg-slate-50 text-slate-700'}`}>{tx.status || 'Pending'}</span>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Restaurant</p>
+                  <p className="text-sm font-medium">{tx.restaurant || tx.service?.restaurant || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Service</p>
+                  <p className="text-sm font-medium">{tx.service_id ? (items.find(s => s.service_id === tx.service_id)?.service_type || `#${tx.service_id}`) : '-'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Price</p>
+                  <p className="text-sm font-medium">₱{Number(tx.price || 0).toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Expenses</p>
+                  <p className="text-sm font-medium">₱{Number(tx.expenses || 0).toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Penalty</p>
+                  <p className="text-sm font-medium">₱{Number(Number(tx.penalty || 0) + txAssetPenaltyApplied).toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Unpaid Balance</p>
+                  <p className="text-sm font-medium">₱{txUnpaidBalance.toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 flex-wrap">
+                {tx.status === 'Fully Paid' ? (
+                  <button type="button" onClick={() => { setSelectedTransaction(null); openEditTx(tx) }} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-2"><Eye size={14} /> View</button>
+                ) : (
+                  <button type="button" onClick={() => { setSelectedTransaction(null); openEditTx(tx) }} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-2"><Pencil size={14} /> Edit</button>
+                )}
+                <button type="button" onClick={() => { setSelectedTransaction(null); openAssetsModal(tx) }} className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Assets</button>
+                <button type="button" onClick={() => deleteTransaction(tx)} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display">Delete</button>
+              </div>
+            </div>
+          </Modal>
+        )
+      })()}
     </div>
   )
 }

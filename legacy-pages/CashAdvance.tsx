@@ -1,9 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarClock, CheckCircle2, CircleDollarSign, Plus, Trash2, Wallet } from 'lucide-react'
+import { CalendarClock, CheckCircle2, CircleDollarSign, Plus, Trash2, Wallet, ClipboardList } from 'lucide-react'
+import CenteredEmptyRows from '../components/CenteredEmptyRows'
 import { useApp } from '../App'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import Modal from '../components/Modal'
+import PaginationFooter from '../components/PaginationFooter'
 
 type PaymentEntry = {
   cash_advance_payments_id: string
@@ -55,9 +58,15 @@ const statusStyles: Record<string, string> = {
 const lockedStatuses = ['cancelled', 'rejected', 'released'] as const
 
 function getStatusOptions(currentStatus: string): string[] {
-  if (currentStatus === 'approved') return ['released']
+  // Per requirements:
+  // pending -> approved, cancelled, rejected
+  // approved -> released, cancelled
+  // cancelled|rejected|released -> no options
+  if (currentStatus === 'pending') return ['approved', 'cancelled', 'rejected']
+  if (currentStatus === 'approved') return ['released', 'cancelled']
   if (lockedStatuses.includes(currentStatus as any)) return []
-  return Object.keys(statusStyles)
+  // Fallback: no options
+  return []
 }
 
 function canChangeStatus(currentStatus: string): boolean {
@@ -122,6 +131,8 @@ export default function CashAdvancePage() {
   const [selectedAdvance, setSelectedAdvance] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
+  const [showDetailModal, setShowDetailModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [draftStatus, setDraftStatus] = useState('')
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -136,6 +147,7 @@ export default function CashAdvancePage() {
   const [paymentDraft, setPaymentDraft] = useState({ reportPeriodId: '', amount: '1000' })
   const [deleteTarget, setDeleteTarget] = useState<CashAdvanceItem | null>(null)
   const [deletePaymentTarget, setDeletePaymentTarget] = useState<{ advanceId: string; paymentId: string; label: string } | null>(null)
+  const [editDraft, setEditDraft] = useState({ restaurant: 'Lakay Ago', amount: '', dateRequested: '', remarks: '' })
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 10
 
@@ -256,6 +268,26 @@ export default function CashAdvancePage() {
     void loadAdvances()
   }, [])
 
+  useRealtimeEntity('cash_advances', {
+    onChange: () => {
+      void loadAdvances()
+    },
+  })
+
+  useRealtimeEntity('cash_advance_payments', {
+    onChange: () => {
+      void loadAdvances()
+      void loadReportPeriods()
+    },
+  })
+
+  useRealtimeEntity('report_periods', {
+    onChange: () => {
+      void loadReportPeriods()
+      void loadAdvances()
+    },
+  })
+
   useEffect(() => {
     setDraftStatus(selectedRecord?.status ?? '')
   }, [selectedRecord])
@@ -328,9 +360,21 @@ export default function CashAdvancePage() {
   const addPayment = async () => {
     if (!selectedRecord) return
 
+    // Only allow payments when status is released
+    if (selectedRecord.status !== 'released') {
+      showToast({ type: 'error', message: 'Payments not allowed', description: 'Payments can only be added when status is released.' })
+      return
+    }
+
     const amount = Number(paymentDraft.amount)
     if (!paymentDraft.reportPeriodId || !amount || amount <= 0) {
       showToast({ type: 'error', message: 'Invalid payment', description: 'Select a payroll period and valid amount.' })
+      return
+    }
+
+    // Payment must be exact remaining balance
+    if (Math.abs(amount - Number(selectedRecord.balance_remaining)) > 0.0001) {
+      showToast({ type: 'error', message: 'Invalid payment amount', description: `Payment must equal remaining balance (${formatCurrency(selectedRecord.balance_remaining)}).` })
       return
     }
 
@@ -403,6 +447,40 @@ export default function CashAdvancePage() {
       showToast({ type: 'error', message: 'Network error', description: 'Could not delete the payment.' })
     } finally {
       setDeletePaymentTarget(null)
+    }
+  }
+
+  const updateAdvance = async (cashAdvanceId: string) => {
+    try {
+      const amount = Number(editDraft.amount)
+      if (!amount || amount <= 0) {
+        showToast({ type: 'error', message: 'Validation failed', description: 'Enter a valid amount.' })
+        return
+      }
+
+      const res = await fetch(`/api/cash_advances/${cashAdvanceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurant: editDraft.restaurant,
+          amount,
+          date_requested: editDraft.dateRequested,
+          remarks: editDraft.remarks,
+        }),
+      })
+
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        showToast({ type: 'error', message: 'Update failed', description: body.error || 'Please try again.' })
+        return
+      }
+
+      setShowEditModal(false)
+      await loadAdvances()
+      showToast({ type: 'success', message: 'Cash advance updated', description: 'The record was updated.' })
+    } catch (error) {
+      console.error('Failed to update advance', error)
+      showToast({ type: 'error', message: 'Network error', description: 'Could not update the cash advance.' })
     }
   }
 
@@ -534,15 +612,13 @@ export default function CashAdvancePage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredAdvances.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">No cash advances found.</td>
-                </tr>
+                <CenteredEmptyRows columns={5} rows={PAGE_SIZE} message={<span className="text-sm text-slate-500">No cash advances found.</span>} />
               ) : (
                 pageData.map(item => (
                   <tr
                     key={item.cash_advances_id}
-                    className={`hover:bg-slate-50 cursor-pointer ${selectedRecord?.cash_advances_id === item.cash_advances_id ? 'bg-indigo-50' : ''}`}
-                    onClick={() => setSelectedAdvance(item.cash_advances_id)}
+                    className="hover:bg-slate-50 cursor-pointer"
+                    onClick={() => { setSelectedAdvance(item.cash_advances_id); setShowDetailModal(true); }}
                   >
                     <td className="px-4 py-3">
                       <div className="font-semibold text-slate-700 font-display">{item.employee_name}</div>
@@ -574,66 +650,71 @@ export default function CashAdvancePage() {
             </tbody>
           </table>
         </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-            <p className="text-xs text-slate-500">Page {page} of {totalPages}</p>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+        <PaginationFooter items={filteredAdvances} page={page} setPage={setPage} pageSize={PAGE_SIZE} noun="advances" />
       </div>
 
       {selectedRecord && (
-        <div className="mt-6 grid grid-cols-1 xl:grid-cols-[1.3fr_0.7fr] gap-6">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
+        <Modal open={showDetailModal} title="Cash Advance Details" onClose={() => setShowDetailModal(false)}>
+          <div className="space-y-3 w-full max-w-md">
+            <div className="w-md grid grid-cols-2 gap-3">
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">Advance detail</p>
-                <h3 className="text-lg font-bold text-slate-800 font-display">{selectedRecord.employee_name}</h3>
+                <p className="text-xs text-slate-400">Employee</p>
+                <p className="text-sm font-medium">{selectedRecord.employee_name}</p>
               </div>
-              <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusStyles[selectedRecord.status] ?? 'bg-slate-100 text-slate-600'}`}>{selectedRecord.status}</span>
+              <div>
+                <p className="text-xs text-slate-400">Restaurant</p>
+                <p className="text-sm font-medium">{selectedRecord.restaurant}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Amount</p>
+                <p className="text-sm font-medium">{formatCurrency(selectedRecord.amount)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Balance</p>
+                <p className="text-sm font-medium">{formatCurrency(selectedRecord.balance_remaining)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Requested</p>
+                <p className="text-sm font-medium">{selectedRecord.date_requested ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Released</p>
+                <p className="text-sm font-medium">{selectedRecord.date_released ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Approved by</p>
+                <p className="text-sm font-medium">{selectedRecord.approved_name || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Status</p>
+                <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusStyles[selectedRecord.status] ?? 'bg-slate-100 text-slate-600'}`}>
+                  {selectedRecord.status}
+                </span>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div><span className="text-slate-500">Amount:</span><div className="font-semibold text-slate-700">{formatCurrency(selectedRecord.amount)}</div></div>
-              <div><span className="text-slate-500">Balance:</span><div className="font-semibold text-slate-700">{formatCurrency(selectedRecord.balance_remaining)}</div></div>
-              <div><span className="text-slate-500">Requested:</span><div className="font-semibold text-slate-700">{selectedRecord.date_requested ?? '—'}</div></div>
-              <div><span className="text-slate-500">Released:</span><div className="font-semibold text-slate-700">{selectedRecord.date_released ?? '—'}</div></div>
-              <div><span className="text-slate-500">Restaurant:</span><div className="font-semibold text-slate-700">{selectedRecord.restaurant}</div></div>
-              <div><span className="text-slate-500">Approved by:</span><div className="font-semibold text-slate-700">{selectedRecord.approved_name || '—'}</div></div>
-            </div>
-
-            <div className="mt-5 pt-4 border-t border-slate-100">
+            <div className="pt-3 border-t border-slate-100">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-semibold text-slate-700 font-display">Payment ledger</p>
-                <button onClick={() => setShowPayment(true)} className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"> <Plus size={12} /> Add payment </button>
+                <p className="text-xs text-slate-400">Payment ledger</p>
+                {/* Add payment button: visible only when status is released and not fully paid */}
+                {(selectedRecord.status === 'released' && !selectedRecord.is_fully_paid) && (
+                  <button onClick={() => setShowPayment(true)} className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700">
+                    <Plus size={12} /> Add payment
+                  </button>
+                )}
               </div>
               {selectedRecord.payments.length === 0 ? (
-                <p className="text-sm text-slate-500 py-4">No payment rows recorded yet.</p>
+                <p className="text-sm text-slate-400 py-2">No payment rows recorded yet.</p>
               ) : (
                 <div className="space-y-2">
                   {selectedRecord.payments.map(payment => (
                     <div key={payment.cash_advance_payments_id} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 text-sm">
                       <div>
-                        <div className="font-medium text-slate-700">{payment.report_period_label}</div>
-                        <div className="text-xs text-slate-500">{payment.created_at ? String(payment.created_at).slice(0, 10) : '—'}</div>
+                        <div className="font-medium">{payment.report_period_label}</div>
+                        <div className="text-xs text-slate-400">{payment.created_at ? String(payment.created_at).slice(0, 10) : '—'}</div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="font-semibold text-slate-700">{formatCurrency(payment.amount_deducted)}</div>
+                        <div className="font-medium">{formatCurrency(payment.amount_deducted)}</div>
                         <button
                           onClick={() => deletePayment(selectedRecord.cash_advances_id, payment.cash_advance_payments_id, payment.report_period_label)}
                           className="p-1 text-slate-400 hover:text-red-600"
@@ -647,41 +728,109 @@ export default function CashAdvancePage() {
                 </div>
               )}
             </div>
-          </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-            <p className="text-sm font-semibold text-slate-700 font-display mb-4">Actions</p>
-            <div className="space-y-3">
-              <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Status</label>
-              <div className="flex items-center gap-2">
-                <select 
-                  value={selectedStatusLocked ? selectedRecord.status : (draftStatus || selectedRecord.status)} 
-                  onChange={(e) => setDraftStatus(e.target.value)}
-                  disabled={selectedStatusLocked}
-                  className={`flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display ${selectedStatusLocked ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : ''}`}
-                >
-                  {selectedStatusOptions.length === 0 ? (
-                    <option value={selectedRecord.status}>{selectedRecord.status} (locked)</option>
-                  ) : (
-                    selectedStatusOptions.map(status => (
-                      <option key={status} value={status}>{status}</option>
-                    ))
-                  )}
-                </select>
-                <button 
-                  onClick={() => setShowStatusModal(true)} 
-                  className="px-3 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={selectedStatusLocked || draftStatus === selectedRecord.status}
-                >
-                  Update Status
-                </button>
+            {/* Status section: hide entirely for locked statuses (cancelled, rejected, released) */}
+            {!lockedStatuses.includes(selectedRecord.status as any) && (
+              <div className="pt-3 border-t border-slate-100">
+                <p className="text-xs text-slate-400 mb-2">Status</p>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={draftStatus || selectedRecord.status}
+                    onChange={(e) => setDraftStatus(e.target.value)}
+                    className={`flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100`}
+                  >
+                    {/* Always show the current status first */}
+                    <option key="current" value={selectedRecord.status}>{selectedRecord.status}</option>
+                    {/* Then show available next statuses (if any) */}
+                    {selectedStatusOptions.map(status => (
+                      // avoid duplicating the current status if present
+                      status === selectedRecord.status ? null : (
+                        <option key={status} value={status}>{status}</option>
+                      )
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => { setShowDetailModal(false); setShowStatusModal(true) }}
+                    className="px-3 py-2 text-sm text-white bg-indigo-700 hover:bg-indigo-600 rounded-lg whitespace-nowrap"
+                  >
+                    Update Status
+                  </button>
+                </div>
               </div>
-              <button onClick={() => deleteAdvance(selectedRecord)} className="w-full flex items-center justify-center gap-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
-                <Trash2 size={15} /> Delete Cash Advance Request
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              {/* Edit button: hidden for locked statuses */}
+              {!lockedStatuses.includes(selectedRecord.status as any) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // populate edit draft and open modal
+                    setEditDraft({
+                      restaurant: selectedRecord.restaurant || 'Lakay Ago',
+                      amount: String(selectedRecord.amount ?? ''),
+                      dateRequested: selectedRecord.date_requested ?? new Date().toISOString().slice(0,10),
+                      remarks: selectedRecord.remarks ?? '',
+                    })
+                    setShowEditModal(true)
+                  }}
+                  className="px-3 py-2 text-sm text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  Edit
+                </button>
+              )}
+
+              {/* Delete button: hidden for locked statuses */}
+              {!lockedStatuses.includes(selectedRecord.status as any) && (
+                <button
+                  type="button"
+                  onClick={() => { setShowDetailModal(false); setDeleteTarget(selectedRecord) }}
+                  className="px-3 py-2 text-sm text-white bg-red-700 hover:bg-red-600 rounded-lg"
+                >
+                  Delete
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowDetailModal(false)}
+                className="px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+              >
+                Close
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
+      )}
+      {showEditModal && selectedRecord && (
+        <Modal open={showEditModal} title="Edit Cash Advance" onClose={() => setShowEditModal(false)}>
+          <div className="w-full p-2">
+            <div className="space-y-4 w-md">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Restaurant</label>
+                <select value={editDraft.restaurant} onChange={e => setEditDraft(prev => ({ ...prev, restaurant: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400">
+                  {['Lakay Ago', 'Aroo', 'Both'].map(option => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Amount</label>
+                <input type="number" min="0" step="0.01" value={editDraft.amount} onChange={e => setEditDraft(prev => ({ ...prev, amount: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Date Requested</label>
+                <input type="date" value={editDraft.dateRequested} onChange={e => setEditDraft(prev => ({ ...prev, dateRequested: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Remarks</label>
+                <textarea value={editDraft.remarks} onChange={e => setEditDraft(prev => ({ ...prev, remarks: e.target.value }))} rows={3} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 resize-none" placeholder="Optional notes" />
+              </div>
+            </div>
+            <div className="mt-5 flex gap-3 justify-end">
+              <button onClick={() => setShowEditModal(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+              <button onClick={() => void updateAdvance(selectedRecord.cash_advances_id)} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">Save</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {showCreate && (

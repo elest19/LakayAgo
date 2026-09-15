@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState, useRef, useLayoutEffect } from 'react'
+import { useEffect, useMemo, useState, useRef, useLayoutEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { List, Trash2, Pencil, ChevronDown } from 'lucide-react'
 import { Search, Plus } from 'lucide-react'
@@ -7,6 +7,9 @@ import Modal from '../components/Modal'
 import PaginationFooter from '../components/PaginationFooter'
 import useIsMobile from '../hooks/isMobile'
 import { useApp } from '../App'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
+
+let fbItemsCache: any[] | null = null
 
 const FRACTION_OPTIONS = [
   { label: '1/2', value: 0.5 },
@@ -253,12 +256,13 @@ export default function FoodAndBeverageCatalog() {
   const isMobile = useIsMobile()
   const { showToast } = useApp()
   const { appMode } = useApp()
+
   const [search, setSearch] = useState('')
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'All' | 'Menu Item' | 'Others'>('All')
   const [items, setItems] = useState<any[]>([])
   const [lakayPage, setLakayPage] = useState(1)
   const [arooPage, setArooPage] = useState(1)
-  const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState<FBForm>(emptyForm)
   const [errors, setErrors] = useState<Partial<Record<keyof FBForm, string>>>({})
@@ -397,32 +401,37 @@ export default function FoodAndBeverageCatalog() {
         }
       }) 
     }
-    setLoading(true)
     if (editingId) {
       fetch('/api/food_and_beverage', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ food_and_beverage_id: editingId, ...payload }) })
         .then(async r => {
-          setLoading(false)
           if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.error || b.detail || 'Update failed') }
           const j = await r.json()
           const updated = j.item
-          setItems(prev => prev.map(it => (it.food_and_beverage_id === updated.food_and_beverage_id ? updated : it)))
+          setItems(prev => {
+            const next = prev.map(it => (it.food_and_beverage_id === updated.food_and_beverage_id ? updated : it))
+            fbItemsCache = next
+            return next
+          })
           showToast({ type: 'success', message: 'Menu item updated', description: updated.name })
           setShowModal(false)
           setEditingId(null)
         })
-        .catch(err => { setLoading(false); showToast({ type: 'error', message: 'Failed to update menu item', description: err.message || undefined }) })
+        .catch(err => { showToast({ type: 'error', message: 'Failed to update menu item', description: err.message || undefined }) })
     } else {
       fetch('/api/food_and_beverage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         .then(async r => {
-          setLoading(false)
           if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.error || b.detail || 'Create failed') }
           const j = await r.json()
           const created = j.item
-          setItems(prev => [created, ...prev])
+          setItems(prev => {
+            const next = [created, ...prev]
+            fbItemsCache = next
+            return next
+          })
           showToast({ type: 'success', message: 'Menu item saved', description: created.name })
           setShowModal(false)
         })
-        .catch(err => { setLoading(false); showToast({ type: 'error', message: 'Failed to save menu item', description: err.message || undefined }) })
+        .catch(err => { showToast({ type: 'error', message: 'Failed to save menu item', description: err.message || undefined }) })
     }
   }
 
@@ -430,7 +439,11 @@ export default function FoodAndBeverageCatalog() {
     try {
       const res = await fetch(`/api/food_and_beverage?id=${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Archive failed')
-      setItems(prev => prev.filter(i => String(i.food_and_beverage_id) !== String(id)))
+      setItems(prev => {
+        const next = prev.filter(i => String(i.food_and_beverage_id) !== String(id))
+        fbItemsCache = next
+        return next
+      })
       showToast({ type: 'success', message: 'Menu item archived' })
     } catch (err) { showToast({ type: 'error', message: 'Failed to archive' }) }
   }
@@ -534,16 +547,48 @@ export default function FoodAndBeverageCatalog() {
   }
 
   // load items
-  useEffect(() => {
-    let mounted = true
-    setLoading(true)
-    fetch('/api/food_and_beverage')
-      .then(r => r.json())
-      .then(j => { if (!mounted) return; setItems(j.items || []) })
-      .catch(() => {})
-      .finally(() => { if (mounted) setLoading(false) })
-    return () => { mounted = false }
+  const loadItems = useCallback(async () => {
+    try {
+      const res = await fetch('/api/food_and_beverage')
+      if (!res.ok) return
+      const j = await res.json()
+      const next = j.items || []
+      fbItemsCache = next
+      setItems(next)
+      setInitialLoading(false)
+    } catch {
+      if (!fbItemsCache) setInitialLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    if (fbItemsCache) {
+      setItems(fbItemsCache)
+      setInitialLoading(false)
+    } else {
+      setInitialLoading(true)
+    }
+    void loadItems()
+  }, [loadItems])
+
+  // Live updates: refetch whenever any user creates, edits, or archives an item —
+  // including recipe-only edits, since the API writes the inventory row in the same
+  // request, so an event always fires and the refetch returns the fresh recipe.
+  // The page shows both restaurants, so subscribe without a restaurant filter —
+  // the previous per-mode filter encoded the space as "Lakay%20Ago", which never
+  // matched the stored "Lakay Ago" value and silently dropped every event.
+  useRealtimeEntity('food_and_beverage_inventory', {
+    restaurant: 'Both',
+    onChange: loadItems,
+  })
+
+  // Recipe rows are edited through the inline recipe editor, which writes ONLY the
+  // food_and_beverage_recipe table (it has no restaurant column). Subscribe to it as
+  // well so every user refetches the item list (with fresh joined recipes) whenever
+  // a recipe row is added, edited, or removed.
+  useRealtimeEntity('food_and_beverage_recipe', {
+    onChange: loadItems,
+  })
 
   useEffect(() => {
     if (!items.length) {
@@ -594,7 +639,7 @@ export default function FoodAndBeverageCatalog() {
   useEffect(() => { setArooPage(1) }, [search, selectedCategoryFilter, items.length])
 
   const renderRestaurantTable = (title: string, displayItems: typeof filtered, totalItems: typeof filtered, currentPage: number, totalPages: number, setPage: (value: number | ((prev: number) => number)) => void, emptyCount: number) => (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden mb-6" style={{ display: loading || totalItems.length > 0 ? 'block' : 'none' }}>
+    <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden mb-6" style={{ display: initialLoading || totalItems.length > 0 ? 'block' : 'none' }}>
       <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
         <h3 className="text-sm font-semibold">{title} Menu </h3>
       </div>
@@ -620,7 +665,7 @@ export default function FoodAndBeverageCatalog() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {loading ? (
+              {initialLoading ? (
                 <SkeletonTableRows
                   columns={6}
                   rows={6}
@@ -678,7 +723,7 @@ export default function FoodAndBeverageCatalog() {
           </table>
         </div>
       ) : (
-        <div>{loading ? (
+        <div>{initialLoading ? (
           <SkeletonTableRows
             columns={3}
             rows={6}
@@ -710,7 +755,7 @@ export default function FoodAndBeverageCatalog() {
         )}
         </div>
       )}
-      <PaginationFooter items={totalItems} page={currentPage} setPage={setPage} pageSize={pageSize} />
+      <PaginationFooter items={totalItems} page={currentPage} setPage={setPage} pageSize={pageSize} noun="items" />
     </div>
   )
 
@@ -760,7 +805,7 @@ export default function FoodAndBeverageCatalog() {
           <div className="overflow-y-auto flex-1 min-h-0 pr-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* LEFT COLUMN — form fields, including Name now */}
-              <div className="space-y-4">
+              <div className="ml-2 space-y-4">
                 <div>
                   <label className="block text-xs text-slate-600 mb-1">Name</label>
                   <input value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />

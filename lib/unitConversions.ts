@@ -83,6 +83,10 @@ export function getConversionFactorForRecipeUnit(category: string | null | undef
       'Kilogram (kg)': 1000,
       'Ounce (oz)': 28.3495,
       'Pound (lb)': 453.592,
+      'Teaspoon (tsp)': 1 / 3,
+      'Tablespoon (tbsp)': 1,
+      'Cup': 16,
+      'Cup (cup)': 16,
     }
     if (!(normalizedUnit in weightFactors)) {
       throw new Error(`Unsupported weight recipe unit: ${recipeUnit}`)

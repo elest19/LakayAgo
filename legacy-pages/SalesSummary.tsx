@@ -1,9 +1,11 @@
-'use client'
+﻿'use client'
+
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarRange, DollarSign, ReceiptText, TrendingUp } from 'lucide-react'
-// using local fetching for report data instead of global app context
+import { CalendarRange } from 'lucide-react'
 import useIsMobile from '../hooks/isMobile'
-import { AnimatePresence, motion } from 'motion/react';
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
+import { AnimatePresence, motion } from 'motion/react'
+import PaginationFooter from '../components/PaginationFooter'
 import {
   BarChart,
   Bar,
@@ -23,10 +25,63 @@ const formatCurrency = (value: number) =>
     style: 'currency',
     currency: 'PHP',
     minimumFractionDigits: 2,
-  }).format(value)
+  }).format(Number.isFinite(value) ? value : 0)
+
+const CustomBarTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; dataKey: string; payload: any }>; label?: string }) => {
+  if (!active || !payload || payload.length === 0) return null
+
+  const item = payload[0]
+  const data = item.payload
+  const count = data.totalCount ?? data.count ?? item.value
+  const totalSale = data.totalSale ?? data.totalPrice ?? 0
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg shadow-lg p-3 text-xs">
+      <p className="font-semibold text-slate-800">{label}</p>
+      <div className="mt-1 flex flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-indigo-500" />
+          <span className="text-slate-600">Sales count: <span className="font-medium text-slate-800">{Number(count).toLocaleString()}</span></span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          <span className="text-slate-600">Total sales: <span className="font-medium text-slate-800">{formatCurrency(totalSale)}</span></span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const ServiceBarTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; dataKey: string; payload: any }>; label?: string }) => {
+  if (!active || !payload || payload.length === 0) return null
+
+  const item = payload[0]
+  const data = item.payload
+  const count = data.count ?? item.value
+  const totalPrice = data.totalPrice ?? 0
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg shadow-lg p-3 text-xs">
+      <p className="font-semibold text-slate-800">{label}</p>
+      <div className="mt-1 flex flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-500" />
+          <span className="text-slate-600">Transactions: <span className="font-medium text-slate-800">{Number(count).toLocaleString()}</span></span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          <span className="text-slate-600">Total sales: <span className="font-medium text-slate-800">{formatCurrency(totalPrice)}</span></span>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 type DatePreset = 'today' | 'week' | 'month' | 'year' | 'custom'
 type CustomMode = 'range' | 'single'
+type RestaurantFilterValue = 'All Restaurants' | 'Lakay Ago' | 'Aroo'
+
+const RESTAURANT_OPTIONS: RestaurantFilterValue[] = ['All Restaurants', 'Lakay Ago', 'Aroo']
 
 const toStartOfDay = (date: Date) => {
   const next = new Date(date)
@@ -59,12 +114,19 @@ const endOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() 
 const startOfYear = (date: Date) => new Date(date.getFullYear(), 0, 1)
 const endOfYear = (date: Date) => new Date(date.getFullYear(), 11, 31)
 
-const isWithinRange = (value: string, start: Date, end: Date) => {
-  const parsed = new Date(value)
-  return parsed >= start && parsed <= end
+const isWithinRange = (value: string | Date | null | undefined, start: Date, end: Date) => {
+  if (!value) return false
+  const parsed = value instanceof Date ? value : new Date(value)
+  return !Number.isNaN(parsed.getTime()) && parsed >= start && parsed <= end
 }
 
-const resolveDateWindow = (filter: DatePreset, customMode: CustomMode, rangeStart: string, rangeEnd: string, singleDate: string) => {
+const resolveDateWindow = (
+  filter: DatePreset,
+  customMode: CustomMode,
+  rangeStart: string,
+  rangeEnd: string,
+  singleDate: string,
+) => {
   const now = new Date()
 
   if (filter === 'today') {
@@ -108,51 +170,243 @@ const resolveDateWindow = (filter: DatePreset, customMode: CustomMode, rangeStar
   return { start, end, error: '' }
 }
 
+const matchesRestaurantScope = (restaurantValue: string | null | undefined, filter: RestaurantFilterValue) => {
+  if (filter === 'All Restaurants') return true
+
+  const normalized = String(restaurantValue ?? 'Both')
+  return normalized === filter || normalized === 'Both'
+}
+
+const buildSummaryByName = (
+  rows: any[],
+  getName: (row: any) => string,
+  getDiscount: (row: any) => number,
+) => {
+  const entries = new Map<string, { name: string; totalSale: number; totalCount: number; totalDiscount: number }>()
+
+  for (const row of rows) {
+    const name = getName(row)
+    const quantity = Number(row.number_of_sales ?? row.numberOfSales ?? 1)
+    const unitPrice = Number(row.cost ?? row.totalSale ?? 0)
+    const totalSale = unitPrice * quantity
+
+    const current = entries.get(name) ?? { name, totalSale: 0, totalCount: 0, totalDiscount: 0 }
+
+    current.totalSale += totalSale
+    current.totalCount += quantity
+    current.totalDiscount += Number(getDiscount(row) || 0)
+    entries.set(name, current)
+  }
+
+  return Array.from(entries.values()).map((entry) => ({
+    name: entry.name,
+    totalSale: entry.totalSale,
+    totalCount: entry.totalCount,
+    totalDiscount: entry.totalDiscount,
+  }))
+}
+
+interface SkeletonBarProps {
+  width?: string | number
+  height?: string | number
+  rounded?: string
+  className?: string
+}
+
+function SkeletonBar({ width = '100%', height = '1rem', rounded = 'rounded-md', className = '' }: SkeletonBarProps) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === 'number' ? `${width}px` : width,
+        height: typeof height === 'number' ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+// Mirrors the summary/expense value cards: uppercase font-display label on top, big value line below.
+function SummaryCardSkeleton({ label }: { label: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">{label}</p>
+      <div className="mt-3">
+        <SkeletonBar width="55%" height="1.75rem" rounded="rounded-lg" />
+      </div>
+    </div>
+  )
+}
+
+// Mirrors the report tables: styled header row (border-b, bg-slate-50) + rows of placeholder cells.
+function TableSkeleton({ rows = 6, columns = 3 }: { rows?: number; columns?: number }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50">
+            {Array.from({ length: columns }).map((_, index) => (
+              <th key={`skeleton-head-${index}`} className="py-3 px-4 text-left">
+                <SkeletonBar width="65%" height="0.75rem" />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-50">
+          {Array.from({ length: rows }).map((_, rowIndex) => (
+            <tr key={`skeleton-row-${rowIndex}`}>
+              {Array.from({ length: columns }).map((_, colIndex) => (
+                <td key={`skeleton-cell-${rowIndex}-${colIndex}`} className="py-3 px-4">
+                  <SkeletonBar width={colIndex === 0 ? '80%' : '55%'} height="0.875rem" />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// Mirrors the bar-chart cards: label line on top, placeholder bars in a fixed-height plot area.
+function ChartSkeleton({ height = 'h-64' }: { height?: string }) {
+  const barHeights = [42, 68, 55, 80, 60, 75, 45, 72, 58]
+  return (
+    <div className={`${height} flex items-end gap-2 px-1 pb-1`}>
+      {barHeights.map((pct, index) => (
+        <div key={`skeleton-chart-bar-${index}`} className="flex-1 flex items-end h-full">
+          <SkeletonBar width="100%" height={`${pct}%`} rounded="rounded-t-md" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Mirrors the pie chart card: donut placeholder centered in the plot area with legend lines below.
+function PieChartSkeleton() {
+  return (
+    <div className="h-72 flex flex-col items-center justify-center gap-5">
+      <SkeletonBar width="10rem" height="10rem" rounded="rounded-full" />
+      <div className="w-full max-w-xs space-y-2">
+        <SkeletonBar width="60%" height="0.75rem" />
+        <SkeletonBar width="45%" height="0.75rem" />
+      </div>
+    </div>
+  )
+}
+
 export default function SalesSummary() {
   const isMobile = useIsMobile()
   const [inventoryItems, setInventoryItems] = useState<any[]>([])
+  const [bundlePackages, setBundlePackages] = useState<any[]>([])
   const [salesRecords, setSalesRecords] = useState<any[]>([])
   const [expenses, setExpenses] = useState<any[]>([])
+  const [serviceTransactions, setServiceTransactions] = useState<any[]>([])
   const [dateFilter, setDateFilter] = useState<DatePreset>('month')
   const [customMode, setCustomMode] = useState<CustomMode>('range')
   const [rangeStart, setRangeStart] = useState('2026-08-01')
   const [rangeEnd, setRangeEnd] = useState('2026-08-30')
   const [singleDate, setSingleDate] = useState('2026-08-21')
+  const [restaurantFilter, setRestaurantFilter] = useState<RestaurantFilterValue>('All Restaurants')
+  const [realtimeRefreshTick, setRealtimeRefreshTick] = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  useRealtimeEntity('sales', {
+    onChange: () => setRealtimeRefreshTick((value) => value + 1),
+  })
+
+  useRealtimeEntity('service_transactions', {
+    onChange: () => setRealtimeRefreshTick((value) => value + 1),
+  })
+
+  // Asset return saves write only the service_transaction_assets table, and Net Sales
+  // below subtracts each transaction's asset penalty. Without this subscription those
+  // totals stayed stale for every user except the one who saved the asset returns.
+  useRealtimeEntity('service_transaction_assets', {
+    onChange: () => setRealtimeRefreshTick((value) => value + 1),
+  })
 
   useEffect(() => {
     let mounted = true
+
     const load = async () => {
       try {
-        const [menuRes, salesRes, expensesRes] = await Promise.all([
+        const [menuRes, packagesRes, salesRes, expensesRes, serviceTxRes] = await Promise.all([
           fetch('/api/food_and_beverage'),
+          fetch('/api/food_packages'),
           fetch('/api/sales'),
           fetch('/api/expenses'),
+          fetch('/api/service_transactions'),
         ])
 
+        if (!mounted) return
+
         if (menuRes.ok) {
-          const j = await menuRes.json()
-          const rows = j.items || []
-          if (mounted) setInventoryItems(rows.map((r: any) => ({ item: r.name || r.item, id: String(r.food_and_beverage_id || r.id), price: Number(r.price || r.cost || 0) })))
+          const next = await menuRes.json()
+          setInventoryItems((next.items || []).map((row: any) => ({
+            item: row.name || row.item,
+            id: String(row.food_and_beverage_id || row.id),
+            restaurant: row.restaurant || 'Both',
+            price: Number(row.price || row.cost || 0),
+          })))
+        }
+
+        if (packagesRes.ok) {
+          const next = await packagesRes.json()
+          setBundlePackages(next.packages || [])
         }
 
         if (salesRes.ok) {
-          const j = await salesRes.json()
-          const rows = j.sales || []
-          if (mounted) setSalesRecords(rows.map((s: any) => ({ item: s.item, cost: Number(s.cost || 0), numberOfSales: Number(s.number_of_sales || s.numberOfSales || 0), discount: Number(s.discount || 0), createdAt: s.created_at || s.createdAt })))
+          const next = await salesRes.json()
+          setSalesRecords((next.sales || []).map((sale: any) => ({
+            item: sale.item,
+            cost: Number(sale.cost || 0),
+            numberOfSales: Number(sale.number_of_sales || sale.numberOfSales || 0),
+            discount: Number(sale.discount || 0),
+            createdAt: sale.created_at || sale.createdAt,
+            restaurant: sale.restaurant || 'Both',
+            food_and_beverage_id: sale.food_and_beverage_id ?? sale.foodAndBeverageId,
+          })))
         }
 
         if (expensesRes.ok) {
-          const j = await expensesRes.json()
-          const rows = j.expenses || []
-          if (mounted) setExpenses(rows.map((e: any) => ({ expense: e.expense || e.name, amount: Number(e.amount || 0), createdAt: e.created_at || e.createdAt })))
+          const next = await expensesRes.json()
+          setExpenses((next.expenses || []).map((expense: any) => ({
+            expense: expense.expense || expense.name,
+            amount: Number(expense.amount || 0),
+            createdAt: expense.created_at || expense.createdAt,
+            restaurant: expense.restaurant || 'Both',
+          })))
         }
-      } catch (err) {
-        console.error('Failed to load summary data', err)
+
+        if (serviceTxRes.ok) {
+          const next = await serviceTxRes.json()
+          setServiceTransactions((next.transactions || []).map((tx: any) => ({
+            service_transaction_id: tx.service_transaction_id || tx.id,
+            service_id: tx.service_id,
+            serviceType: tx.service_type || 'Service',
+            service_date: tx.service_date || tx.serviceDate || tx.created_at || tx.createdAt,
+            restaurant: tx.restaurant || 'Both',
+            status: tx.status || 'Under Reservation',
+            discount: Number(tx.discount || 0),
+            expenses: Number(tx.expenses || 0),
+            penalty: Number(tx.penalty || 0),
+            asset_penalty: Number(tx.asset_penalty || tx.assetPenalty || 0),
+            downpayment: Number(tx.downpayment || 0),
+            balance: Number(tx.balance || 0),
+          })))
+        }
+      } catch (error) {
+        console.error('Failed to load summary data', error)
+      } finally {
+        if (mounted) setLoading(false)
       }
     }
+
     load()
-    return () => { mounted = false }
-  }, [])
+    return () => {
+      mounted = false
+    }
+  }, [realtimeRefreshTick])
 
   const dateWindow = useMemo(
     () => resolveDateWindow(dateFilter, customMode, rangeStart, rangeEnd, singleDate),
@@ -161,100 +415,208 @@ export default function SalesSummary() {
 
   const filteredSales = useMemo(() => {
     if (!dateWindow.start || !dateWindow.end) return []
-    return salesRecords.filter(sale => isWithinRange(sale.createdAt, dateWindow.start, dateWindow.end))
-  }, [salesRecords, dateWindow])
+    return salesRecords.filter(
+      (sale) => matchesRestaurantScope(sale.restaurant, restaurantFilter) && isWithinRange(sale.createdAt, dateWindow.start, dateWindow.end),
+    )
+  }, [dateWindow, restaurantFilter, salesRecords])
 
   const filteredExpenses = useMemo(() => {
     if (!dateWindow.start || !dateWindow.end) return []
-    return expenses.filter(expense => isWithinRange(expense.createdAt, dateWindow.start, dateWindow.end))
-  }, [expenses, dateWindow])
+    return expenses.filter(
+      (expense) => matchesRestaurantScope(expense.restaurant, restaurantFilter) && isWithinRange(expense.createdAt, dateWindow.start, dateWindow.end),
+    )
+  }, [dateWindow, expenses, restaurantFilter])
 
-  const itemSummary = useMemo(() => {
-    return inventoryItems.map(item => {
-      const matches = filteredSales.filter(sale => sale.item === item.item)
-      const grandTotalSale = matches.reduce((sum, sale) => sum + sale.cost * sale.numberOfSales, 0)
-      const orderDiscount = matches.reduce((sum, sale) => sum + sale.discount, 0)
-      const netSale = Math.max(grandTotalSale - orderDiscount, 0)
+  const filteredServiceTransactions = useMemo(() => {
+    if (!dateWindow.start || !dateWindow.end) return []
+    return serviceTransactions.filter(
+      (transaction) =>
+        matchesRestaurantScope(transaction.restaurant, restaurantFilter) &&
+        isWithinRange(transaction.service_date, dateWindow.start, dateWindow.end),
+    )
+  }, [dateWindow, restaurantFilter, serviceTransactions])
 
-      return {
-        item: item.item,
-        grandTotalSale,
-        netSale,
-        orderDiscount,
-      }
-    })
-  }, [filteredSales, inventoryItems])
+  const bundleIds = useMemo(() => {
+    const ids = new Set<number>()
+    for (const bundle of bundlePackages) {
+      const id = Number(bundle.food_package_id ?? bundle.id)
+      if (Number.isFinite(id) && id > 0) ids.add(id)
+    }
+    return ids
+  }, [bundlePackages])
 
-  const totalGrandSales = useMemo(
-    () => itemSummary.reduce((sum, item) => sum + item.grandTotalSale, 0),
+  const itemSalesRows = useMemo(
+    () => filteredSales.filter((sale) => !bundleIds.has(Number(sale.food_and_beverage_id ?? 0))),
+    [bundleIds, filteredSales],
+  )
+
+  const bundleSalesRows = useMemo(
+    () => filteredSales.filter((sale) => bundleIds.has(Number(sale.food_and_beverage_id ?? 0))),
+    [bundleIds, filteredSales],
+  )
+
+  const itemSummary = useMemo(
+    () => buildSummaryByName(itemSalesRows, (row) => String(row.item || 'Unknown'), (row) => Number(row.discount || 0)),
+    [itemSalesRows],
+  )
+
+  const bundleSummary = useMemo(
+    () => buildSummaryByName(bundleSalesRows, (row) => String(row.item || 'Unknown'), (row) => Number(row.discount || 0)),
+    [bundleSalesRows],
+  )
+
+  const totalItemSales = useMemo(
+    () => itemSummary.reduce((sum, item) => sum + item.totalSale, 0),
     [itemSummary],
   )
 
-  const totalNetSales = useMemo(
-    () => itemSummary.reduce((sum, item) => sum + item.netSale, 0),
+  const totalItemDiscount = useMemo(
+    () => itemSummary.reduce((sum, item) => sum + item.totalDiscount, 0),
     [itemSummary],
   )
 
-  const totalOrderDiscount = useMemo(
-    () => itemSummary.reduce((sum, item) => sum + item.orderDiscount, 0),
-    [itemSummary],
+  const totalBundleSales = useMemo(
+    () => bundleSummary.reduce((sum, bundle) => sum + bundle.totalSale, 0),
+    [bundleSummary],
   )
 
-  const totalExpenses = useMemo(
-    () => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0),
+  const totalBundleDiscount = useMemo(
+    () => bundleSummary.reduce((sum, bundle) => sum + bundle.totalDiscount, 0),
+    [bundleSummary],
+  )
+
+  const ingredientExpenses = useMemo(
+    () => filteredExpenses
+      .filter((expense) => String(expense.expense).toLowerCase().includes('ingredient'))
+      .reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
     [filteredExpenses],
   )
 
-  const salesChartData = useMemo(
-    () => itemSummary.map(item => ({ name: item.item, grandTotalSale: item.grandTotalSale, netSale: item.netSale, orderDiscount: item.orderDiscount })),
-    [itemSummary],
+  const itemSalesNet = totalItemSales - totalItemDiscount
+  const bundleSalesNet = totalBundleSales - totalBundleDiscount
+  const itemBundleNet = itemSalesNet + bundleSalesNet - ingredientExpenses
+
+  const fullyPaidTransactions = useMemo(
+    () => filteredServiceTransactions.filter((tx) => tx.status === 'Fully Paid'),
+    [filteredServiceTransactions],
   )
 
-  const expenseBreakdown = useMemo(() => {
-    const grouped = filteredExpenses.reduce<Record<string, number>>((acc, expense) => {
-      acc[expense.expense] = (acc[expense.expense] ?? 0) + expense.amount
-      return acc
-    }, {})
+  const serviceSales = useMemo(
+    () => fullyPaidTransactions.reduce((sum, tx) => sum + Number(tx.downpayment || 0) + Number(tx.balance || 0), 0),
+    [fullyPaidTransactions],
+  )
 
-    return Object.entries(grouped)
-      .map(([expense, amount]) => ({ name: expense, amount }))
+  const serviceDiscount = useMemo(
+    () => fullyPaidTransactions.reduce((sum, tx) => sum + Number(tx.discount || 0), 0),
+    [fullyPaidTransactions],
+  )
+
+  const serviceExpenses = useMemo(
+    () => fullyPaidTransactions.reduce((sum, tx) => sum + Number(tx.expenses || 0), 0),
+    [fullyPaidTransactions],
+  )
+
+  const servicePenalty = useMemo(
+    () => fullyPaidTransactions.reduce((sum, tx) => sum + Number(tx.penalty || 0), 0),
+    [fullyPaidTransactions],
+  )
+
+  const assetPenalty = useMemo(
+    () => fullyPaidTransactions.reduce((sum, tx) => sum + Number(tx.asset_penalty || 0), 0),
+    [fullyPaidTransactions],
+  )
+
+  const serviceNet = serviceSales - (serviceDiscount + serviceExpenses + servicePenalty + assetPenalty)
+  const totalNetSales = itemBundleNet + serviceNet
+  const grossSales = totalItemSales + totalBundleSales + serviceSales
+  const totalOrderDiscount = totalItemDiscount + totalBundleDiscount + serviceDiscount
+
+  const expenseBreakdown = useMemo(() => {
+    const grouped = new Map<string, { name: string; restaurant: string; amount: number }>()
+
+    for (const expense of filteredExpenses) {
+      const name = String(expense.expense || 'Expense')
+      const restaurant = String(expense.restaurant || 'Both')
+      const groupKey = `${name}|${restaurant}`
+      const current = grouped.get(groupKey) ?? { name, restaurant, amount: 0 }
+      current.amount += Number(expense.amount || 0)
+      grouped.set(groupKey, current)
+    }
+
+    for (const tx of fullyPaidTransactions) {
+      const name = 'Service Transaction Expenses'
+      const restaurant = String(tx.restaurant || 'Both')
+      const groupKey = `${name}|${restaurant}`
+      const current = grouped.get(groupKey) ?? { name, restaurant, amount: 0 }
+      current.amount += Number(tx.expenses || 0)
+      grouped.set(groupKey, current)
+    }
+
+    return Array.from(grouped.values())
+      .filter((entry) => entry.amount > 0)
       .sort((a, b) => b.amount - a.amount)
-  }, [filteredExpenses])
+  }, [filteredExpenses, fullyPaidTransactions])
+
+  const totalExpenses = useMemo(
+    () => expenseBreakdown.reduce((sum, item) => sum + item.amount, 0),
+    [expenseBreakdown],
+  )
 
   const showReport = !dateWindow.error && !!dateWindow.start && !!dateWindow.end
+
   const [salesSummaryVisible, setSalesSummaryVisible] = useState(true)
+  const PAGE_SIZE = 10
+  const [salesPage, setSalesPage] = useState(1)
+  const [bundlePage, setBundlePage] = useState(1)
+  const [servicePage, setServicePage] = useState(1)
+
+  useEffect(() => setSalesPage(1), [itemSummary])
+  useEffect(() => setBundlePage(1), [bundleSummary])
+  useEffect(() => setServicePage(1), [fullyPaidTransactions])
+
+  const itemPageData = useMemo(() => {
+    const start = (salesPage - 1) * PAGE_SIZE
+    return itemSummary.slice(start, start + PAGE_SIZE)
+  }, [itemSummary, salesPage])
+
+  const bundlePageData = useMemo(() => {
+    const start = (bundlePage - 1) * PAGE_SIZE
+    return bundleSummary.slice(start, start + PAGE_SIZE)
+  }, [bundleSummary, bundlePage])
+
+  const servicePageData = useMemo(() => {
+    const start = (servicePage - 1) * PAGE_SIZE
+    return fullyPaidTransactions.slice(start, start + PAGE_SIZE)
+  }, [fullyPaidTransactions, servicePage])
+
+  const serviceSummary = useMemo(() => {
+    const grouped = new Map<string, { name: string; count: number; totalPrice: number }>()
+
+    for (const tx of fullyPaidTransactions) {
+      const name = String(tx.serviceType || 'Service')
+      const current = grouped.get(name) ?? { name, count: 0, totalPrice: 0 }
+      current.count += 1
+      current.totalPrice += Number(tx.downpayment || 0) + Number(tx.balance || 0)
+      grouped.set(name, current)
+    }
+
+    return Array.from(grouped.values())
+  }, [fullyPaidTransactions])
 
   const summaryCards = [
-    { label: 'Grand Total Sale', value: formatCurrency(totalGrandSales) },
+    { label: 'Gross Sale', value: formatCurrency(grossSales) },
     { label: 'Net Sale', value: formatCurrency(totalNetSales) },
     { label: 'Order Discount', value: formatCurrency(totalOrderDiscount) },
   ]
 
-  const renderTable = () => {
-    if (isMobile) {
-      return (
-        <div className="space-y-3">
-          {itemSummary.map(item => (
-            <div key={item.item} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-slate-800 font-display">{item.item}</p>
-                <span className="text-xs text-slate-500">{formatCurrency(item.grandTotalSale)}</span>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                <div className="rounded-lg bg-white p-2">
-                  <p className="text-slate-400">Net Sale</p>
-                  <p className="mt-1 font-semibold text-slate-700">{formatCurrency(item.netSale)}</p>
-                </div>
-                <div className="rounded-lg bg-white p-2">
-                  <p className="text-slate-400">Discount</p>
-                  <p className="mt-1 font-semibold text-slate-700">{formatCurrency(item.orderDiscount)}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )
-    }
+  const expenseCards = [
+    { label: 'Expense Total', value: formatCurrency(totalExpenses) },
+    { label: 'Daily Expenses', value: formatCurrency(totalExpenses - serviceExpenses) },
+    { label: 'Service Transaction Expenses', value: formatCurrency(serviceExpenses) },
+  ]
+
+  const renderItemTable = () => {
+    const emptyRows = Array.from({ length: Math.max(0, PAGE_SIZE - itemPageData.length) })
 
     return (
       <div className="overflow-x-auto">
@@ -262,18 +624,23 @@ export default function SalesSummary() {
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
               <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Item</th>
-              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Grand Total Sale</th>
-              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Net Sale</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Total Sale</th>
               <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Order Discount</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {itemSummary.map(item => (
-              <tr key={item.item} className="hover:bg-slate-50">
-                <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.item}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(item.grandTotalSale)}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(item.netSale)}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(item.orderDiscount)}</td>
+            {itemPageData.map((item) => (
+              <tr key={item.name} className="hover:bg-slate-50">
+                <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.name}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(item.totalSale)}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(item.totalDiscount)}</td>
+              </tr>
+            ))}
+            {emptyRows.map((_, index) => (
+              <tr key={`item-empty-${index}`} className="invisible">
+                <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(0)}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(0)}</td>
               </tr>
             ))}
           </tbody>
@@ -282,36 +649,32 @@ export default function SalesSummary() {
     )
   }
 
-  const renderExpenseTable = () => {
-    if (isMobile) {
-      return (
-        <div className="space-y-3">
-          {expenseBreakdown.map(expense => (
-            <div key={expense.name} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-slate-800 font-display">{expense.name}</p>
-                <span className="text-xs text-slate-500">{formatCurrency(expense.amount)}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )
-    }
+  const renderBundleTable = () => {
+    const emptyRows = Array.from({ length: Math.max(0, PAGE_SIZE - bundlePageData.length) })
 
     return (
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
-              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Expense Category</th>
-              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Total Amount</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Food Bundle</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Total Sale</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Order Discount</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {expenseBreakdown.map(expense => (
-              <tr key={expense.name} className="hover:bg-slate-50">
-                <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{expense.name}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(expense.amount)}</td>
+            {bundlePageData.map((bundle) => (
+              <tr key={bundle.name} className="hover:bg-slate-50">
+                <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{bundle.name}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(bundle.totalSale)}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(bundle.totalDiscount)}</td>
+              </tr>
+            ))}
+            {emptyRows.map((_, index) => (
+              <tr key={`bundle-empty-${index}`} className="invisible">
+                <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(0)}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(0)}</td>
               </tr>
             ))}
           </tbody>
@@ -319,6 +682,72 @@ export default function SalesSummary() {
       </div>
     )
   }
+
+  const renderServiceTable = () => {
+    const emptyRows = Array.from({ length: Math.max(0, PAGE_SIZE - servicePageData.length) })
+
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50">
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Service</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Date</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Total Sale</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Discount</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {servicePageData.map((transaction) => {
+              const downpaymentPlusBalance = Number(transaction.downpayment || 0) + Number(transaction.balance || 0)
+
+              return (
+                <tr key={transaction.service_transaction_id} className="hover:bg-slate-50">
+                  <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{transaction.serviceType || 'Service'}</td>
+                  <td className="py-3 px-4 text-sm text-slate-700">
+                    {transaction.service_date ? new Date(transaction.service_date).toLocaleDateString() : '—'}
+                  </td>
+                  <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(downpaymentPlusBalance)}</td>
+                  <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(Number(transaction.discount || 0))}</td>
+                </tr>
+              )
+            })}
+            {emptyRows.map((_, index) => (
+              <tr key={`service-empty-${index}`} className="invisible">
+                <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
+                <td className="py-3 px-4 text-sm text-slate-700">—</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(0)}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  const renderExpenseTable = () => (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50">
+            <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Expense Category</th>
+            <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Restaurant</th>
+            <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Total Amount</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-50">
+          {expenseBreakdown.map((expense) => (
+            <tr key={`${expense.name}-${expense.restaurant}`} className="hover:bg-slate-50">
+              <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{expense.name}</td>
+              <td className="py-3 px-4 text-sm text-slate-600">{expense.restaurant}</td>
+              <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(expense.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 
   return (
     <div className="p-4 md:p-6">
@@ -328,12 +757,12 @@ export default function SalesSummary() {
           <p className="text-sm text-slate-500 mt-0.5">Sales and expense performance overview</p>
         </div>
 
-        <div className="flex gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm">
             <CalendarRange size={14} className="text-slate-400" />
             <select
               value={dateFilter}
-              onChange={e => setDateFilter(e.target.value as DatePreset)}
+              onChange={(event) => setDateFilter(event.target.value as DatePreset)}
               className="bg-transparent outline-none text-sm font-medium text-slate-700 font-display"
             >
               <option value="today">Today</option>
@@ -341,6 +770,19 @@ export default function SalesSummary() {
               <option value="month">Month</option>
               <option value="year">Year</option>
               <option value="custom">Custom Date</option>
+            </select>
+          </label>
+
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm">
+            <span className="text-slate-400 text-xs font-medium uppercase tracking-wide">Restaurant</span>
+            <select
+              value={restaurantFilter}
+              onChange={(event) => setRestaurantFilter(event.target.value as RestaurantFilterValue)}
+              className="bg-transparent outline-none text-sm font-medium text-slate-700 font-display"
+            >
+              {RESTAURANT_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
             </select>
           </label>
         </div>
@@ -376,8 +818,8 @@ export default function SalesSummary() {
                 <input
                   type="date"
                   value={rangeStart}
-                  onChange={e => setRangeStart(e.target.value)}
-                  className="rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-indigo-400"
+                  onChange={(event) => setRangeStart(event.target.value)}
+                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 text-slate-600"
                 />
               </label>
               <label className="flex flex-col text-sm text-slate-600">
@@ -385,8 +827,8 @@ export default function SalesSummary() {
                 <input
                   type="date"
                   value={rangeEnd}
-                  onChange={e => setRangeEnd(e.target.value)}
-                  className="rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-indigo-400"
+                  onChange={(event) => setRangeEnd(event.target.value)}
+                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 text-slate-600"
                 />
               </label>
             </div>
@@ -397,8 +839,8 @@ export default function SalesSummary() {
                 <input
                   type="date"
                   value={singleDate}
-                  onChange={e => setSingleDate(e.target.value)}
-                  className="rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-indigo-400"
+                  onChange={(event) => setSingleDate(event.target.value)}
+                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 text-slate-600"
                 />
               </label>
             </div>
@@ -421,16 +863,13 @@ export default function SalesSummary() {
           <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h3 className="text-lg font-semibold text-slate-800 font-display">Sales Summary</h3>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSalesSummaryVisible(prev => !prev)}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
-                >
-                  {salesSummaryVisible ? 'Hide' : 'Show'}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setSalesSummaryVisible((previous) => !previous)}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+              >
+                {salesSummaryVisible ? 'Hide' : 'Show'}
+              </button>
             </div>
 
             <AnimatePresence initial={false}>
@@ -443,64 +882,116 @@ export default function SalesSummary() {
                   style={{ overflow: 'hidden' }}
                 >
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {summaryCards.map(card => (
-                      <div key={card.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">{card.label}</p>
-                        <p className="mt-3 text-2xl font-bold text-slate-800 font-display">{card.value}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 font-display">Sales by Item</h4>
-                    {renderTable()}
+                    {loading
+                      ? summaryCards.map((card) => <SummaryCardSkeleton key={card.label} label={card.label} />)
+                      : summaryCards.map((card) => (
+                          <div key={card.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">{card.label}</p>
+                            <p className="mt-3 text-2xl font-bold text-slate-800 font-display">{card.value}</p>
+                          </div>
+                        ))}
                   </div>
 
                   <div className="mt-6 grid gap-4 xl:grid-cols-3">
-                    <div className="rounded-xl border border-slate-200 bg-white p-3">
-                      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Grand Total Sales by Item</p>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={salesChartData} barSize={24}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
-                            <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={value => `₱${(value / 1000).toFixed(0)}k`} />
-                            <Tooltip formatter={(value) => [`${Number(value).toLocaleString()} sales`, 'Sales']} labelFormatter={(label) => `${label}`} />
-                            <Bar dataKey="grandTotalSale" name="Sales" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
+                    {loading ? (
+                      [
+                        { label: 'Menu Item Sales', columns: 3 },
+                        { label: 'Food Bundles Sales', columns: 3 },
+                        { label: 'Service Sales', columns: 4 },
+                      ].map((table) => (
+                        <div key={table.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 font-display">{table.label}</h4>
+                          <TableSkeleton rows={6} columns={table.columns} />
+                        </div>
+                      ))
+                    ) : (
+                      <>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 font-display">Menu Item Sales</h4>
+                          {renderItemTable()}
+                          <div className="mt-4">
+                            <PaginationFooter items={itemSummary} page={salesPage} setPage={setSalesPage} pageSize={PAGE_SIZE} />
+                          </div>
+                        </div>
 
-                    <div className="rounded-xl border border-slate-200 bg-white p-3">
-                      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Net Sales by Item</p>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={salesChartData} barSize={24}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
-                            <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={value => `₱${(value / 1000).toFixed(0)}k`} />
-                            <Tooltip formatter={(value) => [`${Number(value).toLocaleString()} sales`, 'Sales']} labelFormatter={(label) => `Item: ${label}`} />
-                            <Bar dataKey="netSale" fill="#10b981" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 font-display">Food Bundles Sales</h4>
+                          {renderBundleTable()}
+                          <div className="mt-4">
+                            <PaginationFooter items={bundleSummary} page={bundlePage} setPage={setBundlePage} pageSize={PAGE_SIZE} />
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 font-display">Service Sales</h4>
+                          {renderServiceTable()}
+                          <div className="mt-4">
+                            <PaginationFooter items={fullyPaidTransactions} page={servicePage} setPage={setServicePage} pageSize={PAGE_SIZE} />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
 
-                    <div className="rounded-xl border border-slate-200 bg-white p-3">
-                      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Order Discount by Item</p>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={salesChartData} barSize={24}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
-                            <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={value => `₱${(value / 1000).toFixed(0)}k`} />
-                            <Tooltip formatter={(value) => formatCurrency(Number(Array.isArray(value) ? value[0] : value))} />
-                            <Bar dataKey="orderDiscount" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
+                 
+
+                  <div className="mt-6 grid gap-4 xl:grid-cols-3">
+                    {loading ? (
+                      ['Sales Count by Item', 'Sales Count by Bundle', 'Service Totals by Type'].map((label) => (
+                        <div key={label} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">{label}</p>
+                          <div className="h-64">
+                            <ChartSkeleton />
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <>
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
+                          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Sales Count by Item</p>
+                          <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={itemSummary} barSize={24}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
+                                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                                <Tooltip content={<CustomBarTooltip />} />
+                                <Bar dataKey="totalCount" name="Sales count" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
+                          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Sales Count by Bundle</p>
+                          <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={bundleSummary} barSize={24}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
+                                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                                <Tooltip content={<CustomBarTooltip />} />
+                                <Bar dataKey="totalCount" name="Bundle count" fill="#10b981" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
+                          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Service Totals by Type</p>
+                          <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={serviceSummary} barSize={24}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
+                                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                                <Tooltip content={<ServiceBarTooltip />} />
+                                <Bar dataKey="count" name="Transactions" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -512,45 +1003,64 @@ export default function SalesSummary() {
               <h3 className="text-lg font-semibold text-slate-800 font-display">Expenses Summary</h3>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Expense Total</p>
-                <p className="mt-3 text-2xl font-bold text-slate-800 font-display">{formatCurrency(totalExpenses)}</p>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {loading
+                ? expenseCards.map((card) => <SummaryCardSkeleton key={card.label} label={card.label} />)
+                : expenseCards.map((card) => (
+                    <div key={card.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">{card.label}</p>
+                      <p className="mt-3 text-2xl font-bold text-slate-800 font-display">{card.value}</p>
+                    </div>
+                  ))}
             </div>
 
-            <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              {renderExpenseTable()}
-            </div>
-
-            <div className="mt-6 rounded-xl border border-slate-200 bg-white p-3">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Expense Distribution</p>
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={expenseBreakdown}
-                      dataKey="amount"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={90}
-                      paddingAngle={2}
-                    >
-                      {expenseBreakdown.map((entry, index) => (
-                        <Cell
-                          key={`${entry.name}-${index}`}
-                          fill={['#14b8a6', '#0ea5e9', '#8b5cf6', '#f59e0b', '#ef4444', '#10b981'][index % 6]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => formatCurrency(Number(Array.isArray(value) ? value[0] : value))} />
-                    <Legend formatter={(value) => <span className="text-xs text-slate-600">{value}</span>} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {loading ? (
+                <>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <TableSkeleton rows={6} columns={3} />
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Expense Distribution</p>
+                    <PieChartSkeleton />
+                  </div>
+                </>
+              ) : (
+                <>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      {renderExpenseTable()}
+    </div>
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Expense Distribution</p>
+      <div className="h-72">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={expenseBreakdown}
+              dataKey="amount"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={50}
+              outerRadius={90}
+              paddingAngle={2}
+            >
+              {expenseBreakdown.map((entry, index) => (
+                <Cell
+                  key={`${entry.name}-${index}`}
+                  fill={['#14b8a6', '#0ea5e9', '#8b5cf6', '#f59e0b', '#ef4444', '#10b981'][index % 6]}
+                />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value) => formatCurrency(Number(Array.isArray(value) ? value[0] : value ?? 0))} />
+            <Legend formatter={(value) => <span className="text-xs text-slate-600">{value}</span>} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+                </>
+              )}
+  </div>
           </section>
         </div>
       )}

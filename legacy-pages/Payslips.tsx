@@ -3,6 +3,7 @@ import { Search, Download, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useState, useRef } from 'react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import Modal from '../components/Modal'
 
 const formatCurrency = (n: number) =>
@@ -272,47 +273,64 @@ export default function Payslips() {
     fetchMissingEmployees(ids, mountedRef)
   }
 
+  const loadPeriods = async () => {
+    try {
+      const res = await fetch('/api/report_periods')
+      if (!res.ok) return
+      const body = await res.json()
+      setPeriods(body.periods || [])
+    } catch (err) {
+      console.error('Failed to load report periods', err)
+    }
+  }
+
+  const loadPayslips = async () => {
+    if (!period) return
+    setLoading(true)
+    try {
+      const url = period === 'all' ? '/api/payslips' : `/api/payslips?period_id=${period}`
+      const psRes = await fetch(url)
+      if (!psRes.ok) return
+      const psBody = await psRes.json()
+
+      const raws: any[] = psBody.payslips || []
+      setPayslips(raws.map(r => buildFromRaw(r)))
+
+      const ids = Array.from(new Set(raws.map(r => String(r.employee_id || r.employee_number || '')))).filter(id => id && !employeesRef.current.has(id))
+      if (ids.length > 0) await fetchMissingEmployees(ids, { current: true })
+    } catch (err) {
+      console.error('Failed to load payslips', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      try {
-        const res = await fetch('/api/report_periods')
-        if (!res.ok) return
-        const body = await res.json()
-        if (!mounted) return
-        setPeriods(body.periods || [])
-      } catch (err) {
-        console.error('Failed to load report periods', err)
-      }
-    })()
-    return () => { mounted = false }
+    void loadPeriods()
   }, [])
 
   useEffect(() => {
     let mounted = true
     if (!period) return
-    setLoading(true)
     ;(async () => {
-      try {
-        const url = period === 'all' ? '/api/payslips' : `/api/payslips?period_id=${period}`
-        const psRes = await fetch(url)
-        if (!psRes.ok) return
-        const psBody = await psRes.json()
-        if (!mounted) return
-
-        const raws: any[] = psBody.payslips || []
-        setPayslips(raws.map(r => buildFromRaw(r)))
-
-        const ids = Array.from(new Set(raws.map(r => String(r.employee_id || r.employee_number || '')))).filter(id => id && !employeesRef.current.has(id))
-        if (ids.length > 0) await fetchMissingEmployees(ids, { current: mounted })
-      } catch (err) {
-        console.error('Failed to load payslips', err)
-      } finally {
-        if (mounted) setLoading(false)
-      }
+      if (!mounted) return
+      await loadPayslips()
     })()
     return () => { mounted = false }
   }, [period])
+
+  useRealtimeEntity('payslips', {
+    onChange: () => {
+      void loadPayslips()
+    },
+  })
+
+  useRealtimeEntity('report_periods', {
+    onChange: () => {
+      void loadPeriods()
+      void loadPayslips()
+    },
+  })
 
   const filtered = payslips.filter(p => {
     const q = search.toLowerCase()

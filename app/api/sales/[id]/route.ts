@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { query } from '../../../../lib/db'
+import { query, getClient } from '../../../../lib/db'
 import getSessionFromRequest from '../../../../lib/session'
 import { logAudit } from '../../../../lib/audit'
 
@@ -105,18 +105,39 @@ export async function DELETE(req: Request, { params }: { params: any }) {
 
     const { id } = await params
 
+    // Only restore the ingredients stock when the client explicitly opts in
+    const returnStock = new URL(req.url).searchParams.get('return_stock') === 'true'
+
     const existingResult = await query('SELECT * FROM sales WHERE sales_id = $1 LIMIT 1', [id])
     const existing = existingResult.rows[0]
     if (!existing) return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
 
-    const result = await query('DELETE FROM sales WHERE sales_id = $1 RETURNING *', [id])
-    const data = result.rows[0]
-
+    const client = await getClient()
     try {
-      await logAudit({ user_id: session.user_id, restaurant: session.restaurant, action: 'delete_sale', table_name: 'sales', record_id: String(id), old_data: existing, new_data: null })
-    } catch (e) { console.error('Audit error', e) }
+      await client.query('BEGIN')
 
-    return NextResponse.json({ ok: true, removed: existing, sale: data })
+      if (!returnStock) {
+        // Tell trg_after_sales_delete_deductions to skip restoring the
+        // ingredient stock for this delete only.
+        await client.query("SET LOCAL app.skip_sales_delete_deductions = 'on'")
+      }
+
+      const result = await client.query('DELETE FROM sales WHERE sales_id = $1 RETURNING *', [id])
+      const data = result.rows[0]
+
+      await client.query('COMMIT')
+
+      try {
+        await logAudit({ user_id: session.user_id, restaurant: session.restaurant, action: 'delete_sale', table_name: 'sales', record_id: String(id), old_data: existing, new_data: null })
+      } catch (e) { console.error('Audit error', e) }
+
+      return NextResponse.json({ ok: true, removed: existing, sale: data })
+    } catch (txErr) {
+      try { await client.query('ROLLBACK') } catch { /* transaction already aborted */ }
+      throw txErr
+    } finally {
+      client.release()
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Database error'
     console.error('Sale delete error', err)

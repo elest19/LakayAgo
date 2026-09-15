@@ -527,7 +527,6 @@ const parseArooAttendanceReport = async (filePath: string | File | Blob): Promis
       const isWeekend = weekday === 'SAT' || weekday === 'SUN'
 
       const deriveStatus: NormalizedAttendanceRecord['status'] = deriveAttendanceStatus(canonicalCheckIn, canonicalCheckOut, isWeekend, checkInRaw, checkOutRaw)
-      console.log('[parseArooAttendanceReport]', { date: isoDate, weekday, isWeekend, checkIn: canonicalCheckIn, checkOut: canonicalCheckOut, checkInRaw, checkOutRaw })
 
       records.push({
         employee_id: String(employeeId),

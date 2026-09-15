@@ -49,6 +49,7 @@ import Expenses from './legacy-pages/Expenses'
 // Use the public copy of the logo (served at /LakayAgo_Logo.jpg)
 import Modal from './components/Modal'
 import isMobile from './hooks/isMobile'
+import { useRealtimeConnectionStatus } from './hooks/useRealtimeEntity'
 
 const AppContext = createContext<AppContextType>({
   currentPage: 'dashboard',
@@ -138,11 +139,11 @@ const navItems: NavEntry[] = [
     items: [
       { id: 'sales-summary', label: 'Summary Report', icon: <BarChart3 size={16} /> },
       { id: 'sales', label: 'Sales', icon: <Wallet size={16} /> },
-      { id: 'assets-catalog', label: 'Assets Catalog', icon: <Package2 size={16} /> },
-      { id: 'production-catalog', label: 'Production Catalog', icon: <Factory size={16} /> },
-      { id: 'food-and-beverage-catalog', label: 'Food & Beverage Catalog', icon: <CookingPot size={16} /> },
-      { id: 'food-packages', label: 'Food Packages', icon: <Package2 size={16} /> },
       { id: 'services', label: 'Services', icon: <FileText size={16} /> },
+      { id: 'food-and-beverage-catalog', label: 'Food & Beverage', icon: <CookingPot size={16} /> },
+      { id: 'food-packages', label: 'Food Packages', icon: <Package2 size={16} /> },
+      { id: 'assets-catalog', label: 'Assets', icon: <Package2 size={16} /> },
+      { id: 'production-catalog', label: 'Ingredients', icon: <Factory size={16} /> },
       { id: 'expenses', label: 'Expenses', icon: <CreditCard size={16} /> },
     ],
   },
@@ -238,6 +239,28 @@ const routePageMap: Record<string, Page> = {
   '/login': 'login',
 }
 
+function RealtimeStatusPill() {
+  const status = useRealtimeConnectionStatus('employees', 'Both')
+  const isLive = status === 'connected'
+
+  return (
+    <div
+      className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
+        isLive
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          : 'border-amber-200 bg-amber-50 text-amber-700'
+      }`}
+    >
+      <span
+        className={`h-2.5 w-2.5 rounded-full ${
+          isLive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+        }`}
+      />
+      {isLive ? 'Live' : status === 'connecting' ? 'Connecting' : status === 'channel_error' ? 'Error' : 'Offline'}
+    </div>
+  )
+}
+
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard')
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -261,6 +284,7 @@ export default function App() {
   const [notifMounted, setNotifMounted] = useState(false)
   const [notifVisible, setNotifVisible] = useState(false)
   const [showModeConfirmation, setShowModeConfirmation] = useState(false)
+  const [modeLocked, setModeLocked] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [profileForm, setProfileForm] = useState({
     firstName: '',
@@ -275,6 +299,9 @@ export default function App() {
     const path = window.location.pathname.replace(/\/+$/, '') || '/'
     const page = routePageMap[path] ?? 'dashboard'
     setCurrentPage(page)
+    const group = navItems.find((entry): entry is { type: 'group' } & NavGroup =>
+      'type' in entry && entry.type === 'group' && entry.items.some(i => i.id === page))
+    if (group) setExpandedGroups(prev => new Set(prev).add(group.label))
   }, [])
 
   
@@ -304,7 +331,10 @@ export default function App() {
       const hasModal = (window as any).__app_mode_modal_shown
       if (!hasModal) {
         ;(window as any).__app_mode_modal_shown = true
-        requestAnimationFrame(() => setShowModeConfirmation(true))
+        requestAnimationFrame(() => {
+          setModeLocked(true)
+          setShowModeConfirmation(true)
+        })
       }
     }
   }, [session.data, session.isPending])
@@ -433,7 +463,10 @@ export default function App() {
   }, [])
 
   const showToast = useCallback((toast: Omit<Toast, 'id'>) => {
-    const id = `toast-${Date.now()}`
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? `toast-${crypto.randomUUID()}`
+      : `toast-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
     setToasts(prev => [...prev, { ...toast, id }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4500)
   }, [])
@@ -660,6 +693,7 @@ export default function App() {
 
     // Respect reduced-motion preferences
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setModeLocked(true)
       setAppMode(nextMode)
       try { if (user?.restaurant === 'Both') localStorage.setItem(`appMode:${user.user_id}`, nextMode) } catch {}
       setShowModeConfirmation(true)
@@ -669,6 +703,7 @@ export default function App() {
     const button = themeToggleRef.current
 
     if (!button) {
+      setModeLocked(true)
       setAppMode(nextMode)
       try { if (user?.restaurant === 'Both') localStorage.setItem(`appMode:${user.user_id}`, nextMode) } catch {}
       setShowModeConfirmation(true)
@@ -732,6 +767,7 @@ export default function App() {
       expand.onfinish = () => {
         setAppMode(nextMode)
         try { if (user?.restaurant === 'Both') localStorage.setItem(`appMode:${user.user_id}`, nextMode) } catch {}
+        setModeLocked(true)
         setShowModeConfirmation(true)
 
         requestAnimationFrame(() => {
@@ -767,6 +803,7 @@ export default function App() {
 
     document.body.appendChild(overlay)
 
+    setModeLocked(true)
     setAppMode(nextMode)
     try { if (user?.restaurant === 'Both') localStorage.setItem(`appMode:${user.user_id}`, nextMode) } catch {}
 
@@ -785,6 +822,7 @@ export default function App() {
     )
 
     expand.onfinish = () => {
+      setModeLocked(true)
       setShowModeConfirmation(true)
 
       const fade = overlay.animate(
@@ -999,172 +1037,174 @@ export default function App() {
   }
 
   return (
-    <AppContext.Provider value={{
-      currentPage,
-      navigate,
-      showToast,
-      user,
-      setUser,
-      authLoading,
-      logout: async () => { try { await authClient.signOut() } catch {} setUser(null); navigate('login') },
-      inventoryItems,
-      setInventoryItems,
-      productionStock,
-      setProductionStock,
-      kitchenStock,
-      setKitchenStock,
-      salesRecords,
-      setSalesRecords,
-      expenses,
-      setExpenses,
-      stockTransactions,
-      transferToKitchen,
-      kitchenSelfProduce,
-      sellMenuItem,
-      activePayrollPeriod,
-      setActivePayrollPeriod,
-      appMode,
-      setAppMode,
-      logoSrc,
-      openEmployee,
-      clearOpenEmployee,
-      openEmployeeId,
-    }}>
-      <>
-        {authLoading ? (
-          <div className="min-h-screen flex items-center justify-center">Loading...</div>
-        ) : currentPage === 'login' ? (
-          <Login />
-        ) : (
-          <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-800">
-            {!isMobileView && (
-              <aside className="flex flex-col bg-slate-900 shrink-0 transition-all duration-300 ease-in-out w-60">
-                <SidebarContent />
-              </aside>
-            )}
-
-            {isMobileView && (
-              <>
-                <div
-                  className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 ease-in-out ${
-                    mobileSidebarOpen
-                      ? 'opacity-100 pointer-events-auto'
-                      : 'opacity-0 pointer-events-none'
-                  }`}
-                  onClick={() => setMobileSidebarOpen(false)}
-                  aria-hidden="true"
-                />
-
-                <aside
-                  className={`fixed right-0 top-0 bottom-0 z-50 w-60 bg-slate-900 flex flex-col will-change-transform transition-transform duration-300 ease-in-out ${
-                    mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full'
-                  }`}
-                >
+      <AppContext.Provider value={{
+        currentPage,
+        navigate,
+        showToast,
+        user,
+        setUser,
+        authLoading,
+        logout: async () => { try { await authClient.signOut() } catch {} setUser(null); navigate('login') },
+        inventoryItems,
+        setInventoryItems,
+        productionStock,
+        setProductionStock,
+        kitchenStock,
+        setKitchenStock,
+        salesRecords,
+        setSalesRecords,
+        expenses,
+        setExpenses,
+        stockTransactions,
+        transferToKitchen,
+        kitchenSelfProduce,
+        sellMenuItem,
+        activePayrollPeriod,
+        setActivePayrollPeriod,
+        appMode,
+        setAppMode,
+        logoSrc,
+        openEmployee,
+        clearOpenEmployee,
+        openEmployeeId,
+      }}>
+        <>
+          {authLoading ? (
+            <div className="min-h-screen flex items-center justify-center">Loading...</div>
+          ) : currentPage === 'login' ? (
+            <Login />
+          ) : (
+            <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-800">
+              {!isMobileView && (
+                <aside className="flex flex-col bg-slate-900 shrink-0 transition-all duration-300 ease-in-out w-60">
                   <SidebarContent />
                 </aside>
-              </>
-            )}
+              )}
 
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
-              <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-3.5 flex items-center gap-4 shrink-0 z-30">
-                {!isMobileView ? (
-                  <div>
-                    <h1 className="text-base font-bold text-slate-800 leading-tight font-display">{meta.title}</h1>
-                    <div className="flex items-center gap-1 text-xs text-slate-400">
-                      {meta.breadcrumbs.map((crumb, i) => (
-                        <span key={i} className="flex items-center gap-1">
-                          {i > 0 && <ChevronRight size={10} />}
-                          <span>{crumb}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <img src={logoSrc} alt={appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'} className="w-12 h-12 object-contain rounded-sm" />
-                    <div className="flex flex-col">
-                      <span className="text-base font-bold text-slate-800 leading-tight font-display">
-                        {appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'}
-                      </span>
-                      <span className="text-xs text-slate-500 leading-tight">
-                        Attendance & Payroll System
-                      </span>
-                    </div>
-                  </div>
-                )}
+              {isMobileView && (
+                <>
+                  <div
+                    className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 ease-in-out ${
+                      mobileSidebarOpen
+                        ? 'opacity-100 pointer-events-auto'
+                        : 'opacity-0 pointer-events-none'
+                    }`}
+                    onClick={() => setMobileSidebarOpen(false)}
+                    aria-hidden="true"
+                  />
 
-                <div className="flex-1" />
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <button
-                      onClick={() => { setNotifOpen(!notifOpen); setProfileOpen(false) }}
-                      className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 cursor-pointer"
-                    >
-                      <Bell size={18} />
-                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-                    </button>
+                  <aside
+                    className={`fixed right-0 top-0 bottom-0 z-50 w-60 bg-slate-900 flex flex-col will-change-transform transition-transform duration-300 ease-in-out ${
+                      mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full'
+                    }`}
+                  >
+                    <SidebarContent />
+                  </aside>
+                </>
+              )}
 
-                    {notifMounted && (
-                      <div className={`absolute right-0 top-11 w-[min(82vw,20rem)] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown ${notifVisible ? 'show' : 'closing'}`}>
-                        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                          <span className="font-semibold text-sm font-display text-slate-800">Notifications</span>
-                          <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">4 new</span>
-                        </div>
-                        {[
-                          { msg: '2 employees have missing attendance', time: '10 min ago', type: 'warning' },
-                          { msg: 'Payroll calculation ready for review', time: '1 hr ago', type: 'info' },
-                          { msg: 'Attendance import completed', time: '2 hrs ago', type: 'success' },
-                          { msg: 'Leave request from Carlo Mendoza', time: '1 day ago', type: 'info' },
-                        ].map((n, i) => (
-                          <div key={i} className="px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 cursor-pointer">
-                            <p className="text-sm text-slate-700">{n.msg}</p>
-                            <p className="text-xs text-slate-400 mt-0.5">{n.time}</p>
-                          </div>
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
+                <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-3.5 flex items-center gap-4 shrink-0 z-30">
+                  {!isMobileView ? (
+                    <div>
+                      <h1 className="text-base font-bold text-slate-800 leading-tight font-display">{meta.title}</h1>
+                      <div className="flex items-center gap-1 text-xs text-slate-400">
+                        {meta.breadcrumbs.map((crumb, i) => (
+                          <span key={i} className="flex items-center gap-1">
+                            {i > 0 && <ChevronRight size={10} />}
+                            <span>{crumb}</span>
+                          </span>
                         ))}
                       </div>
-                    )}
-                  </div>
-
-                  {!isMobileView && (
-                    <div className="relative">
-                      <button
-                        onClick={() => { setProfileOpen(!profileOpen); setNotifOpen(false) }}
-                        className="flex items-center gap-2 rounded-lg hover:bg-slate-100 px-2 py-1.5 cursor-pointer"
-                      >
-                        <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center">
-                          <span className="text-white text-xs font-bold font-display">
-                            {user ? (user.name || '').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : '...'}
-                          </span>
-                        </div>
-                        <span className="text-sm font-medium text-slate-700 font-display">
-                          {user?.name || 'Loading...'}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <img src={logoSrc} alt={appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'} className="w-12 h-12 object-contain rounded-sm" />
+                      <div className="flex flex-col">
+                        <span className="text-base font-bold text-slate-800 leading-tight font-display">
+                          {appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'}
                         </span>
-                      </button>
+                        <span className="text-xs text-slate-500 leading-tight">
+                          Attendance & Payroll System
+                        </span>
+                      </div>
                     </div>
                   )}
 
-                  {isMobileView && (
-                    <button
-                      className="text-slate-500 hover:text-slate-700 cursor-pointer"
-                      onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-                    >
-                      <Menu size={20} />
-                    </button>
-                  )}
-                </div>
-              </header>
+                  <div className="flex-1" />
+                  <div className="flex items-center gap-3">
+                    <RealtimeStatusPill />
 
-              <main className="flex-1 overflow-y-auto">
-                {renderPage()}
-              </main>
+                    <div className="relative">
+                      <button
+                        onClick={() => { setNotifOpen(!notifOpen); setProfileOpen(false) }}
+                        className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 cursor-pointer"
+                      >
+                        <Bell size={18} />
+                        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+                      </button>
+
+                      {notifMounted && (
+                        <div className={`absolute right-0 top-11 w-[min(82vw,20rem)] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown ${notifVisible ? 'show' : 'closing'}`}>
+                          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                            <span className="font-semibold text-sm font-display text-slate-800">Notifications</span>
+                            <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">4 new</span>
+                          </div>
+                          {[
+                            { msg: '2 employees have missing attendance', time: '10 min ago', type: 'warning' },
+                            { msg: 'Payroll calculation ready for review', time: '1 hr ago', type: 'info' },
+                            { msg: 'Attendance import completed', time: '2 hrs ago', type: 'success' },
+                            { msg: 'Leave request from Carlo Mendoza', time: '1 day ago', type: 'info' },
+                          ].map((n, i) => (
+                            <div key={i} className="px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 cursor-pointer">
+                              <p className="text-sm text-slate-700">{n.msg}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">{n.time}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {!isMobileView && (
+                      <div className="relative">
+                        <button
+                          onClick={() => { setProfileOpen(!profileOpen); setNotifOpen(false) }}
+                          className="flex items-center gap-2 rounded-lg hover:bg-slate-100 px-2 py-1.5 cursor-pointer"
+                        >
+                          <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center">
+                            <span className="text-white text-xs font-bold font-display">
+                              {user ? (user.name || '').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : '...'}
+                            </span>
+                          </div>
+                          <span className="text-sm font-medium text-slate-700 font-display">
+                            {user?.name || 'Loading...'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+
+                    {isMobileView && (
+                      <button
+                        className="text-slate-500 hover:text-slate-700 cursor-pointer"
+                        onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+                      >
+                        <Menu size={20} />
+                      </button>
+                    )}
+                  </div>
+                </header>
+
+                <main className="flex-1 overflow-y-auto">
+                  {renderPage()}
+                </main>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <Modal
-          open={showModeConfirmation}
-          onClose={() => setShowModeConfirmation(false)}
-        >
+          <Modal
+            open={showModeConfirmation}
+            onClose={() => { setShowModeConfirmation(false); setModeLocked(false) }}
+          >
           <div className="w-[min(24rem,80vw)] px-1 py-3 text-center">
             <div className="mb-4 flex justify-center">
               <img
@@ -1187,7 +1227,7 @@ export default function App() {
             <div className="mt-4 flex justify-center">
               <button
                 type="button"
-                onClick={() => setShowModeConfirmation(false)}
+                onClick={() => { setShowModeConfirmation(false); setModeLocked(false) }}
                 className="w-md rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 font-display"
               >
                 Continue
@@ -1195,6 +1235,11 @@ export default function App() {
             </div>
           </div>
         </Modal>
+
+        {/* Global interaction blocker while switching app mode */}
+        {modeLocked && (
+          <div aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 90, pointerEvents: 'auto' }} />
+        )}
 
         <Modal open={profileOpen} title="Profile" onClose={() => {
           setProfileOpen(false)

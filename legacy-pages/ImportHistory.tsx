@@ -1,8 +1,9 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { FileText, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import Modal from '../components/Modal'
 
 interface ImportRecord {
@@ -177,42 +178,80 @@ export default function ImportHistory() {
   const [employeeError, setEmployeeError] = useState<string | null>(null)
   const [employeePeriodStart, setEmployeePeriodStart] = useState<string>('')
   const [employeePeriodEnd, setEmployeePeriodEnd] = useState<string>('')
+  const [employeePage, setEmployeePage] = useState(1)
+  const EMPLOYEES_PER_PAGE = 10
+  const [attendancePage, setAttendancePage] = useState(1)
+  const ATTENDANCE_PER_PAGE = 10
+
+  const loadImports = useCallback(async () => {
+    try {
+      const res = await fetch('/api/import-history')
+      if (!res.ok) return
+      const body = await res.json()
+      setImports(body.imports || [])
+    } catch (err) {
+      console.error('Failed to load import history', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     let mounted = true
     ;(async () => {
-      try {
-        const res = await fetch('/api/import-history')
-        if (!res.ok) return
-        const body = await res.json()
-        if (mounted) setImports(body.imports || [])
-      } catch (err) {
-        console.error('Failed to load import history', err)
-      } finally {
-        if (mounted) setLoading(false)
-      }
+      if (!mounted) return
+      await loadImports()
     })()
     return () => { mounted = false }
+  }, [loadImports])
+
+  const loadEmployeesForImport = useCallback(async (importRecord: ImportRecord) => {
+    try {
+      setEmployeesLoading(true)
+      const res = await fetch(`/api/import-history/${importRecord.id}`)
+      if (!res.ok) return
+      const body = await res.json()
+      setEmployees(body.employees || [])
+    } catch (err) {
+      console.error('Failed to load employees', err)
+    } finally {
+      setEmployeesLoading(false)
+    }
   }, [])
 
   useEffect(() => {
     if (!selectedImport) return
-    let mounted = true
-    ;(async () => {
-      try {
-        setEmployeesLoading(true)
-        const res = await fetch(`/api/import-history/${selectedImport.id}`)
-        if (!res.ok) return
-        const body = await res.json()
-        if (mounted) setEmployees(body.employees || [])
-      } catch (err) {
-        console.error('Failed to load employees', err)
-      } finally {
-        if (mounted) setEmployeesLoading(false)
+    void loadEmployeesForImport(selectedImport)
+  }, [selectedImport, loadEmployeesForImport])
+
+  const refreshSelectedEmployeeAttendance = useCallback(async (employee: EmployeeRecord | null, importRecord: ImportRecord | null) => {
+    if (!employee || !importRecord) return
+    setEmployeeLoading(true)
+    setEmployeeError(null)
+    try {
+      const res = await fetch(`/api/import-history/${importRecord.id}?employee_id=${employee.employeeId}`)
+      if (!res.ok) throw new Error('Failed to load employee attendance')
+      const body = await res.json()
+      setEmployeeAttendance(body.records || [])
+    } catch (err: any) {
+      setEmployeeError(err.message || 'Failed to load employee attendance')
+    } finally {
+      setEmployeeLoading(false)
+    }
+  }, [])
+
+  useRealtimeEntity('attendance', {
+    restaurant: 'Both',
+    onChange: () => {
+      void loadImports()
+      if (selectedImport) {
+        void loadEmployeesForImport(selectedImport)
       }
-    })()
-    return () => { mounted = false }
-  }, [selectedImport])
+      if (selectedEmployee && selectedImport) {
+        void refreshSelectedEmployeeAttendance(selectedEmployee, selectedImport)
+      }
+    },
+  })
 
   function formatImportPeriod(fileName?: string) {
     if (!fileName) return 'N/A'
@@ -237,24 +276,13 @@ export default function ImportHistory() {
     }
   }
 
-  async function handleEmployeeClick(employee: EmployeeRecord) {
+  const handleEmployeeClick = useCallback(async (employee: EmployeeRecord) => {
     if (!selectedImport) return
     setSelectedEmployee(employee)
     setEmployeePeriodStart(selectedImport.periodStart ? addDaysISO(selectedImport.periodStart, 1) : '')
     setEmployeePeriodEnd(selectedImport.periodEnd ? addDaysISO(selectedImport.periodEnd, 1) : '')
-    setEmployeeLoading(true)
-    setEmployeeError(null)
-    try {
-      const res = await fetch(`/api/import-history/${selectedImport.id}?employee_id=${employee.employeeId}`)
-      if (!res.ok) throw new Error('Failed to load employee attendance')
-      const body = await res.json()
-      setEmployeeAttendance(body.records || [])
-    } catch (err: any) {
-      setEmployeeError(err.message || 'Failed to load employee attendance')
-    } finally {
-      setEmployeeLoading(false)
-    }
-  }
+    await refreshSelectedEmployeeAttendance(employee, selectedImport)
+  }, [selectedImport, refreshSelectedEmployeeAttendance])
 
   return (
     <div className="p-6">
@@ -390,7 +418,7 @@ export default function ImportHistory() {
                           { width: "75%" }, { width: "40%" }, { width: "35%" }
                         ]} />
                       ) : (
-                        employees.map(emp => (
+                        employees.slice((employeePage - 1) * EMPLOYEES_PER_PAGE, employeePage * EMPLOYEES_PER_PAGE).map(emp => (
                           <tr key={emp.employeeId} className="hover:bg-slate-50 cursor-pointer" onClick={() => handleEmployeeClick(emp)}>
                             <td className="py-2 px-4">
                               <div className="flex items-center gap-2">
@@ -408,6 +436,39 @@ export default function ImportHistory() {
                     </tbody>
                   </table>
                 </div>
+                {!employeesLoading && employees.length > EMPLOYEES_PER_PAGE && (
+                  <div className="flex items-center justify-between px-2 py-3 border-t border-slate-100 bg-white">
+                    <p className="text-xs text-slate-500">
+                      Showing {employees.length === 0 ? 0 : (employeePage - 1) * EMPLOYEES_PER_PAGE + 1}–{Math.min(employeePage * EMPLOYEES_PER_PAGE, employees.length)} of {employees.length} employees
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setEmployeePage(p => Math.max(1, p - 1))} disabled={employeePage === 1} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40">
+                        <ChevronLeft size={16} />
+                      </button>
+                      {Array.from({ length: Math.ceil(employees.length / EMPLOYEES_PER_PAGE) }, (_, i) => {
+                        const p = i + 1
+                        const totalPages = Math.ceil(employees.length / EMPLOYEES_PER_PAGE)
+                        const show = p === 1 || p === totalPages || Math.abs(p - employeePage) <= 2
+                        if (!show) {
+                          if (i === 1 || i === totalPages - 2) return <span key={p} className="px-1 text-slate-400">…</span>
+                          return null
+                        }
+                        return (
+                          <button
+                            key={p}
+                            onClick={() => setEmployeePage(p)}
+                            className={`w-7 h-7 rounded-lg text-xs font-medium font-display ${employeePage === p ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"}`}
+                          >
+                            {p}
+                          </button>
+                        )
+                      })}
+                      <button onClick={() => setEmployeePage(p => Math.min(Math.ceil(employees.length / EMPLOYEES_PER_PAGE), p + 1))} disabled={employeePage === Math.ceil(employees.length / EMPLOYEES_PER_PAGE)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40">
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-4">
@@ -423,7 +484,24 @@ export default function ImportHistory() {
           <div className="p-3">
             <div className="w-[900px] max-h-[60vh] overflow-y-auto">
               {employeeLoading && (
-                <div className="py-8 text-center text-slate-400">Loading attendance...</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        {['Date', 'Day', 'Time In', 'Time Out', 'Late', 'Undertime', 'Overtime', 'Status'].map(h => (
+                          <th key={h} className="text-left py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      <SkeletonTableRows columns={8} rows={6} columnConfig={[
+                        { width: "50%" }, { width: "40%" }, { width: "55%" },
+                        { width: "55%" }, { width: "40%" }, { width: "40%" },
+                        { width: "40%" }, { width: "45%", pill: true }
+                      ]} />
+                    </tbody>
+                  </table>
+                </div>
               )}
               {employeeError && (
                 <div className="py-8 text-center text-red-500">{employeeError}</div>
@@ -439,7 +517,7 @@ export default function ImportHistory() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {employeeAttendance.map(rec => (
+                      {employeeAttendance.slice((attendancePage - 1) * ATTENDANCE_PER_PAGE, attendancePage * ATTENDANCE_PER_PAGE).map(rec => (
                         <tr key={rec.attendance_id} className="hover:bg-slate-50">
                           <td className="py-2 px-3 text-sm text-slate-600">{formatDate(rec.work_date)}</td>
                           <td className="py-2 px-3 text-sm text-slate-600">
@@ -459,6 +537,39 @@ export default function ImportHistory() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+              {!employeeLoading && !employeeError && employeeAttendance.length > ATTENDANCE_PER_PAGE && (
+                <div className="flex items-center justify-between px-2 py-3 border-t border-slate-100 bg-white">
+                  <p className="text-xs text-slate-500">
+                    Showing {employeeAttendance.length === 0 ? 0 : (attendancePage - 1) * ATTENDANCE_PER_PAGE + 1}–{Math.min(attendancePage * ATTENDANCE_PER_PAGE, employeeAttendance.length)} of {employeeAttendance.length} records
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setAttendancePage(p => Math.max(1, p - 1))} disabled={attendancePage === 1} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40">
+                      <ChevronLeft size={16} />
+                    </button>
+                    {Array.from({ length: Math.ceil(employeeAttendance.length / ATTENDANCE_PER_PAGE) }, (_, i) => {
+                      const p = i + 1
+                      const totalPages = Math.ceil(employeeAttendance.length / ATTENDANCE_PER_PAGE)
+                      const show = p === 1 || p === totalPages || Math.abs(p - attendancePage) <= 2
+                      if (!show) {
+                        if (i === 1 || i === totalPages - 2) return <span key={p} className="px-1 text-slate-400">…</span>
+                        return null
+                      }
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => setAttendancePage(p)}
+                          className={`w-7 h-7 rounded-lg text-xs font-medium font-display ${attendancePage === p ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"}`}
+                        >
+                          {p}
+                        </button>
+                      )
+                    })}
+                    <button onClick={() => setAttendancePage(p => Math.min(Math.ceil(employeeAttendance.length / ATTENDANCE_PER_PAGE), p + 1))} disabled={attendancePage === Math.ceil(employeeAttendance.length / ATTENDANCE_PER_PAGE)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40">
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

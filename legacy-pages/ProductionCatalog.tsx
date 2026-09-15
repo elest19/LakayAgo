@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Search, Pencil, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useApp } from '../App'
 import Modal from '../components/Modal'
 import useIsMobile from '../hooks/isMobile'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import { VOLUME_UNITS, WEIGHT_UNITS, isSpoonUnit, isCupUnit, fullUnitName, getConversionFactorForRecipeUnit } from '../lib/unitConversions'
 import { formatStockReadable } from '../lib/formatStock'
 import type { ProductionItem } from '../types'
@@ -130,35 +131,46 @@ export default function ProductionCatalog() {
   const isMobile = useIsMobile()
   const [loading, setLoading] = useState(true)
 
+  const loadProductionInventory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/production_inventory')
+      if (!res.ok) return
+      const j = await res.json()
+      const rows = j.production_inventory || []
+      const mapped = rows.map((r: any) => ({
+        id: String(r.production_inventory_id),
+        name: r.name,
+        restaurant: r.restaurant,
+        unit: r.unit || '',
+        stock: Number(r.stock) || 0,
+        isArchived: Boolean(r.is_archived),
+        createdAt: r.created_at,
+        createdBy: r.created_by || 'System',
+        updatedAt: r.updated_at || r.created_at,
+        updatedBy: r.updated_by || 'System',
+        recipe_unit: r.recipe_unit || null,
+        conversion_factor: r.conversion_factor !== undefined ? Number(r.conversion_factor) : null,
+        ingredient_category: r.ingredient_category || null,
+      }))
+      setProductionStock(mapped)
+    } catch {
+      // keep the current rows on transient fetch failures
+    }
+  }, [])
+
   useEffect(() => {
     let mounted = true
     setLoading(true)
-    fetch('/api/production_inventory')
-      .then(r => r.json())
-      .then(j => {
-        if (!mounted) return
-        const rows = j.production_inventory || []
-        const mapped = rows.map((r: any) => ({
-          id: String(r.production_inventory_id),
-          name: r.name,
-          restaurant: r.restaurant,
-          unit: r.unit || '',
-          stock: Number(r.stock) || 0,
-          isArchived: Boolean(r.is_archived),
-          createdAt: r.created_at,
-          createdBy: r.created_by || 'System',
-          updatedAt: r.updated_at || r.created_at,
-          updatedBy: r.updated_by || 'System',
-          recipe_unit: r.recipe_unit || null,
-          conversion_factor: r.conversion_factor !== undefined ? Number(r.conversion_factor) : null,
-          ingredient_category: r.ingredient_category || null,
-        }))
-        setProductionStock(mapped)
-      })
-      .catch(() => {})
-      .finally(() => { if (mounted) setLoading(false) })
+    loadProductionInventory().finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
-  }, [])
+  }, [loadProductionInventory])
+
+  // Live updates: refetch whenever any user adds, edits, archives, or stocks a production item.
+  // ProductionCatalog shows both restaurants, so subscribe without a restaurant filter.
+  useRealtimeEntity('production_inventory', {
+    restaurant: 'Both',
+    onChange: loadProductionInventory,
+  })
 
   const [search, setSearch] = useState('')
   const [selectedItem, setSelectedItem] = useState<ProductionItem | null>(null)

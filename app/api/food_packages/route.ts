@@ -272,6 +272,32 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'Missing package id' }, { status: 400 })
     }
 
+    // hard delete (permanent): food_package_items rows cascade and services/sub_services
+    // references are set null. Deletion is blocked by the database while the package is
+    // still referenced by sales (prevent_delete_if_referenced_by_sales_package trigger).
+    if (url.searchParams.get('hard_delete') === 'true') {
+      try {
+        const result = await query('DELETE FROM food_packages WHERE food_package_id = $1 RETURNING *', [packageId])
+        const deleted = result.rows[0]
+        if (!deleted) return NextResponse.json({ error: 'Package not found' }, { status: 404 })
+        await logAudit({
+          user_id: session.user_id,
+          restaurant: deleted.restaurant || session.restaurant,
+          action: 'delete_food_package',
+          table_name: 'food_packages',
+          record_id: String(packageId),
+          old_data: deleted,
+        })
+        return NextResponse.json({ deleted })
+      } catch (e: any) {
+        console.error('Food package hard delete failed', e)
+        if (String(e.message || '').toLowerCase().includes('violat')) {
+          return NextResponse.json({ error: 'Cannot delete: referenced by existing records' }, { status: 400 })
+        }
+        return NextResponse.json({ error: 'Server error' }, { status: 500 })
+      }
+    }
+
     const result = await query(
       'update food_packages set is_archived = true where food_package_id = $1 returning *',
       [packageId]

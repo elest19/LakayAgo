@@ -1,10 +1,12 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, Search } from 'lucide-react'
 import { useApp } from '../App'
 import Modal from '../components/Modal'
 import useIsMobile from '../hooks/isMobile'
 import PaginationFooter from '../components/PaginationFooter'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
+import DateFilter, { dateInRange, defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
 import type { ExpenseRecord } from '../types'
 
 const formatCurrency = (value: number) =>
@@ -54,7 +56,7 @@ export default function Expenses() {
   const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null)
   const [selectedExpenseFilter, setSelectedExpenseFilter] = useState('All Expenses')
   const [selectedRestaurantFilter, setSelectedRestaurantFilter] = useState('All Restaurants')
-  const [selectedDateFilter, setSelectedDateFilter] = useState('')
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>(defaultDateFilterValue)
   const [searchTerm, setSearchTerm] = useState('')
   const [serviceTransactions, setServiceTransactions] = useState<any[]>([])
   const [services, setServices] = useState<any[]>([])
@@ -84,27 +86,54 @@ export default function Expenses() {
     )
   }, [allExpenseNames, form.expense])
 
-  useEffect(() => {
+  const refreshExpenseData = useCallback(async () => {
     let mounted = true
     setExpensesLoading(true)
-    fetch('/api/expenses')
-      .then(r => r.json())
-      .then(j => { if (!mounted) return; setExpenses(j.expenses || []); setExpensesLoading(false) })
-      .catch(() => { if (!mounted) return; setExpenses([]); setExpensesLoading(false) })
+    try {
+      const [expensesRes, txRes, servicesRes] = await Promise.all([
+        fetch('/api/expenses'),
+        fetch('/api/service_transactions'),
+        fetch('/api/services'),
+      ])
 
-    setTxLoading(true)
-    fetch('/api/service_transactions')
-      .then(r => r.json())
-      .then(j => { if (!mounted) return; setServiceTransactions((j.transactions || []).filter((tx: any) => tx.status === 'Finalized' || tx.status === 'Fully Paid')); setTxLoading(false) })
-      .catch(() => { if (!mounted) return; setServiceTransactions([]); setTxLoading(false) })
+      const expensesJson = await expensesRes.json()
+      const txJson = await txRes.json()
+      const servicesJson = await servicesRes.json()
 
-    fetch('/api/services')
-      .then(r => r.json())
-      .then(j => { if (!mounted) return; setServices(j.services || []) })
-      .catch(() => setServices([]))
+      if (!mounted) return
+      setExpenses(expensesJson.expenses || [])
+      setServiceTransactions((txJson.transactions || []).filter((tx: any) => tx.status === 'Finalized' || tx.status === 'Fully Paid'))
+      setServices(servicesJson.services || [])
+    } catch {
+      if (!mounted) return
+      setExpenses([])
+      setServiceTransactions([])
+      setServices([])
+    } finally {
+      if (mounted) {
+        setExpensesLoading(false)
+        setTxLoading(false)
+      }
+    }
 
     return () => { mounted = false }
   }, [])
+
+  useEffect(() => {
+    void refreshExpenseData()
+  }, [refreshExpenseData])
+
+  useRealtimeEntity('expenses', {
+    onChange: () => {
+      void refreshExpenseData()
+    },
+  })
+
+  useRealtimeEntity('service_transactions', {
+    onChange: () => {
+      void refreshExpenseData()
+    },
+  })
 
   const serviceNameMap = useMemo(
     () => Object.fromEntries((services || []).map((service: any) => [String(service.service_id), service.service_type || 'Service'])),
@@ -168,15 +197,17 @@ export default function Expenses() {
     [expenses, serviceTransactions],
   )
 
+  const expenseDateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
+
   const filteredExpenses = useMemo(
     () => expenses.filter(expense => {
       const matchesExpense = selectedExpenseFilter === 'All Expenses' || expense.expense === selectedExpenseFilter
       const matchesRestaurant = selectedRestaurantFilter === 'All Restaurants' || (expense as any).restaurant === selectedRestaurantFilter
-      const matchesDate = !selectedDateFilter || new Date(expense.createdAt).toISOString().slice(0, 10) === selectedDateFilter
+      const matchesDate = dateInRange(expense.createdAt, expenseDateRange)
       const matchesSearch = !searchTerm || [expense.expense, (expense as any).restaurant, expense.createdBy].join(' ').toLowerCase().includes(searchTerm.toLowerCase())
       return matchesExpense && matchesRestaurant && matchesDate && matchesSearch
     }),
-    [expenses, selectedExpenseFilter, selectedRestaurantFilter, selectedDateFilter, searchTerm],
+    [expenses, selectedExpenseFilter, selectedRestaurantFilter, expenseDateRange, searchTerm],
   )
 
   const serviceTransactionExpenses = useMemo(
@@ -184,7 +215,7 @@ export default function Expenses() {
       .filter(tx => {
         const isEligibleStatus = tx.status === 'Finalized' || tx.status === 'Fully Paid'
         const matchesRestaurant = selectedRestaurantFilter === 'All Restaurants' || tx.restaurant === selectedRestaurantFilter
-        const matchesDate = !selectedDateFilter || (tx.service_date || '').slice(0, 10) === selectedDateFilter
+        const matchesDate = dateInRange(tx.service_date, expenseDateRange)
         const matchesSearch = !searchTerm || [
           serviceNameMap[String(tx.service_id)],
           tx.restaurant,
@@ -202,7 +233,7 @@ export default function Expenses() {
         restaurant: tx.restaurant,
         service_transaction_id: tx.service_transaction_id,
       })),
-    [selectedDateFilter, selectedRestaurantFilter, searchTerm, serviceNameMap, serviceTransactions],
+    [expenseDateRange, selectedRestaurantFilter, searchTerm, serviceNameMap, serviceTransactions],
   )
 
   const expenseTableTotal = useMemo(
@@ -236,8 +267,8 @@ export default function Expenses() {
   const dailyEmptyCount = paginatedDailyExpenses.length === 0 ? 0 : Math.max(0, dailyExpensePageSize - paginatedDailyExpenses.length)
   const serviceExpenseEmptyCount = paginatedServiceExpenseRows.length === 0 ? 0 : Math.max(0, serviceExpensePageSize - paginatedServiceExpenseRows.length)
 
-  useEffect(() => { setDailyExpensePage(1) }, [selectedExpenseFilter, selectedRestaurantFilter, selectedDateFilter, searchTerm, filteredExpenses.length])
-  useEffect(() => { setServiceExpensePage(1) }, [selectedRestaurantFilter, selectedDateFilter, searchTerm, serviceTransactionExpenses.length])
+  useEffect(() => { setDailyExpensePage(1) }, [selectedExpenseFilter, selectedRestaurantFilter, dateFilter, searchTerm, filteredExpenses.length])
+  useEffect(() => { setServiceExpensePage(1) }, [selectedRestaurantFilter, dateFilter, searchTerm, serviceTransactionExpenses.length])
 
   const resetForm = () => {
     setForm(emptyForm())
@@ -277,7 +308,7 @@ export default function Expenses() {
     })
   }
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!previewExpense) {
       showToast({ type: 'error', message: 'Unable to save expense', description: 'Expense preview is missing.' })
       return
@@ -289,27 +320,49 @@ export default function Expenses() {
       return
     }
 
-    if (editingExpense) {
-      const updatedExpense: ExpenseRecord = {
-        ...editingExpense,
-        expense: previewExpense.expense,
-        amount,
-        restaurant: previewExpense.restaurant,
-      }
-
-      setExpenses(prev => prev.map(expense => (expense.id === editingExpense.id ? updatedExpense : expense)))
-      showToast({ type: 'success', message: 'Expense updated', description: `${updatedExpense.expense} has been updated.` })
-    } else {
-      // submit to API
-      fetch('/api/expenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expense: previewExpense.expense, amount, restaurant: previewExpense.restaurant }) })
-        .then(async r => {
-          if (!r.ok) throw new Error('Failed')
-          const j = await r.json()
-          const created = j.expense
-          setExpenses(prev => [created, ...prev])
-          showToast({ type: 'success', message: 'Expense added', description: `${created.expense} was added.` })
+    try {
+      if (editingExpense) {
+        const res = await fetch(`/api/expenses/${editingExpense.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            expense: previewExpense.expense,
+            amount,
+            restaurant: previewExpense.restaurant,
+          }),
         })
-        .catch(() => showToast({ type: 'error', message: 'Failed to add expense' }))
+
+        const payload = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(payload?.error || 'Failed to update expense')
+        }
+
+        const updatedExpense = payload.expense || {
+          ...editingExpense,
+          expense: previewExpense.expense,
+          amount,
+          restaurant: previewExpense.restaurant,
+        }
+
+        setExpenses(prev => prev.map(expense => (expense.id === editingExpense.id ? {
+          ...expense,
+          expense: updatedExpense.expense,
+          amount: Number(updatedExpense.amount ?? amount),
+          restaurant: updatedExpense.restaurant || previewExpense.restaurant,
+        } : expense)))
+        showToast({ type: 'success', message: 'Expense updated', description: `${updatedExpense.expense} has been updated.` })
+      } else {
+        // submit to API
+        const r = await fetch('/api/expenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expense: previewExpense.expense, amount, restaurant: previewExpense.restaurant }) })
+        if (!r.ok) throw new Error('Failed')
+        const j = await r.json()
+        const created = j.expense
+        setExpenses(prev => [created, ...prev])
+        showToast({ type: 'success', message: 'Expense added', description: `${created.expense} was added.` })
+      }
+    } catch (error: any) {
+      showToast({ type: 'error', message: editingExpense ? 'Failed to update expense' : 'Failed to add expense', description: error?.message || 'Unable to save expense.' })
+      return
     }
 
     setIsModalOpen(false)
@@ -431,7 +484,7 @@ export default function Expenses() {
           </div>
         )}
       </div>
-      <PaginationFooter items={filteredExpenses} page={dailyExpensePage} setPage={setDailyExpensePage} pageSize={dailyExpensePageSize} />
+      <PaginationFooter items={filteredExpenses} page={dailyExpensePage} setPage={setDailyExpensePage} pageSize={dailyExpensePageSize} noun="expenses" />
     </div>
   )
 
@@ -449,7 +502,7 @@ export default function Expenses() {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-6">
         <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3"> 
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-center"> 
             <div>
               <select
                 value={selectedExpenseFilter}
@@ -458,7 +511,7 @@ export default function Expenses() {
               >
                 {expenseFilterOptions.map(expense => (
                   <option key={expense} value={expense}>
-                    {expense === 'All Expenses' ? 'All Expenses' : expense}
+                    {expense === 'All Expenses' ? 'All Expenses (Type)' : expense}
                   </option>
                 ))}
               </select>
@@ -478,11 +531,12 @@ export default function Expenses() {
             </div>
 
             <div>
-              <input
-                type="date"
-                value={selectedDateFilter}
-                onChange={e => setSelectedDateFilter(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display text-slate-600"
+              <DateFilter
+                value={dateFilter}
+                onChange={setDateFilter}
+                allLabel="All Expenses (Date)"
+                className="w-full"
+                controlClassName="w-full"
               />
             </div>
 
@@ -576,7 +630,7 @@ export default function Expenses() {
                 </tbody>
               </table>
             </div>
-            <PaginationFooter items={serviceTransactionExpenses} page={serviceExpensePage} setPage={setServiceExpensePage} pageSize={serviceExpensePageSize} />
+            <PaginationFooter items={serviceTransactionExpenses} page={serviceExpensePage} setPage={setServiceExpensePage} pageSize={serviceExpensePageSize} noun="expenses" />
           </div>
         </div>
       </div>
@@ -736,20 +790,31 @@ export default function Expenses() {
 
                 <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                     const expense = deleteExpenseTarget
+                    try {
+                      const res = await fetch(`/api/expenses/${expense.id}`, { method: 'DELETE' })
+                      const payload = await res.json().catch(() => ({}))
+                      if (!res.ok) {
+                        throw new Error(payload?.error || 'Failed to delete expense')
+                      }
 
-                    setExpenses(prev =>
-                    prev.filter(entry => entry.id !== expense.id)
-                    )
-
-                    showToast({
-                    type: 'success',
-                    message: 'Expense deleted',
-                    description: `${expense.expense} was removed.`,
-                    })
-
-                    setDeleteExpenseTarget(null)
+                      setExpenses(prev => prev.filter(entry => entry.id !== expense.id))
+                      showToast({
+                        type: 'success',
+                        message: 'Expense deleted',
+                        description: `${expense.expense} was removed.`,
+                      })
+                    } catch (error: any) {
+                      showToast({
+                        type: 'error',
+                        message: 'Delete failed',
+                        description: error?.message || 'Unable to delete expense.',
+                      })
+                      return
+                    } finally {
+                      setDeleteExpenseTarget(null)
+                    }
                 }}
                 className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display"
                 >

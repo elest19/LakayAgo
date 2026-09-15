@@ -5,6 +5,7 @@ import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 import WorkflowStepper from '../components/WorkflowStepper'
+import PaginationFooter from '../components/PaginationFooter'
 import { AnimatePresence, motion } from 'motion/react'
 import { deriveAttendanceStatus, dispatchAttendanceReport, type FingerprintAttendanceSummary, type NormalizedAttendanceRecord } from '../utils/fingerprintAttendanceParser'
 import type { AttendanceRecord } from '../types'
@@ -231,8 +232,13 @@ export default function ImportAttendance() {
     return 'bg-emerald-100 text-emerald-700'
   }
   const isMobile = useIsMobile()
+  const PAGE_SIZE = 10
   const [showPreviewSection, setShowPreviewSection] = useState(true)
   const [showIncompleteSection, setShowIncompleteSection] = useState(true)
+  const [incompletePage, setIncompletePage] = useState(1)
+  const [previewPage, setPreviewPage] = useState(1)
+  const [missingPage, setMissingPage] = useState(1)
+  const [pendingPage, setPendingPage] = useState(1)
   const [selectedRow, setSelectedRow] = useState<{ employeeId: string; employeeName: string } | null>(null)
   const [selectedDetailRecord, setSelectedDetailRecord] = useState<AttendanceRecord | null>(null)
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null)
@@ -256,10 +262,18 @@ export default function ImportAttendance() {
 
   const attendanceStepIndex = stage === 'upload' && !showUpload ? 0 : stage === 'upload' && showUpload ? 1 : stage === 'validate' ? 2 : 3
 
-  const pendingPeriods = useMemo(
-    () => (payrollPeriods ?? []).filter((p: any) => p.status === 'Pending'),
-    [payrollPeriods],
-  )
+  const pendingPeriods = useMemo(() => {
+    const targetRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
+    return (payrollPeriods ?? []).filter((p: any) => {
+      return p.status === 'Pending' && String(p.restaurant ?? '').trim() === targetRestaurant
+    })
+  }, [payrollPeriods, appMode])
+
+  useEffect(() => { setPendingPage(1) }, [pendingPeriods.length])
+  const pendingPageData = useMemo(() => {
+    const start = (pendingPage - 1) * PAGE_SIZE
+    return pendingPeriods.slice(start, start + PAGE_SIZE)
+  }, [pendingPeriods, pendingPage])
 
   useEffect(() => {
     let mounted = true
@@ -405,6 +419,25 @@ export default function ImportAttendance() {
     () => sortedEmployeeSummary.filter(employee => employee.incompleteCount === 0),
     [sortedEmployeeSummary],
   )
+
+  const paginatedCompleteEmployees = useMemo(() => {
+    const start = (previewPage - 1) * PAGE_SIZE
+    return completeEmployees.slice(start, start + PAGE_SIZE)
+  }, [completeEmployees, previewPage])
+
+  const paginatedMissingEmployees = useMemo(() => {
+    if (!missingEmployeesModal) return []
+    const start = (missingPage - 1) * PAGE_SIZE
+    return missingEmployeesModal.slice(start, start + PAGE_SIZE)
+  }, [missingEmployeesModal, missingPage])
+
+  const paginatedIncompleteEmployees = useMemo(() => {
+    const start = (incompletePage - 1) * PAGE_SIZE
+    return incompleteEmployees.slice(start, start + PAGE_SIZE)
+  }, [incompleteEmployees, incompletePage])
+
+  const previewEmptyRowsCount = Math.max(0, PAGE_SIZE - paginatedCompleteEmployees.length)
+  const incompleteEmptyRowsCount = Math.max(0, PAGE_SIZE - paginatedIncompleteEmployees.length)
 
   const selectedEmployeeRecords = useMemo(() => {
     if (!preview || !selectedRow) return []
@@ -703,6 +736,13 @@ export default function ImportAttendance() {
 
         setImporting(false)
         setStage('success')
+        window.dispatchEvent(new CustomEvent('attendance-imported', {
+          detail: {
+            restaurant: selectedPayrollPeriod?.restaurant,
+            periodId: selectedPayrollPeriod?.report_period_id,
+            importedCount: (body.inserted && body.inserted.length) || preview.records.length,
+          },
+        }))
         showToast({
           type: 'success',
           message: 'Attendance imported',
@@ -803,7 +843,7 @@ export default function ImportAttendance() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {pendingPeriods.map(pp => (
+                    {pendingPageData.map(pp => (
                       <tr
                         key={pp.report_period_id}
                         className={`hover:bg-slate-50 group cursor-pointer ${selectedPayrollPeriod?.report_period_id === pp.report_period_id ? 'bg-indigo-50' : ''}`}
@@ -831,9 +871,26 @@ export default function ImportAttendance() {
                         </td>
                       </tr>
                     ))}
+                    {pendingPageData.length > 0 && pendingPageData.length < PAGE_SIZE && Array.from({ length: Math.max(0, PAGE_SIZE - pendingPageData.length) }).map((_, i) => (
+                      <tr key={`empty-${i}`} className="invisible">
+                        <td className="py-3.5 px-6">
+                          <p className="text-sm font-semibold text-slate-700 font-display">Placeholder</p>
+                        </td>
+                        <td className="py-3.5 px-6">
+                          <p className="text-sm font-semibold text-slate-700 font-display">—</p>
+                        </td>
+                        <td className="py-3.5 px-6">
+                          <p className="text-sm text-slate-600">—</p>
+                        </td>
+                        <td className="py-3.5 px-6">
+                          <p className="text-sm text-slate-600">—</p>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
+              <PaginationFooter items={pendingPeriods} page={pendingPage} setPage={setPendingPage} pageSize={PAGE_SIZE} noun="periods" />
             </div>
           )}
 
@@ -911,37 +968,6 @@ export default function ImportAttendance() {
             <div className="space-y-5">
               {validating && (
                 <div className="space-y-5">
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="px-4 py-4 border-b border-slate-100 flex items-center justify-between">
-                      <p className="text-sm font-semibold text-slate-700 font-display">Incomplete Records</p>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-red-100 bg-red-50">
-                            {[
-                              { key: 'id', label: 'ID' },
-                              { key: 'name', label: 'Employee' },
-                              { key: 'present', label: 'Present (Weekdays)' },
-                              { key: 'overtime', label: 'Present (Weekends)' },
-                              { key: 'absent', label: 'Absent' },
-                              { key: 'incomplete', label: 'Incomplete' },
-                            ].map(({ key, label }) => (
-                              <th key={key} className="text-left py-2.5 px-4 text-xs font-semibold text-red-700 uppercase tracking-wide font-display whitespace-nowrap">{label}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-red-100">
-                          <SkeletonTableRows columns={6} rows={6} columnConfig={[
-                            { width: "40%" }, { width: "70%" },
-                            { width: "35%" }, { width: "45%" },
-                            { width: "35%" }, { width: "40%" }
-                          ]} />
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="px-4 py-4 border-b border-slate-100 flex items-center justify-between">
                       <p className="text-sm font-semibold text-slate-700 font-display">Previewed Attendance</p>
@@ -1059,7 +1085,7 @@ export default function ImportAttendance() {
                     {isMobile ? (
                       <div className="p-3">
                         <div className="space-y-3">
-                          {incompleteEmployees.map(employee => (
+                          {paginatedIncompleteEmployees.map(employee => (
                             <button
                               key={employee.employeeId}
                               type="button"
@@ -1086,6 +1112,21 @@ export default function ImportAttendance() {
                                 </span>
                               </div>
                             </button>
+                          ))}
+
+                          {paginatedIncompleteEmployees.length > 0 && paginatedIncompleteEmployees.length < PAGE_SIZE && Array.from({ length: incompleteEmptyRowsCount }).map((_, i) => (
+                            <div key={`empty-incomplete-${i}`} className="w-full rounded-xl border border-transparent p-3 invisible">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-700 font-display">Employee Name</p>
+                                <p className="mt-0.5 text-xs text-slate-500">ID: 000</p>
+                              </div>
+                              <div className="mt-3 flex flex-wrap justify-end gap-2">
+                                <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">Present: 0</span>
+                                <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">Weekend OT: 0</span>
+                                <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">Absent: 0</span>
+                                <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">Incomplete: 0</span>
+                              </div>
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -1130,14 +1171,25 @@ export default function ImportAttendance() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-red-100">
-                            {incompleteEmployees.map(employee => (
-                              <tr key={employee.employeeId} className="bg-red-50 hover:bg-red-100 cursor-pointer" onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}>
-                                <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeId}</td>
-                                <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeName}</td>
-                                <td className="py-2.5 px-4 text-sm text-emerald-700">{employee.present}</td>
-                                <td className="py-2.5 px-4 text-sm text-blue-700">{employee.overtime}</td>
-                                <td className="py-2.5 px-4 text-sm text-red-700">{employee.absent}</td>
-                                <td className="py-2.5 px-4 text-sm font-semibold text-red-700">{employee.incompleteCount}</td>
+                            {paginatedIncompleteEmployees.map(employee => (
+                                <tr key={employee.employeeId} className="bg-red-50 hover:bg-red-100 cursor-pointer" onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}>
+                                  <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeId}</td>
+                                  <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeName}</td>
+                                  <td className="py-2.5 px-4 text-sm text-emerald-700">{employee.present}</td>
+                                  <td className="py-2.5 px-4 text-sm text-blue-700">{employee.overtime}</td>
+                                  <td className="py-2.5 px-4 text-sm text-red-700">{employee.absent}</td>
+                                  <td className="py-2.5 px-4 text-sm font-semibold text-red-700">{employee.incompleteCount}</td>
+                                </tr>
+                              ))}
+
+                            {paginatedIncompleteEmployees.length > 0 && paginatedIncompleteEmployees.length < PAGE_SIZE && Array.from({ length: incompleteEmptyRowsCount }).map((_, i) => (
+                              <tr key={`empty-${i}`} className="invisible">
+                                <td className="py-2.5 px-4 text-sm text-slate-700">ID</td>
+                                <td className="py-2.5 px-4 text-sm text-slate-700">Employee Name</td>
+                                <td className="py-2.5 px-4 text-sm text-emerald-700">0</td>
+                                <td className="py-2.5 px-4 text-sm text-blue-700">0</td>
+                                <td className="py-2.5 px-4 text-sm text-red-700">0</td>
+                                <td className="py-2.5 px-4 text-sm font-semibold text-red-700">0</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1147,6 +1199,11 @@ export default function ImportAttendance() {
                   </motion.div>
                 )}
               </AnimatePresence>
+              {incompleteEmployees.length > PAGE_SIZE && (
+                <div className="px-4 py-3 bg-white">
+                  <PaginationFooter items={incompleteEmployees} page={incompletePage} setPage={setIncompletePage} pageSize={PAGE_SIZE} />
+                </div>
+              )}
             </div>
           )}
 
@@ -1199,8 +1256,8 @@ export default function ImportAttendance() {
                   <div className="px-4 py-8 text-center text-sm text-slate-500">No attendance records found.</div>
                 ) : (
                   <div className="space-y-3">
-                    {completeEmployees.map(employee => (
-                      <button
+                      {paginatedCompleteEmployees.map(employee => (
+                        <button
                         key={employee.employeeId}
                         type="button"
                         onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}
@@ -1223,7 +1280,20 @@ export default function ImportAttendance() {
                           </span>
                         </div>
                       </button>
-                    ))}
+                      ))}
+                      {paginatedCompleteEmployees.length > 0 && paginatedCompleteEmployees.length < PAGE_SIZE && Array.from({ length: previewEmptyRowsCount }).map((_, i) => (
+                        <div key={`empty-preview-${i}`} className="w-full rounded-xl border border-transparent p-3 invisible">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-700 font-display">Employee Name</p>
+                            <p className="mt-0.5 text-xs text-slate-400">ID: 000</p>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">Present: 0</span>
+                            <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">Weekend OT: 0</span>
+                            <span className="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">Absent: 0</span>
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 )}
               </div>
@@ -1269,7 +1339,7 @@ export default function ImportAttendance() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {completeEmployees.map(employee => (
+                      {paginatedCompleteEmployees.map(employee => (
                         <tr key={employee.employeeId} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}>
                           <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeId}</td>
                           <td className="py-2.5 px-4 text-sm text-slate-700">{employee.employeeName}</td>
@@ -1277,8 +1347,22 @@ export default function ImportAttendance() {
                           <td className="py-2.5 px-4 text-sm text-red-700">{employee.absent}</td>
                         </tr>
                       ))}
+
+                      {paginatedCompleteEmployees.length > 0 && paginatedCompleteEmployees.length < PAGE_SIZE && Array.from({ length: previewEmptyRowsCount }).map((_, i) => (
+                        <tr key={`empty-preview-${i}`} className="invisible">
+                          <td className="py-2.5 px-4 text-sm text-slate-700">ID</td>
+                          <td className="py-2.5 px-4 text-sm text-slate-700">Employee Name</td>
+                          <td className="py-2.5 px-4 text-sm text-emerald-700">0</td>
+                          <td className="py-2.5 px-4 text-sm text-red-700">0</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
+                )}
+                {completeEmployees.length > PAGE_SIZE && (
+                  <div className="px-4 py-3 bg-white">
+                    <PaginationFooter items={completeEmployees} page={previewPage} setPage={setPreviewPage} pageSize={PAGE_SIZE} />
+                  </div>
                 )}
               </div>
             ))}
@@ -1456,13 +1540,20 @@ export default function ImportAttendance() {
                 These employees from the attendance import were not found in the database. Add them first before importing again.
               </p>
             </div>
-            <div className="max-h-80 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
-              {missingEmployeesModal.map(missing => (
-                <div key={missing.employeeId} className="flex items-center justify-between px-4 py-3">
-                  <p className="text-sm font-semibold text-slate-700 font-display">{missing.employeeName || 'Unnamed Employee'}</p>
-                  <p className="text-sm text-slate-500 font-mono">ID: {missing.employeeId}</p>
+            <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+              <div className="max-h-80 overflow-y-auto">
+                {paginatedMissingEmployees.map(missing => (
+                  <div key={missing.employeeId} className="flex items-center justify-between px-4 py-3">
+                    <p className="text-sm font-semibold text-slate-700 font-display">{missing.employeeName || 'Unnamed Employee'}</p>
+                    <p className="text-sm text-slate-500 font-mono">ID: {missing.employeeId}</p>
+                  </div>
+                ))}
+              </div>
+              {missingEmployeesModal && missingEmployeesModal.length > PAGE_SIZE && (
+                <div className="px-4 py-3 bg-white">
+                  <PaginationFooter items={missingEmployeesModal} page={missingPage} setPage={setMissingPage} pageSize={PAGE_SIZE} />
                 </div>
-              ))}
+              )}
             </div>
             <div className="mt-5 flex justify-end border-t border-slate-100 pt-3">
               <button

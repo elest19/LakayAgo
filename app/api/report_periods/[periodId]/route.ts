@@ -38,3 +38,23 @@ export async function PUT(req: Request, context: any) {
   logAudit({ user_id: session.user_id, restaurant: existing.restaurant, action: 'update_report_period', table_name: 'report_periods', record_id: String(periodId), old_data: existing, new_data: updated })
   return NextResponse.json({ period: updated })
 }
+
+export async function DELETE(req: Request, context: any) {
+  const session = await getSessionFromRequest(req)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { periodId } = await context.params
+
+  const { rows: existingRows } = await query('select * from report_periods where report_period_id = $1 limit 1', [Number(periodId)])
+  const existing = existingRows[0]
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (session.role !== 'SuperAdmin' && existing.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  try {
+    await query('delete from report_periods where report_period_id = $1', [Number(periodId)])
+    logAudit({ user_id: session.user_id, restaurant: existing.restaurant, action: 'delete_report_period', table_name: 'report_periods', record_id: String(periodId), old_data: existing, new_data: null })
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('Failed to delete report_period', err)
+    return NextResponse.json({ error: 'Delete failed' }, { status: 500 })
+  }
+}

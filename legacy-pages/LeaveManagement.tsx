@@ -1,10 +1,11 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import { CheckCircle, XCircle, X, Plus } from 'lucide-react'
 import type { LeaveRequest } from '../types'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
+import PaginationFooter from '../components/PaginationFooter'
 
 const statusColor: Record<LeaveRequest['status'], string> = {
   Pending: 'bg-amber-200 text-amber-700',
@@ -475,6 +476,11 @@ export default function LeaveManagement() {
   }
   return false
   });
+  const PAGE_SIZE = 10
+  const [page, setPage] = useState(1)
+  useEffect(() => { setPage(1) }, [statusFilter, restaurantFilter, filtered.length])
+  const pageData = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page])
+  const emptyRowsCount = pageData.length === 0 ? 0 : Math.max(0, PAGE_SIZE - pageData.length)
   
   const isOnLeave = (request: any) => {
     const start = new Date(request.startDate)
@@ -581,7 +587,7 @@ export default function LeaveManagement() {
                       ]}
                     />
                   ) : (
-                    filtered.map(leave => {
+                    pageData.map(leave => {
                       const ltIdx = leaveTypes.indexOf(leave.leaveType) % leaveColors.length
                       return (
                         <tr
@@ -633,7 +639,7 @@ export default function LeaveManagement() {
               </table>
             ) : (
               <div className="flex flex-col">
-                {filtered.map(leave => (
+                {pageData.map(leave => (
                     <button key={leave.id} onClick={() => setSelectedLeave(leave)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-700">{leave.employeeName}</div>
@@ -645,9 +651,19 @@ export default function LeaveManagement() {
                       })()}
                   </button>
                 ))}
+                {pageData.length > 0 && pageData.length < PAGE_SIZE && Array.from({ length: emptyRowsCount }).map((_, ei) => (
+                  <div key={`empty-mobile-${ei}`} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 invisible">
+                    <div>
+                      <div className="text-sm font-medium text-slate-700">Placeholder</div>
+                      <div className="text-xs text-slate-400">—</div>
+                    </div>
+                    <div className="text-[10px] px-2 py-0.5 rounded-full font-medium">Status</div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
+          <PaginationFooter items={filtered} page={page} setPage={setPage} pageSize={PAGE_SIZE} noun="requests" />
         </div>
       )}
 

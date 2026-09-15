@@ -1,10 +1,12 @@
 "use client"
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { Plus, Edit2, Trash2, Eye, EyeOff } from 'lucide-react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
+import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import Modal from '../components/Modal'
 import { TimePicker } from '../components/TimePicker'
+import PaginationFooter from '../components/PaginationFooter'
 
 type Tab = 'payroll' | 'attendance' | 'holidays' | 'users'
 
@@ -32,6 +34,50 @@ const holidayTypeColor: Record<string, string> = {
   'Special Non-Working Holiday': 'bg-amber-100 text-amber-700',
   'Company Holiday': 'bg-blue-100 text-blue-700',
 }
+
+const normalizeDateOnly = (value: any): string => {
+  if (!value) return ''
+
+  // Date-only values must remain date-only.
+  // Never pass YYYY-MM-DD through new Date(), because that can
+  // introduce timezone-related day shifts.
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+
+    // YYYY-MM-DD
+    const dateOnlyMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/)
+    if (dateOnlyMatch) {
+      return dateOnlyMatch[1]
+    }
+  }
+
+  // Only use Date for actual Date objects or non-string values.
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return ''
+
+    const year = value.getFullYear()
+    const month = String(value.getMonth() + 1).padStart(2, '0')
+    const day = String(value.getDate()).padStart(2, '0')
+
+    return `${year}-${month}-${day}`
+  }
+
+  return ''
+}
+
+const formatHolidayDateDisplay = (value: any): string => {
+  const dateOnly = normalizeDateOnly(value)
+  if (!dateOnly) return ''
+
+  const [year, month, day] = dateOnly.split('-').map(Number)
+
+  const monthName = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+  }).format(new Date(Date.UTC(year, month - 1, 1)))
+
+  return `${monthName} ${day}, ${year}`
+}
+
 
 interface SkeletonBarProps {
   width?: string | number
@@ -89,6 +135,88 @@ export default function SettingsPage() {
   const [userList, setUserList] = useState<any[]>([])
   const [holidayLoading, setHolidayLoading] = useState(true)
   const [userLoading, setUserLoading] = useState(true)
+  const HOLIDAY_PAGE_SIZE = 10
+  const [holidayPage, setHolidayPage] = useState(1)
+
+  const refreshHolidays = useCallback(async () => {
+    try {
+      setHolidayLoading(true)
+      const res = await fetch('/api/settings/holidays')
+      if (!res.ok) return
+      const body = await res.json()
+      const mapped = (body || []).map((h: any) => ({
+        id: h.id,
+        date: formatHolidayDateDisplay(h.date),
+        holiday: h.holiday_name || h.holiday || '',
+        type: (h.type === 'SPECIAL' || h.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : h.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday',
+        status: h.active ? 'Active' : 'Inactive',
+        raw: h,
+      }))
+      setHolidayList(mapped)
+    } catch (err) {
+      console.error('Failed to load holidays', err)
+    } finally {
+      setHolidayLoading(false)
+    }
+  }, [])
+
+  const refreshAttendanceSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/attendance')
+      if (!res.ok) return
+      const body = await res.json()
+      const mapped = {
+        gracePeriod: body && typeof body.grace_period === 'number' ? String(Math.round(body.grace_period / 60)) : defaultAttendanceSettings.gracePeriod,
+        requiredDailyHours: body && (body.required_daily_hours != null) ? String(body.required_daily_hours) : defaultAttendanceSettings.requiredDailyHours,
+        breakDuration: body && typeof body.break_duration === 'number' ? String(Math.round(body.break_duration / 60)) : defaultAttendanceSettings.breakDuration,
+        overtimeThreshold: body && typeof body.overtime_threshold === 'number' ? String(body.overtime_threshold / 3600) : defaultAttendanceSettings.overtimeThreshold,
+        startTime: body?.start_time ?? defaultAttendanceSettings.startTime,
+        endTime: body?.end_time ?? defaultAttendanceSettings.endTime,
+        halfDay: normalizeToTimeString(body?.half_day),
+      }
+      setAttendanceSettings(mapped)
+      setOriginalAttendanceSettings(mapped)
+    } catch (err) {
+      console.error('Failed to load attendance settings', err)
+    }
+  }, [])
+
+  const refreshPayrollSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/payroll')
+      if (!res.ok) return
+      const body = await res.json()
+      const mapped = {
+        undertimeDeduction: body && (body.undertime_deduction != null) ? String(body.undertime_deduction) : defaultPayrollSettings.undertimeDeduction,
+        undertimeDeductionRateType: body?.undertime_deduction_rate_type === 'Minute' ? 'Minute' : 'Hour',
+        undertimeDeductionRate: body && (body.undertime_deduction_rate != null) ? String(body.undertime_deduction_rate) : defaultPayrollSettings.undertimeDeductionRate,
+      }
+      setPayrollSettings(mapped)
+      setOriginalPayrollSettings(mapped)
+    } catch (err) {
+      console.error('Failed to load payroll settings', err)
+    }
+  }, [])
+
+  useRealtimeEntity('holidays', {
+    onChange: () => { void refreshHolidays() },
+  })
+
+  useRealtimeEntity('attendance_settings', {
+    onChange: () => { void refreshAttendanceSettings() },
+  })
+
+  useRealtimeEntity('payroll_settings', {
+    onChange: () => { void refreshPayrollSettings() },
+  })
+
+  useEffect(() => { setHolidayPage(1) }, [holidayList])
+
+  const holidayPageData = useMemo(() => {
+    const start = (holidayPage - 1) * HOLIDAY_PAGE_SIZE
+    return holidayList.slice(start, start + HOLIDAY_PAGE_SIZE)
+  }, [holidayList, holidayPage])
+  const holidayEmptyCount = holidayPageData.length === 0 ? 0 : Math.max(0, HOLIDAY_PAGE_SIZE - holidayPageData.length)
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -130,7 +258,7 @@ export default function SettingsPage() {
         if (!mounted) return
         const mapped = (body || []).map((h: any) => ({
           id: h.id,
-          date: new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          date: formatHolidayDateDisplay(h.date),
           holiday: h.holiday_name || h.holiday || '',
           type: (h.type === 'SPECIAL' || h.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : h.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday',
           status: h.active ? 'Active' : 'Inactive',
@@ -671,7 +799,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                     ]}
                   />
                 ) : (
-                  holidayList.map((h, i) => (
+                  holidayPageData.map((h, i) => (
                     <tr
                       key={`${h.date}-${h.holiday}`}
                       className="hover:bg-slate-50 group cursor-pointer"
@@ -700,7 +828,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
             </table>
           ) : (
             <div className="flex flex-col">
-              {holidayList.map((h, i) => (
+              {holidayPageData.map((h, i) => (
                 <div key={`${h.date}-${h.holiday}`} className="p-3 border-b border-slate-50 flex items-center justify-between gap-3">
                   <button onClick={() => setSelectedHoliday(h)} className="text-left flex-1 min-w-0 hover:bg-slate-50">
                     <div className="text-sm font-medium text-slate-700">{h.holiday}</div>
@@ -708,8 +836,17 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                   </button>
                 </div>
               ))}
+              {holidayPageData.length > 0 && holidayPageData.length < HOLIDAY_PAGE_SIZE && Array.from({ length: holidayEmptyCount }).map((_, i) => (
+                <div key={`empty-${i}`} className="p-3 border-b border-slate-50 flex items-center justify-between gap-3 invisible">
+                  <div>
+                    <div className="text-sm font-medium text-slate-700">Placeholder</div>
+                    <div className="text-xs text-slate-400">—</div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
+          <PaginationFooter items={holidayList} page={holidayPage} setPage={setHolidayPage} pageSize={HOLIDAY_PAGE_SIZE} noun="holidays" />
           {/* Holidays do not use the global Save Changes button here; actions are per-item in the modal */}
         </div>
       )}
@@ -938,28 +1075,51 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                   const item: any = editingHoliday.item
                   const mapTypeToDb = (t: string) => {
                     if (t === 'Company Holiday') return 'COMPANY'
-                    // prefer new 'SPECIAL' enum value, but backend accepts both
-                    if (t === 'Special Non-Working Holiday') return 'SPECIAL'
+                    if (t === 'Special Non-Working Holiday') return 'SPECIAL_NON_WORKING'
                     return 'REGULAR'
                   }
 
-                  const toIsoDate = (d: any) => {
+                  const normalizeLocalDate = (d: any) => {
                     if (!d) return null
-                    // prefer raw if available
-                    if (item.raw && item.raw.date) return new Date(item.raw.date).toISOString().slice(0,10)
+
+                    if (typeof d === 'string') {
+                      const trimmed = d.trim()
+                      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+                      if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) return trimmed.slice(0, 10)
+                    }
+
                     const parsed = new Date(d)
-                    if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0,10)
-                    // try parsing short format like "Aug 26, 2026"
-                    const p2 = new Date(d)
-                    if (!isNaN(p2.getTime())) return p2.toISOString().slice(0,10)
-                    return null
+                    if (Number.isNaN(parsed.getTime())) return null
+
+                    const year = parsed.getUTCFullYear()
+                    const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+                    const day = String(parsed.getUTCDate()).padStart(2, '0')
+                    return `${year}-${month}-${day}`
                   }
 
+                  const currentDateValue = item.date || (item.raw && item.raw.date)
+                  const normalizedDate = normalizeDateOnly(currentDateValue)
                   const payload = {
-                    date: toIsoDate(item.date),
+                    date: normalizedDate,
                     holiday_name: item.holiday,
                     type: mapTypeToDb(item.type),
                     active: item.status === 'Active'
+                  }
+
+                  if (!payload.date) {
+                    showToast({ type: 'error', message: 'Invalid date', description: 'Please choose a valid holiday date.' })
+                    return
+                  }
+
+                  const duplicateDate = holidayList.some((entry) => {
+                    const entryDate = normalizeDateOnly(entry.raw?.date ?? entry.date)
+                    if (!entryDate) return false
+                    return entryDate === payload.date && entry.id !== item.id
+                  })
+
+                  if (duplicateDate) {
+                    showToast({ type: 'error', message: 'Duplicate holiday date', description: 'A holiday already exists for that date.' })
+                    return
                   }
 
                   try {
@@ -967,14 +1127,14 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                       const res = await fetch(`/api/settings/holidays/${item.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
                       if (!res.ok) throw new Error('Update failed')
                       const updated = await res.json()
-                      const mapped = { id: updated.id, date: new Date(updated.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), holiday: updated.holiday_name, type: (updated.type === 'SPECIAL' || updated.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : updated.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday', status: updated.active ? 'Active' : 'Inactive', raw: updated }
+                      const mapped = { id: updated.id, date: formatHolidayDateDisplay(updated.date), holiday: updated.holiday_name, type: (updated.type === 'SPECIAL' || updated.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : updated.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday', status: updated.active ? 'Active' : 'Inactive', raw: updated }
                       setHolidayList(prev => prev.map((it) => it.id === mapped.id ? mapped : it))
                       showToast({ type: 'success', message: 'Holiday updated', description: `${mapped.holiday} was updated successfully.` })
                     } else {
                       const res = await fetch('/api/settings/holidays', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
                       if (!res.ok) throw new Error('Create failed')
                       const created = await res.json()
-                      const mapped = { id: created.id, date: new Date(created.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), holiday: created.holiday_name, type: (created.type === 'SPECIAL' || created.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : created.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday', status: created.active ? 'Active' : 'Inactive', raw: created }
+                      const mapped = { id: created.id, date: formatHolidayDateDisplay(created.date), holiday: created.holiday_name, type: (created.type === 'SPECIAL' || created.type === 'SPECIAL_NON_WORKING') ? 'Special Non-Working Holiday' : created.type === 'COMPANY' ? 'Company Holiday' : 'Regular Holiday', status: created.active ? 'Active' : 'Inactive', raw: created }
                       setHolidayList(prev => [mapped, ...prev])
                       showToast({ type: 'success', message: 'Holiday created', description: `${mapped.holiday} was added.` })
                     }
@@ -1308,7 +1468,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
             <button onClick={() => setSelectedHoliday(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
             <button onClick={() => {
                 const idx = holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date)
-                const isoDate = selectedHoliday?.raw?.date ? new Date(selectedHoliday.raw.date).toISOString().slice(0,10) : (selectedHoliday?.date ? new Date(selectedHoliday.date).toISOString().slice(0,10) : '')
+                const isoDate = normalizeDateOnly(selectedHoliday?.raw?.date ?? selectedHoliday?.date)
                 setSelectedHoliday(null)
                 setEditingHoliday({ index: idx, item: { ...selectedHoliday, date: isoDate } })
               }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
