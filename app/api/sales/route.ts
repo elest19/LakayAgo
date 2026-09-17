@@ -15,18 +15,35 @@ export async function GET(req: Request) {
     const values: any[] = []
 
     if (session.role !== 'SuperAdmin') {
-      clauses.push('restaurant = $1')
+      clauses.push('s.restaurant = $1')
       values.push(session.restaurant)
     } else if (qRestaurant) {
-      clauses.push('restaurant = $1')
+      clauses.push('s.restaurant = $1')
       values.push(qRestaurant)
     }
 
-    let sql = 'SELECT * FROM sales'
+    // Sales rows only store food_and_beverage_id, which may point at either a menu
+    // item or a food package/bundle (see db/009_allow_sales_reference_bundles.sql),
+    // so the category is derived here: an id that resolves to a menu item with the
+    // same name is a menu item (mirroring the app/trigger lookup precedence),
+    // otherwise a matching food_packages row means the sale was a bundle.
+    let sql = `SELECT s.*,
+        CASE
+          WHEN EXISTS (
+            SELECT 1 FROM food_and_beverage_inventory fi
+            WHERE fi.food_and_beverage_id = s.food_and_beverage_id AND fi.name = s.item
+          ) THEN 'Menu Item'
+          WHEN EXISTS (
+            SELECT 1 FROM food_packages fp
+            WHERE fp.food_package_id = s.food_and_beverage_id
+          ) THEN 'Food Bundle'
+          ELSE 'Menu Item'
+        END AS category
+      FROM sales s`
     if (clauses.length > 0) {
       sql += ` WHERE ${clauses.join(' AND ')}`
     }
-    sql += ' ORDER BY created_at DESC'
+    sql += ' ORDER BY s.created_at DESC'
 
     const result = await query(sql, values)
     return NextResponse.json({ sales: result.rows })

@@ -460,9 +460,9 @@ export default function AttendanceRecords() {
           <button
           onClick={() => navigate('import-attendance')}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display"
-        >
-          <Upload size={16} />
-        </button>
+          >
+            <Upload size={16} />
+          </button>
           </>
          ) : ( 
           <>
@@ -477,122 +477,251 @@ export default function AttendanceRecords() {
       </div>
       
       {/* Filter Bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
+      {isMobile ? (
+        <>
+          <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5  gap-3 shadow-sm">
+            {/* Search Bar */}
+            <div className="flex items-center gap-2 mb-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+              <Search size={14} className="text-slate-400 shrink-0" />
+              <input 
+                value={search} 
+                onChange={e => { setSearch(e.target.value); setPage(1) }} 
+                placeholder="Search employee..." 
+                className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" 
+              />
+            </div>
 
-        {/* Search Bar */}
-        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
-          <Search size={14} className="text-slate-400 shrink-0" />
-          <input 
-            value={search} 
-            onChange={e => { setSearch(e.target.value); setPage(1) }} 
-            placeholder="Search employee..." 
-            className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" 
-          />
-        </div>
+            {/* Restaurant Filter */}
+            <div className="flex items-center gap-2 mb-2">
+              <select 
+                value={restaurant} 
+                onChange={e => { 
+                  setRestaurant(e.target.value as 'Lakay Ago' | 'Aroo' | 'Both')
+                  setPeriod('')
+                  setSpecificDate('')
+                  setPage(1)
+                }} 
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px]"
+              >
+                <option value="Both">All Restaurants</option>
+                <option value="Lakay Ago">Lakay Ago</option>
+                <option value="Aroo">Aroo</option>
+              </select>
+            </div>
 
-        {/* Restaurant Filter */}
-        <div className="flex items-center gap-2">
+            {/* Payroll Period Filter */}
+            <div className="flex items-center gap-2 mb-2">
+              <select 
+                value={period} 
+                onChange={e => { 
+                  setPeriod(e.target.value)
+                  setSpecificDate('')
+                  setPage(1)
+                }} 
+                disabled={restaurant === 'Both'}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px] disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+              >
+                <option value="">Select Payroll Period</option>
+                {periods.map(p => (
+                  <option key={p.report_period_id} value={String(p.report_period_id)}>
+                    {p.period_start} to {p.period_end} ({p.status})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {/* Specific Date Filter */}
+                <div className="flex items-center gap-2 mb-2">
+                  {(() => {
+                    const selectedPeriod = periods.find(p => String(p.report_period_id) === period) || null
+                    return (
+                      <div className="relative">
+                        <input
+                          type="date"
+                          value={specificDate}
+                          onChange={e => {
+                            setSpecificDate(e.target.value)
+                            setPage(1)
+                          }}
+                          min={selectedPeriod?.period_start}
+                          max={selectedPeriod?.period_end}
+                          disabled={!period}
+                          className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display disabled:bg-slate-50 disabled:text-slate-400 [&::-webkit-datetime-edit]:text-transparent focus:[&::-webkit-datetime-edit]:text-slate-600 [&.has-value::-webkit-datetime-edit]:text-slate-600"
+                        />
+                        {!specificDate && (
+                          <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-slate-400 font-display">
+                            {period ? 'YYYY/MM/DD' : 'YYYY/MM/DD'}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
+                </div>
+              <div>
+              {/* Status Filter */}
+              <select 
+                value={statusFilter} 
+                onChange={e => { setStatusFilter(e.target.value); setPage(1) }} 
+                className="w-full mb-2 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display"
+              >
+                <option value="">Status: All</option>
+                {['Present', 'Absent', 'Leave', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
+              </select>
+              </div>
+            </div>
+
+            {/* Sort Button */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleSort('employee')}
+                className={`w-full flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors font-display ${
+                  sortBy === 'employee'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <ArrowUpDown size={14} />
+                <span>Employee</span>
+                {sortBy === 'employee' && (
+                  <span className="text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                )}
+              </button>
+              <button
+                onClick={() => handleSort('date')}
+                className={`w-full flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors font-display ${
+                  sortBy === 'date'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <ArrowUpDown size={14} />
+                <span>Date</span>
+                {sortBy === 'date' && (
+                  <span className="text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
+          {/* Search Bar */}
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input 
+              value={search} 
+              onChange={e => { setSearch(e.target.value); setPage(1) }} 
+              placeholder="Search employee..." 
+              className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" 
+            />
+          </div>
+
+          {/* Restaurant Filter */}
+          <div className="flex items-center gap-2">
+            <select 
+              value={restaurant} 
+              onChange={e => { 
+                setRestaurant(e.target.value as 'Lakay Ago' | 'Aroo' | 'Both')
+                setPeriod('')
+                setSpecificDate('')
+                setPage(1)
+              }} 
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px]"
+            >
+              <option value="Both">All Restaurants</option>
+              <option value="Lakay Ago">Lakay Ago</option>
+              <option value="Aroo">Aroo</option>
+            </select>
+          </div>
+
+          {/* Payroll Period Filter */}
+          <div className="relative">
+            <select 
+              value={period} 
+              onChange={e => { 
+                setPeriod(e.target.value)
+                setSpecificDate('')
+                setPage(1)
+              }} 
+              disabled={restaurant === 'Both'}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[200px] pr-8 appearance-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+            >
+              <option value="">Select Payroll Period</option>
+              {periods.map(p => (
+                <option key={p.report_period_id} value={String(p.report_period_id)}>
+                  {p.restaurant} - {p.period_start} to {p.period_end} ({p.status})
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none size-4" />
+          </div>
+
+          {/* Specific Date Filter */}
+          <div className="relative">
+            {(() => {
+              const selectedPeriod = periods.find(p => String(p.report_period_id) === period) || null
+              return (
+                <input
+                  type="date"
+                  value={specificDate}
+                  onChange={e => { 
+                    setSpecificDate(e.target.value)
+                    setPage(1)
+                  }}
+                  min={selectedPeriod?.period_start}
+                  max={selectedPeriod?.period_end}
+                  disabled={!period}
+                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px] disabled:bg-slate-50 disabled:text-slate-400"
+                  placeholder={period ? "Select date within period" : "Select period first"}
+                />
+              )
+            })()}
+          </div>
+
+          {/* Status Filter */}
           <select 
-            value={restaurant} 
-            onChange={e => { 
-              setRestaurant(e.target.value as 'Lakay Ago' | 'Aroo' | 'Both')
-              setPeriod('')
-              setSpecificDate('')
-              setPage(1)
-            }} 
+            value={statusFilter} 
+            onChange={e => { setStatusFilter(e.target.value); setPage(1) }} 
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px]"
           >
-            <option value="Both">All Restaurants</option>
-            <option value="Lakay Ago">Lakay Ago</option>
-            <option value="Aroo">Aroo</option>
+            <option value="">Status: All</option>
+            {['Present', 'Absent', 'Leave', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
           </select>
-        </div>
 
-        {/* Payroll Period Filter */}
-        <div className="relative">
-          <select 
-            value={period} 
-            onChange={e => { 
-              setPeriod(e.target.value)
-              setSpecificDate('')
-              setPage(1)
-            }} 
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[200px] pr-8 appearance-none"
-          >
-            <option value="">Select Payroll Period</option>
-            {periods.map(p => (
-              <option key={p.report_period_id} value={String(p.report_period_id)}>
-                {p.restaurant} - {p.period_start} to {p.period_end} ({p.status})
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none size-4" />
+          {/* Sort Button */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleSort('employee')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors font-display ${
+                sortBy === 'employee'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50'
+              }`}
+            >
+              <ArrowUpDown size={14} />
+              <span>Employee</span>
+              {sortBy === 'employee' && (
+                <span className="text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>
+              )}
+            </button>
+            <button
+              onClick={() => handleSort('date')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors font-display ${
+                sortBy === 'date'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50'
+              }`}
+            >
+              <ArrowUpDown size={14} />
+              <span>Date</span>
+              {sortBy === 'date' && (
+                <span className="text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>
+              )}
+            </button>
+          </div>
         </div>
-
-        {/* Specific Date Filter */}
-        <div className="relative">
-          {(() => {
-            const selectedPeriod = periods.find(p => String(p.report_period_id) === period) || null
-            return (
-              <input
-                type="date"
-                value={specificDate}
-                onChange={e => { 
-                  setSpecificDate(e.target.value)
-                  setPage(1)
-                }}
-                min={selectedPeriod?.period_start}
-                max={selectedPeriod?.period_end}
-                disabled={!period}
-                className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px] disabled:bg-slate-50 disabled:text-slate-400"
-                placeholder={period ? "Select date within period" : "Select period first"}
-              />
-            )
-          })()}
-        </div>
-
-        {/* Status Filter */}
-        <select 
-          value={statusFilter} 
-          onChange={e => { setStatusFilter(e.target.value); setPage(1) }} 
-          className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px]"
-        >
-          <option value="">Status: All</option>
-          {['Present', 'Absent', 'Leave', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'].map(s => <option key={s}>{s}</option>)}
-        </select>
-
-        {/* Sort Button */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => handleSort('employee')}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors font-display ${
-              sortBy === 'employee'
-                ? 'bg-indigo-600 text-white border-indigo-600'
-                : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50'
-            }`}
-          >
-            <ArrowUpDown size={14} />
-            <span>Employee</span>
-            {sortBy === 'employee' && (
-              <span className="text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>
-            )}
-          </button>
-          <button
-            onClick={() => handleSort('date')}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors font-display ${
-              sortBy === 'date'
-                ? 'bg-indigo-600 text-white border-indigo-600'
-                : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50'
-            }`}
-          >
-            <ArrowUpDown size={14} />
-            <span>Date</span>
-            {sortBy === 'date' && (
-              <span className="text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>
-            )}
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Table / Mobile list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
@@ -728,12 +857,20 @@ export default function AttendanceRecords() {
                         </div>
 
                         <div className="shrink-0 text-right">
-                          <div className="text-xs text-slate-500">
-                            <span className="text-slate-400">First In:</span> {rec.firstOnDuty ?? rec.timeIn ?? '—'}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            <span className="text-slate-400">First Out:</span> {rec.firstOffDuty ?? rec.timeOut ?? '—'}
-                          </div>
+                          {rec.status === 'Absent' ? (
+                            <div className="text-xs text-slate-500">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${statusColor[rec.status]}`}>{rec.status}</span>
+                            </div>
+                          ) : (
+                            <>
+                            <div className="text-xs text-slate-500">
+                              <span className="text-slate-400">Time In:</span> {rec.firstOnDuty ?? rec.timeIn ?? '—'}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              <span className="text-slate-400">Time Out:</span> {rec.firstOffDuty ?? rec.timeOut ?? '—'}
+                            </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>

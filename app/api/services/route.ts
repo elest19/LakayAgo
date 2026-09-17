@@ -113,13 +113,45 @@ export async function PUT(req: Request) {
     }
 
     if (Array.isArray(assets)) {
-      await query('DELETE FROM service_assets WHERE service_id = $1', [service_id])
+      const incoming = assets
+        .map((a: any) => Number(a.asset_id))
+        .filter((aid: number) => Number.isFinite(aid) && aid > 0)
+
+      const currentRows = await query('SELECT asset_id FROM service_assets WHERE service_id = $1', [service_id])
+      const currentIds = new Set<number>((currentRows.rows || []).map((row: any) => Number(row.asset_id)))
+      const incomingSet = new Set<number>(incoming)
+      const toRemove: number[] = [...currentIds].filter((assetId: number) => !incomingSet.has(assetId))
+
+      if (toRemove.length > 0) {
+        const lockedRows = await query(
+          'SELECT DISTINCT asset_id FROM service_transaction_assets WHERE service_id = $1 AND asset_id = ANY($2)',
+          [service_id, toRemove]
+        )
+        const lockedIds = new Set<number>((lockedRows.rows || []).map((row: any) => Number(row.asset_id)))
+        if (lockedIds.size > 0) {
+          return NextResponse.json(
+            { error: 'Cannot remove asset assignments already used in service transactions.' },
+            { status: 409 }
+          )
+        }
+      }
+
+      if (toRemove.length > 0) {
+        await query(
+          'DELETE FROM service_assets WHERE service_id = $1 AND asset_id = ANY($2)',
+          [service_id, toRemove]
+        )
+      }
+
       for (const a of assets) {
         const aid = Number(a.asset_id)
         const qty = Number(a.quantity || 0)
         if (!Number.isFinite(aid) || aid <= 0 || !Number.isFinite(qty) || qty <= 0) continue
         await query(
-          'INSERT INTO service_assets (service_id, asset_id, quantity_used) VALUES ($1, $2, $3)',
+          `INSERT INTO service_assets (service_id, asset_id, quantity_used)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (service_id, asset_id)
+           DO UPDATE SET quantity_used = EXCLUDED.quantity_used`,
           [service_id, aid, qty]
         )
       }

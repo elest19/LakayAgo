@@ -327,21 +327,6 @@ export default function DateFilter({ value, onChange, allLabel = 'All', classNam
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <select
-        value={value.mode}
-        onChange={e => changeMode(e.target.value as DateFilterMode)}
-        className={`${selectClasses} ${controlClassName}`}
-      >
-        <option value="all">{allLabel}</option>
-        <option value="today">Today</option>
-        <option value="week">This Week</option>
-        <option value="month">This Month</option>
-        <option value="year">This Year</option>
-        <option value="custom_date">Custom Date</option>
-        <option value="custom_month">Custom Month</option>
-        <option value="custom_year">Custom Year</option>
-      </select>
-
       {value.mode === 'custom_date' && (
         <input
           type="date"
@@ -370,6 +355,21 @@ export default function DateFilter({ value, onChange, allLabel = 'All', classNam
           className={controlClassName}
         />
       )}
+
+      <select
+        value={value.mode}
+        onChange={e => changeMode(e.target.value as DateFilterMode)}
+        className={`${selectClasses} ${controlClassName}`}
+      >
+        <option value="all">{allLabel}</option>
+        <option value="today">Today</option>
+        <option value="week">This Week</option>
+        <option value="month">This Month</option>
+        <option value="year">This Year</option>
+        <option value="custom_date">Custom Date</option>
+        <option value="custom_month">Custom Month</option>
+        <option value="custom_year">Custom Year</option>
+      </select>
     </div>
   )
 }

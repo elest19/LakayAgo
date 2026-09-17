@@ -193,12 +193,59 @@ export async function DELETE(req: Request) {
     const url = new URL(req.url)
     const id = url.searchParams.get('id')
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+
+    // Hard delete (permanent): the menu item's recipe rows are removed together with the item,
+    // and deletion is only allowed while the item is not referenced by sales or food packages.
+    if (url.searchParams.get('hard_delete') === 'true') {
+      const client = await getClient()
+      try {
+        await client.query('BEGIN')
+        const existingRes = await client.query(`select * from food_and_beverage_inventory where food_and_beverage_id = $1 for update`, [id])
+        const existing = existingRes.rows[0]
+        if (!existing) { await client.query('ROLLBACK'); return NextResponse.json({ error: 'Menu item not found' }, { status: 404 }) }
+
+        const refs = await client.query(
+          `select
+             (select count(*) from sales where food_and_beverage_id = $1) as sales_count,
+             (select count(*) from food_package_items where food_and_beverage_id = $1) as package_count`,
+          [id]
+        )
+        const salesCount = Number(refs.rows[0]?.sales_count || 0)
+        const packageCount = Number(refs.rows[0]?.package_count || 0)
+        if (salesCount > 0 || packageCount > 0) {
+          await client.query('ROLLBACK')
+          const references = [
+            salesCount > 0 ? `${salesCount} sales record${salesCount === 1 ? '' : 's'}` : null,
+            packageCount > 0 ? `${packageCount} food package${packageCount === 1 ? '' : 's'}` : null,
+          ].filter(Boolean).join(' and ')
+          return NextResponse.json({ error: `Cannot delete: this menu item is still referenced by ${references}. Remove those references first.` }, { status: 400 })
+        }
+
+        // recipe rows belong to the menu item, so they go with it
+        await client.query(`delete from food_and_beverage_recipe where food_and_beverage_id = $1`, [id])
+        const deletedRes = await client.query(`delete from food_and_beverage_inventory where food_and_beverage_id = $1 returning *`, [id])
+        await client.query('COMMIT')
+        const deleted = deletedRes.rows[0]
+        await logAudit({ user_id: session.user_id, restaurant: deleted.restaurant || session.restaurant, action: 'delete_food_and_beverage', table_name: 'food_and_beverage_inventory', record_id: String(id), old_data: deleted })
+        return NextResponse.json({ deleted })
+      } catch (err: any) {
+        try { await client.query('ROLLBACK') } catch (e) {}
+        console.error('DELETE /food_and_beverage hard delete failed:', err)
+        const message = String(err?.message || '')
+        if (message.toLowerCase().includes('cannot delete')) {
+          return NextResponse.json({ error: message }, { status: 400 })
+        }
+        return NextResponse.json({ error: 'Cannot delete: referenced by existing records' }, { status: 400 })
+      } finally { client.release() }
+    }
+
     const client = await getClient()
     try {
       await client.query('BEGIN')
       const { rows } = await client.query(`update food_and_beverage_inventory set is_archived = true where food_and_beverage_id = $1 returning *`, [id])
       if (rows.length === 0) { await client.query('ROLLBACK'); return NextResponse.json({ error: 'Not found' }, { status: 404 }) }
-      await client.query(`delete from food_and_beverage_recipe where food_and_beverage_id = $1`, [id])
+      // Archiving is reversible, so the recipe rows are kept — restoring the item brings
+      // its ingredient list back intact. Recipe rows are only removed on hard delete.
       await client.query('COMMIT')
       const deleted = rows[0]
       await logAudit({ user_id: session.user_id, restaurant: deleted.restaurant || session.restaurant, action: 'archive_food_and_beverage', table_name: 'food_and_beverage_inventory', record_id: String(id), new_data: deleted })

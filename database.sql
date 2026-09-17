@@ -234,7 +234,7 @@ CREATE TABLE IF NOT EXISTS employees (
     sss numeric DEFAULT 0,
     philhealth numeric DEFAULT 0,
     pagibig numeric DEFAULT 0,
-    email text,
+    address text,
     month_pay_13th numeric
 );
 
@@ -578,7 +578,6 @@ ALTER TABLE services ADD CONSTRAINT services_check CHECK (((food_package_id IS N
 ALTER TABLE services ADD CONSTRAINT services_expenses_check CHECK ((expenses >= (0)::numeric));
 ALTER TABLE services ADD CONSTRAINT services_price_check CHECK ((price >= (0)::numeric));
 ALTER TABLE services ADD CONSTRAINT services_restaurant_check CHECK ((restaurant = ANY (ARRAY['Lakay Ago'::text, 'Aroo'::text, 'Both'::text])));
-ALTER TABLE services ADD CONSTRAINT services_service_type_check CHECK ((service_type = ANY (ARRAY['Catering'::text, 'Photoshoot'::text, 'Accommodation'::text, 'Entrance Fee'::text])));
 CREATE UNIQUE INDEX services_pkey ON public.services USING btree (service_id);
 
 -- --------------------------------------------------

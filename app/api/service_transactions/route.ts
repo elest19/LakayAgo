@@ -61,7 +61,11 @@ export async function POST(req: Request) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await req.json()
-    const { service_id, service_date, price, downpayment, discount, expenses, penalty, status, balance, deductions_applied: _deductionsApplied } = body
+    if (Object.prototype.hasOwnProperty.call(body, 'expenses')) {
+      return NextResponse.json({ error: 'Expenses are derived from transaction expense lines and cannot be set directly.' }, { status: 400 })
+    }
+
+    const { service_id, service_date, price, downpayment, discount, penalty, status, balance, deductions_applied: _deductionsApplied } = body
     if (!service_id || !service_date || price == null) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
     const penaltyValue = Number(penalty ?? 0)
@@ -83,8 +87,8 @@ export async function POST(req: Request) {
       if (svc.is_archived) { await client.query('ROLLBACK'); return NextResponse.json({ error: 'Service is archived' }, { status: 400 }) }
 
       const insertRes = await client.query(
-        `INSERT INTO service_transactions (service_id, service_date, price, downpayment, discount, expenses, penalty, status, balance) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-        [service_id, service_date, Number(price), Number(downpayment || 0), Number(discount || 0), Number(expenses || 0), penaltyValue, statusValue, balanceValue]
+        `INSERT INTO service_transactions (service_id, service_date, price, downpayment, discount, penalty, status, balance) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        [service_id, service_date, Number(price), Number(downpayment || 0), Number(discount || 0), penaltyValue, statusValue, balanceValue]
       )
       const created = insertRes.rows[0]
 

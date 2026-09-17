@@ -207,6 +207,55 @@ export async function DELETE(req: Request) {
     const id = url.searchParams.get('id')
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
+    // hard delete: permanently remove the item. Refused while it is still
+    // referenced by menu recipes or stock transfers (the FKs are RESTRICT).
+    if (url.searchParams.get('hard_delete') === 'true') {
+      const client = await db.getClient()
+      try {
+        await client.query('BEGIN')
+        const { rows } = await client.query(
+          `select * from production_inventory where production_inventory_id = $1 for update`,
+          [id]
+        )
+        if (rows.length === 0) {
+          await client.query('ROLLBACK')
+          return NextResponse.json({ error: 'Not found' }, { status: 404 })
+        }
+        const refs = await client.query(
+          `select
+             (select count(*)::int from food_and_beverage_recipe where production_inventory_id = $1) as recipes,
+             (select count(*)::int from production_inventory_transfers where from_production_inventory_id = $1 or to_production_inventory_id = $1) as transfers`,
+          [id]
+        )
+        const { recipes, transfers } = refs.rows[0]
+        if (recipes > 0 || transfers > 0) {
+          await client.query('ROLLBACK')
+          const reasons: string[] = []
+          if (recipes > 0) reasons.push(`${recipes} menu recipe${recipes === 1 ? '' : 's'}`)
+          if (transfers > 0) reasons.push(`${transfers} stock transfer${transfers === 1 ? '' : 's'}`)
+          return NextResponse.json(
+            { error: `Cannot delete: this production item is still referenced by ${reasons.join(' and ')}. Remove those references first.` },
+            { status: 400 }
+          )
+        }
+        await client.query(`delete from production_inventory where production_inventory_id = $1`, [id])
+        await client.query('COMMIT')
+        await logAudit({
+          user_id: session.user_id,
+          restaurant: null,
+          action: 'delete_production_inventory',
+          table_name: 'production_inventory',
+          record_id: String(id),
+          new_data: rows[0],
+        })
+        return NextResponse.json({ deleted: true })
+      } catch (err) {
+        try { await client.query('ROLLBACK') } catch (e) {}
+        console.error('DELETE /production_inventory (hard) failed:', err)
+        return NextResponse.json({ error: 'Server error' }, { status: 500 })
+      } finally { client.release() }
+    }
+
     // soft-delete by setting is_archived
     const result = await query(
       `update production_inventory set is_archived = true where production_inventory_id = $1

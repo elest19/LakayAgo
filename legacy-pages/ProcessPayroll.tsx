@@ -6,6 +6,7 @@ import useIsMobile from '../hooks/isMobile'
 import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import Modal from '../components/Modal'
 import WorkflowStepper from '../components/WorkflowStepper'
+import PaginationFooter from '../components/PaginationFooter'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(Number.isFinite(n) ? n : 0)
@@ -47,9 +48,26 @@ interface SkeletonTableRowsProps {
   columns: number
   rows?: number
   columnConfig?: { width?: string; pill?: boolean }[]
+  mobile?: boolean
 }
 
-function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = false }: SkeletonTableRowsProps) {
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }, (_, rowIdx) => (
+          <div key={rowIdx} className="border-b border-slate-50 p-3 flex items-center justify-between gap-3">
+            <div className="flex-1 space-y-2">
+              <SkeletonBar width={columnConfig?.[0]?.width ?? "60%"} height="0.85rem" rounded="rounded-md" />
+              <SkeletonBar width={columnConfig?.[1]?.width ?? "35%"} height="0.7rem" rounded="rounded-md" />
+            </div>
+            <SkeletonBar width={columnConfig?.[2]?.width ?? "22%"} height="0.9rem" rounded="rounded-md" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {Array.from({ length: rows }, (_, rowIdx) => (
@@ -366,6 +384,7 @@ export default function ProcessPayroll() {
   const [advancesOpen, setAdvancesOpen] = useState(false)
   const [holidaysOpen, setHolidaysOpen] = useState(true)
   const [payrollPage, setPayrollPage] = useState(0)
+  const [reviewPage, setReviewPage] = useState(0)
   const PAYROLL_PAGE_SIZE = 10
   const holidaysInnerRef = useRef<HTMLDivElement | null>(null)
   const holidaysWrapperRef = useRef<HTMLDivElement | null>(null)
@@ -900,6 +919,26 @@ export default function ProcessPayroll() {
 
   const totalPages = Math.ceil(filteredRows.length / PAYROLL_PAGE_SIZE)
   const paginatedRows = filteredRows.slice(payrollPage * PAYROLL_PAGE_SIZE, (payrollPage + 1) * PAYROLL_PAGE_SIZE)
+  const reviewPageRows = filteredRows.slice(reviewPage * PAYROLL_PAGE_SIZE, (reviewPage + 1) * PAYROLL_PAGE_SIZE)
+
+  const handlePayrollPageChange = (value: number | ((prev: number) => number)) => {
+    setPayrollPage(prev => {
+      const nextValue = typeof value === 'function' ? value(prev + 1) : value
+      return Math.max(0, Math.min(totalPages - 1, nextValue - 1))
+    })
+  }
+
+  const handleReviewPageChange = (value: number | ((prev: number) => number)) => {
+    setReviewPage(prev => {
+      const totalReviewPages = Math.max(1, Math.ceil(filteredRows.length / PAYROLL_PAGE_SIZE))
+      const nextValue = typeof value === 'function' ? value(prev + 1) : value
+      return Math.max(0, Math.min(totalReviewPages - 1, nextValue - 1))
+    })
+  }
+
+  useEffect(() => {
+    setReviewPage(0)
+  }, [search])
 
   if (!activePayrollPeriod) {
     return (
@@ -997,7 +1036,7 @@ export default function ProcessPayroll() {
             <button type="button" onClick={() => setAdvancesOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-3">
                 {advancesOpen ? <ChevronDown size={16} className="text-slate-600" /> : <ChevronRight size={16} className="text-slate-600" />}
-                <p className="text-sm font-semibold text-slate-700 font-display">Approved Cash Advances (before payroll)</p>
+                <p className="text-sm text-left font-semibold text-slate-700 font-display">Approved Cash Advances (before payroll)</p>
               </div>
               <div className="text-xs text-slate-400">{advancesForReview.length} items</div>
             </button>
@@ -1114,11 +1153,16 @@ export default function ProcessPayroll() {
                     ) : (
                       <div className="flex flex-col">
                         {payrollLoading ? (
-                          <SkeletonTableRows columns={3} rows={PAYROLL_PAGE_SIZE} columnConfig={[
-                            { width: "65%" },
-                            { width: "45%" },
-                            { width: "35%" },
-                          ]} />
+                          <SkeletonTableRows
+                            mobile
+                            columns={3}
+                            rows={PAYROLL_PAGE_SIZE}
+                            columnConfig={[
+                              { width: "65%" },
+                              { width: "45%" },
+                              { width: "35%" },
+                            ]}
+                          />
                         ) : (
                         paginatedRows.map(r => (
                           <button key={String(r.employee_id)} onClick={() => setViewRow(r)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
@@ -1136,25 +1180,15 @@ export default function ProcessPayroll() {
               </div>
 
                 {totalPages > 1 && (
-                <div className="flex items-center justify-end gap-3 mt-4 mb-5">
-                  <button
-                    onClick={() => setPayrollPage(p => Math.max(0, p - 1))}
-                    disabled={payrollPage === 0}
-                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
-                  >
-                    Previous
-                  </button>
-                  <span className="text-sm text-slate-500 font-display">
-                    Page {payrollPage + 1} of {Math.max(totalPages, 1)}
-                  </span>
-                  <button
-                    onClick={() => setPayrollPage(p => Math.min(totalPages - 1, p + 1))}
-                    disabled={payrollPage >= totalPages - 1}
-                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
-                  >
-                    Next
-                  </button>
-                </div>
+                  <div className="mt-4 mb-5">
+                    <PaginationFooter
+                      items={filteredRows}
+                      page={payrollPage + 1}
+                      setPage={handlePayrollPageChange}
+                      pageSize={PAYROLL_PAGE_SIZE}
+                      noun="employees"
+                    />
+                  </div>
                 )}
 
                 <div className="flex justify-end gap-3 mt-3">
@@ -1186,15 +1220,16 @@ export default function ProcessPayroll() {
       {step === 'review' && (
         <div className="space-y-5">
           {/* Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
               { label: 'Total Employees', value: String(totalEmployees), color: 'text-slate-600' },
               { label: 'Total Deductions', value: fmt(totalDeductions), color: 'text-red-600' },
+              { label: 'Gross Payroll', value: fmt(totalGrossPayroll), color: 'text-green-600' },
               { label: 'Net Payroll', value: fmt(totalNetPayroll), color: 'text-green-600' },
               { label: 'Overtime Cost', value: fmt(totalOvertime), color: 'text-yellow-600' },
               { label: 'Late Deductions', value: fmt(payrollRowsState.reduce((sum, row) => sum + Number(row.sum_late_min || 0), 0)), color: 'text-red-800' },
             ].map(s => (
-              <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">
+              <div key={s.label} className="gap-2 bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">
                 <p className={`font-bold font-display ${s.color} ${isMobile ? 'text-sm' : 'text-lg'}`}>{s.value}</p>
                 <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
               </div>
@@ -1207,57 +1242,66 @@ export default function ProcessPayroll() {
                 {payrollLoadError}
               </div>
             )}
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    {['Employee Name', 'Deductions', 'Net Pay', 'Actions'].map(h => (
-                      <th key={h} className={` ${h === 'Employee Name' ? 'text-left' : 'text-center'} py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap`}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {payrollLoading ? (
-                    <SkeletonTableRows columns={4} rows={6} columnConfig={[
+            {isMobile ? (
+              <div className="flex flex-col">
+                {payrollLoading ? (
+                  <SkeletonTableRows
+                    mobile
+                    columns={3}
+                    rows={PAYROLL_PAGE_SIZE}
+                    columnConfig={[
                       { width: "60%" },
-                      { width: "40%" },
-                      { width: "40%" },
-                      { width: "50%" },
-                    ]} />
-                  ) : filteredRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">No payroll rows available for this period.</td>
-                    </tr>
-                  ) : (
-                    filteredRows.map(r => {
-                      const empId = String(r.employee_id)
-                      return (
-                        <tr key={empId} className="group">
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                                <span className="text-indigo-700 text-[10px] font-bold font-display">{(r.emp.firstName || r.employee_name || 'E').charAt(0).toUpperCase()}{(r.emp.lastName || '').charAt(0).toUpperCase()}</span>
+                      { width: "35%" },
+                      { width: "22%" },
+                    ]}
+                  />
+                ) : filteredRows.length === 0 ? (
+                  <div className="px-4 py-12 text-center text-sm text-slate-500">No payroll rows available for this period.</div>
+                ) : (
+                  reviewPageRows.map(r => {
+                    const empId = String(r.employee_id)
+                    const isEditing = editingNetFor === empId
+                    return (
+                      <div key={empId} className="border-b border-slate-50">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isEditing) {
+                              setEditingNetFor(null)
+                            } else {
+                              setEditingNetFor(empId)
+                              setNetDrafts(prev => ({ ...prev, [empId]: Number(r.net_pay ?? 0).toFixed(2) }))
+                            }
+                          }}
+                          className="text-left p-3 hover:bg-slate-50 flex items-center justify-between gap-3 w-full"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-slate-700 truncate">{r.employee_name}</div>
+                            <div className="text-xs text-slate-400 truncate">{r.employee_department || r.emp.department}</div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-sm font-mono text-emerald-700">{fmt(r.net_pay)}</div>
+                            {r.net_pay_overridden && (
+                              <div className="text-[10px] text-yellow-600 whitespace-nowrap">
+                                Adjusted {fmt(Number(r.original_net_pay ?? r.net_pay))} → {fmt(r.net_pay)}
                               </div>
-                              <div>
-                                <p className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{r.employee_name}</p>
-                                <p className="text-xs text-slate-400">{r.employee_department || r.emp.department}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4 font-mono text-xs text-red-600 text-center">{fmt(r.total_deduction)}</td>
-                          <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700 text-center">
-                            {editingNetFor === empId ? (
-                              <input type="number" step="0.01" className="border border-slate-200 rounded-lg px-2 py-1 text-sm w-28" value={netDrafts[empId] ?? (Number(r.net_pay ?? 0).toFixed(2))} onChange={e => setNetDrafts(prev => ({ ...prev, [empId]: e.target.value }))} />
-                            ) : (
-                              <span>{fmt(r.net_pay)}</span>
                             )}
-                            {r.net_pay_overridden && !editingNetFor && <span className="ml-2 text-[11px] bg-yellow-100 text-yellow-600 px-2 py-0.5 rounded">Adjusted</span>}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            {editingNetFor === empId ? (
-                              <div>
-                                <button className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded-md font-semibold mr-2" onClick={async (e) => {
-                                  e.stopPropagation()
+                          </div>
+                        </button>
+
+                        {isEditing && (
+                          <div className="px-3 pb-3 space-y-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm"
+                              value={netDrafts[empId] ?? (Number(r.net_pay ?? 0).toFixed(2))}
+                              onChange={e => setNetDrafts(prev => ({ ...prev, [empId]: e.target.value }))}
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                className="flex-1 text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold"
+                                onClick={async () => {
                                   const val = Number(netDrafts[empId])
                                   if (Number.isNaN(val)) {
                                     showToast({ type: 'error', message: 'Invalid number' })
@@ -1269,38 +1313,161 @@ export default function ProcessPayroll() {
                                   if (newNet !== oldNet) {
                                     setPayrollRowsState(prev => prev.map(p => {
                                       if (String(p.employee_id) !== empId) return p
-                                      const next = {
+                                      return {
                                         ...p,
                                         original_net_pay: p.original_net_pay ?? p.net_pay,
                                         net_pay: newNet,
                                         net_pay_overridden: true,
                                       }
-                                      return next
                                     }))
                                   }
                                   setEditingNetFor(null)
-                                  // post audit log
                                   try {
-                                    await fetch('/api/audit-logs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'override_net_pay', table_name: 'payslips', record_id: empId, old_data: { net_pay: oldNet }, new_data: { net_pay: val }, description: `Override net pay for period ${activePayrollPeriod?.period_id ?? activePayrollPeriod?.report_period_id ?? activePayrollPeriod?.id}` }) })
+                                    await fetch('/api/audit-logs', {
+                                      method: 'POST',
+                                      headers: { 'content-type': 'application/json' },
+                                      body: JSON.stringify({
+                                        action: 'override_net_pay',
+                                        table_name: 'payslips',
+                                        record_id: empId,
+                                        old_data: { net_pay: oldNet },
+                                        new_data: { net_pay: val },
+                                        description: `Override net pay for period ${activePayrollPeriod?.period_id ?? activePayrollPeriod?.report_period_id ?? activePayrollPeriod?.id}`,
+                                      }),
+                                    })
                                     showToast({ type: 'success', message: 'Net pay overridden' })
                                   } catch (err) {
                                     console.error('Failed to log audit', err)
                                   }
-                                }}>Save</button>
-                                <button className="text-sm bg-red-600 hover:bg-red-700 text-white px-5 py-1.5 rounded-md font-semibold" onClick={(e) => { e.stopPropagation(); setEditingNetFor(null) }}>Cancel</button>
+                                }}
+                              >
+                                Save
+                              </button>
+                              <button
+                                className="flex-1 text-sm bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-lg font-semibold"
+                                onClick={() => setEditingNetFor(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50">
+                      {['Employee Name', 'Deductions', 'Net Pay', 'Actions'].map(h => (
+                        <th key={h} className={` ${h === 'Employee Name' ? 'text-left' : 'text-center'} py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap`}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {payrollLoading ? (
+                      <SkeletonTableRows columns={4} rows={6} columnConfig={[
+                        { width: "60%" },
+                        { width: "40%" },
+                        { width: "40%" },
+                        { width: "50%" },
+                      ]} />
+                    ) : filteredRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">No payroll rows available for this period.</td>
+                      </tr>
+                    ) : (
+                      reviewPageRows.map(r => {
+                        const empId = String(r.employee_id)
+                        return (
+                          <tr key={empId} className="group">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                                  <span className="text-indigo-700 text-[10px] font-bold font-display">{(r.emp.firstName || r.employee_name || 'E').charAt(0).toUpperCase()}{(r.emp.lastName || '').charAt(0).toUpperCase()}</span>
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{r.employee_name}</p>
+                                  <p className="text-xs text-slate-400">{r.employee_department || r.emp.department}</p>
+                                </div>
                               </div>
-                            ) : (
-                              <button className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded-md font-semibold" onClick={(e) => { e.stopPropagation(); setEditingNetFor(empId); setNetDrafts(prev => ({ ...prev, [empId]: Number(r.net_pay ?? 0).toFixed(2) })) }}>Edit</button>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                            </td>
+                            <td className="py-3 px-4 font-mono text-xs text-red-600 text-center">{fmt(r.total_deduction)}</td>
+                            <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700 text-center">
+                              {editingNetFor === empId ? (
+                                <input type="number" step="0.01" className="border border-slate-200 rounded-lg px-2 py-1 text-sm w-28" value={netDrafts[empId] ?? (Number(r.net_pay ?? 0).toFixed(2))} onChange={e => setNetDrafts(prev => ({ ...prev, [empId]: e.target.value }))} />
+                              ) : (
+                                <span>{fmt(r.net_pay)}</span>
+                              )}
+                              {r.net_pay_overridden && !editingNetFor && (
+                                <span className="ml-2 text-[11px] bg-yellow-100 text-yellow-600 px-2 py-0.5 rounded whitespace-nowrap">
+                                  Adjusted {fmt(Number(r.original_net_pay ?? r.net_pay))} → {fmt(r.net_pay)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              {editingNetFor === empId ? (
+                                <div>
+                                  <button className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded-md font-semibold mr-2" onClick={async (e) => {
+                                    e.stopPropagation()
+                                    const val = Number(netDrafts[empId])
+                                    if (Number.isNaN(val)) {
+                                      showToast({ type: 'error', message: 'Invalid number' })
+                                      return
+                                    }
+                                    const prevRow = payrollRowsState.find(p => String(p.employee_id) === empId)
+                                    const oldNet = Number(prevRow?.net_pay ?? 0)
+                                    const newNet = Number(val)
+                                    if (newNet !== oldNet) {
+                                      setPayrollRowsState(prev => prev.map(p => {
+                                        if (String(p.employee_id) !== empId) return p
+                                        const next = {
+                                          ...p,
+                                          original_net_pay: p.original_net_pay ?? p.net_pay,
+                                          net_pay: newNet,
+                                          net_pay_overridden: true,
+                                        }
+                                        return next
+                                      }))
+                                    }
+                                    setEditingNetFor(null)
+                                    try {
+                                      await fetch('/api/audit-logs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'override_net_pay', table_name: 'payslips', record_id: empId, old_data: { net_pay: oldNet }, new_data: { net_pay: val }, description: `Override net pay for period ${activePayrollPeriod?.period_id ?? activePayrollPeriod?.report_period_id ?? activePayrollPeriod?.id}` }) })
+                                      showToast({ type: 'success', message: 'Net pay overridden' })
+                                    } catch (err) {
+                                      console.error('Failed to log audit', err)
+                                    }
+                                  }}>Save</button>
+                                  <button className="text-sm bg-red-600 hover:bg-red-700 text-white px-5 py-1.5 rounded-md font-semibold" onClick={(e) => { e.stopPropagation(); setEditingNetFor(null) }}>Cancel</button>
+                                </div>
+                              ) : (
+                                <button className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded-md font-semibold" onClick={(e) => { e.stopPropagation(); setEditingNetFor(empId); setNetDrafts(prev => ({ ...prev, [empId]: Number(r.net_pay ?? 0).toFixed(2) })) }}>Edit</button>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
+
+          {filteredRows.length > PAYROLL_PAGE_SIZE && (
+            <div className="mt-3">
+              <PaginationFooter
+                items={filteredRows}
+                page={reviewPage + 1}
+                setPage={handleReviewPageChange}
+                pageSize={PAYROLL_PAGE_SIZE}
+                noun="employees"
+              />
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 mt-3">
             <div className="flex gap-3">

@@ -165,8 +165,29 @@ const attendanceImportSteps = [
   { id: 'attendance-import', label: 'Attendance Import', description: 'Load validated data' },
 ]
 
+// `<input type="time">` only accepts an `HH:MM` value, but imported attendance
+// records can arrive as `HH:MM:SS` (or `H:MM`), so normalize before binding the
+// value to the picker and drop anything the picker cannot represent.
+const toTimePickerValue = (value?: string | null): string => {
+  if (!value) return ''
+  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return ''
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (Number.isNaN(hour) || Number.isNaN(minute) || hour > 23 || minute > 59) return ''
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
 function EditAttendanceRowModal({ record, onClose, onSave }: { record: AttendanceRecord; onClose: () => void; onSave: (nextRecord: AttendanceRecord) => void }) {
-  const [draft, setDraft] = useState<AttendanceRecord>({ ...record })
+  // The tables and the payroll enrichment both read `firstOnDuty ?? timeIn`
+  // (`firstOffDuty ?? timeOut`), so seed the pickers from that same effective
+  // value the user already sees, then keep both fields in sync on change so an
+  // edit actually takes effect when the record is saved.
+  const [draft, setDraft] = useState<AttendanceRecord>({
+    ...record,
+    timeIn: toTimePickerValue(record.firstOnDuty || record.timeIn),
+    timeOut: toTimePickerValue(record.firstOffDuty || record.timeOut),
+  })
 
   return (
     <Modal open={true} title="Edit Attendance" onClose={onClose}>
@@ -181,12 +202,30 @@ function EditAttendanceRowModal({ record, onClose, onSave }: { record: Attendanc
             <input value={draft.date} readOnly className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500 outline-none" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time In</label>
-            <input value={draft.timeIn} onChange={e => setDraft(prev => ({ ...prev, timeIn: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+            <label htmlFor="edit-attendance-time-in" className="block text-xs font-medium text-slate-600 mb-1 font-display">Time In</label>
+            <input
+              id="edit-attendance-time-in"
+              type="time"
+              value={draft.timeIn}
+              onChange={e => {
+                const value = e.target.value
+                setDraft(prev => ({ ...prev, timeIn: value, firstOnDuty: value || null }))
+              }}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Time Out</label>
-            <input value={draft.timeOut} onChange={e => setDraft(prev => ({ ...prev, timeOut: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+            <label htmlFor="edit-attendance-time-out" className="block text-xs font-medium text-slate-600 mb-1 font-display">Time Out</label>
+            <input
+              id="edit-attendance-time-out"
+              type="time"
+              value={draft.timeOut}
+              onChange={e => {
+                const value = e.target.value
+                setDraft(prev => ({ ...prev, timeOut: value, firstOffDuty: value || null }))
+              }}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
           </div>
           <div className="sm:col-span-2">
             <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Status</label>
@@ -226,7 +265,7 @@ export default function ImportAttendance() {
     if (isWeekendPresent) return 'bg-violet-100 text-violet-700'
     if (status === 'Overtime') return 'bg-blue-100 text-blue-700'
     if (status === 'Absent') return 'bg-red-100 text-red-700'
-    if (status === 'Incomplete') return 'bg-amber-100 text-amber-700'
+    if (status === 'Incomplete') return 'bg-yellow-100 text-yellow-700'
     if (status === 'Rest Day') return 'bg-slate-100 text-slate-600'
     if (status === 'Holiday') return 'bg-blue-100 text-blue-700'
     return 'bg-emerald-100 text-emerald-700'
@@ -663,7 +702,7 @@ export default function ImportAttendance() {
           const timeInMinutes = toMinutes(rec.firstOnDuty ?? rec.timeIn)
           const timeOutMinutes = toMinutes(rec.firstOffDuty ?? rec.timeOut)
           const resolvedEmployeeId = sourceIdToEmployeeId.get(`${restaurantValue}|${rec.employeeId}`) ?? String(rec.employeeId)
-  const onLeave = matchesApprovedLeave(resolvedEmployeeId, String(rec.date)) || String(rec.status ?? '').trim().toLowerCase() === 'on leave'
+          const onLeave = matchesApprovedLeave(resolvedEmployeeId, String(rec.date)) || String(rec.status ?? '').trim().toLowerCase() === 'on leave'
 
           // late_minutes: clamp to 0 if on-time/early or within grace period (gracePeriod in minutes)
           let lateMinutes = 0
@@ -775,7 +814,7 @@ export default function ImportAttendance() {
             </p>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => navigate('attendance-records')} className="flex-1 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display">
+            <button onClick={() => navigate('attendance-records')} className="flex-1 border border-slate-200 text-slate-700 text-sm font-semibold py-3 rounded-lg hover:bg-slate-50 font-display">
               View Attendance
             </button>
             
@@ -812,27 +851,72 @@ export default function ImportAttendance() {
 
           {payrollPeriods === null ? (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
-                      {['Period Start', 'Period End', 'Tabulation Date', 'Restaurant'].map(h => (
-                        <th key={h} className="text-left py-3 px-6 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    <SkeletonTableRows columns={4} rows={6} columnConfig={[
-                      { width: "45%" }, { width: "45%" }, { width: "55%" }, { width: "35%" }
-                    ]} />
-                  </tbody>
-                </table>
-              </div>
+              {isMobile ? (
+                <div className="p-3 space-y-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={`period-skeleton-${i}`} className="rounded-xl border border-slate-200 p-3">
+                      <SkeletonBar width="60%" height="0.85rem" />
+                      <div className="mt-2"><SkeletonBar width="35%" height="0.75rem" /></div>
+                      <div className="mt-3 flex justify-end"><SkeletonBar width="45%" height="1.1rem" rounded="rounded-full" /></div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        {['Period Start', 'Period End', 'Tabulation Date', 'Restaurant'].map(h => (
+                          <th key={h} className="text-left py-3 px-6 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      <SkeletonTableRows columns={4} rows={6} columnConfig={[
+                        { width: "45%" }, { width: "45%" }, { width: "55%" }, { width: "35%" }
+                      ]} />
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           ) : pendingPeriods.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">No payroll periods with Pending status available.</div>
           ) : (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              {isMobile ? (
+                <div className="p-3 space-y-3">
+                  {pendingPageData.map(pp => (
+                    <button
+                      key={pp.report_period_id}
+                      type="button"
+                      onClick={() => setSelectedPayrollPeriod(pp)}
+                      className={`w-full rounded-xl border p-3 text-left transition-colors ${selectedPayrollPeriod?.report_period_id === pp.report_period_id ? 'border-green-600 bg-indigo-50' : 'border-slate-200 hover:bg-slate-50 active:bg-slate-100'}`}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-700 font-display">{pp.period_start} to {pp.period_end}</p>
+                        <p className="mt-0.5 text-xs text-slate-400">Tabulation: {pp.tabulation_date}</p>
+                      </div>
+                      <div className="mt-3 flex flex-wrap justify-end gap-2">
+                        <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-700">
+                          {pp.restaurant}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                  {pendingPageData.length > 0 && pendingPageData.length < PAGE_SIZE && Array.from({ length: Math.max(0, PAGE_SIZE - pendingPageData.length) }).map((_, i) => (
+                    <div key={`empty-mobile-period-${i}`} className="w-full rounded-xl border border-transparent p-3 invisible">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-700 font-display">Period</p>
+                        <p className="mt-0.5 text-xs text-slate-400">Tabulation: —</p>
+                      </div>
+                      <div className="mt-3 flex flex-wrap justify-end gap-2">
+                        <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-700">Restaurant</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -890,6 +974,7 @@ export default function ImportAttendance() {
                   </tbody>
                 </table>
               </div>
+              )}
               <PaginationFooter items={pendingPeriods} page={pendingPage} setPage={setPendingPage} pageSize={PAGE_SIZE} noun="periods" />
             </div>
           )}
@@ -972,6 +1057,20 @@ export default function ImportAttendance() {
                     <div className="px-4 py-4 border-b border-slate-100 flex items-center justify-between">
                       <p className="text-sm font-semibold text-slate-700 font-display">Previewed Attendance</p>
                     </div>
+                    {isMobile ? (
+                      <div className="p-3 space-y-3">
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <div key={`preview-skeleton-${i}`} className="rounded-xl border border-slate-200 p-3">
+                            <SkeletonBar width="65%" height="0.85rem" />
+                            <div className="mt-2"><SkeletonBar width="35%" height="0.75rem" /></div>
+                            <div className="mt-3 flex flex-wrap justify-end gap-2">
+                              <SkeletonBar width="70px" height="1.1rem" rounded="rounded-full" />
+                              <SkeletonBar width="70px" height="1.1rem" rounded="rounded-full" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead>
@@ -993,6 +1092,7 @@ export default function ImportAttendance() {
                         </tbody>
                       </table>
                     </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1092,24 +1192,16 @@ export default function ImportAttendance() {
                               onClick={() => setSelectedRow({ employeeId: employee.employeeId, employeeName: employee.employeeName })}
                               className="w-full rounded-xl border border-red-200 bg-red-50 p-3 text-left transition-colors hover:bg-red-100 active:bg-red-100"
                             >
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-slate-700 font-display">{employee.employeeName}</p>
-                                <p className="mt-0.5 text-xs text-slate-500">ID: {employee.employeeId}</p>
-                              </div>
-
-                              <div className="mt-3 flex flex-wrap justify-end gap-2">
-                                <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
-                                  Present: {employee.present}
-                                </span>
-                                <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">
-                                  Weekend OT: {employee.overtime}
-                                </span>
-                                <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">
-                                  Absent: {employee.absent}
-                                </span>
-                                <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">
-                                  Incomplete: {employee.incompleteCount}
-                                </span>
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-slate-700 font-display">{employee.employeeName}</p>
+                                  <p className="mt-0.5 text-xs text-slate-500">ID: {employee.employeeId}</p>
+                                </div>
+                                <div>
+                                  <span className="inline-flex justify-end items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">
+                                    Incomplete: {employee.incompleteCount}
+                                  </span>
+                                </div>
                               </div>
                             </button>
                           ))}
@@ -1122,7 +1214,7 @@ export default function ImportAttendance() {
                               </div>
                               <div className="mt-3 flex flex-wrap justify-end gap-2">
                                 <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">Present: 0</span>
-                                <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">Weekend OT: 0</span>
+                                <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">Weekends: 0</span>
                                 <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">Absent: 0</span>
                                 <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">Incomplete: 0</span>
                               </div>
@@ -1199,7 +1291,7 @@ export default function ImportAttendance() {
                   </motion.div>
                 )}
               </AnimatePresence>
-              {incompleteEmployees.length > PAGE_SIZE && (
+              {showIncompleteSection && incompleteEmployees.length > PAGE_SIZE && (
                 <div className="px-4 py-3 bg-white">
                   <PaginationFooter items={incompleteEmployees} page={incompletePage} setPage={setIncompletePage} pageSize={PAGE_SIZE} />
                 </div>
@@ -1273,7 +1365,7 @@ export default function ImportAttendance() {
                             Present: {employee.present}
                           </span>
                           <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">
-                            Weekend OT: {employee.overtime}
+                            Weekends: {employee.overtime}
                           </span>
                           <span className="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">
                             Absent: {employee.absent}
@@ -1289,7 +1381,7 @@ export default function ImportAttendance() {
                           </div>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">Present: 0</span>
-                            <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">Weekend OT: 0</span>
+                            <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">Weekends: 0</span>
                             <span className="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">Absent: 0</span>
                           </div>
                         </div>
@@ -1359,16 +1451,16 @@ export default function ImportAttendance() {
                     </tbody>
                   </table>
                 )}
-                {completeEmployees.length > PAGE_SIZE && (
-                  <div className="px-4 py-3 bg-white">
-                    <PaginationFooter items={completeEmployees} page={previewPage} setPage={setPreviewPage} pageSize={PAGE_SIZE} />
-                  </div>
-                )}
               </div>
             ))}
                 </motion.div>
               )}
             </AnimatePresence>
+            {showPreviewSection && completeEmployees.length > PAGE_SIZE && (
+              <div className="px-4 py-3 bg-white">
+                <PaginationFooter items={completeEmployees} page={previewPage} setPage={setPreviewPage} pageSize={PAGE_SIZE} />
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end items-center gap-3">
@@ -1384,27 +1476,44 @@ export default function ImportAttendance() {
               setSortDirection('asc')
             }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Back</button>
             
-            <button onClick={handleImport} disabled={importing || incompleteEmployees.length > 0} title={incompleteEmployees.length > 0 ? 'Resolve incomplete records before importing' : undefined} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display disabled:opacity-70">
-              {importing ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Importing...
-                </>
-              ) : (
-                <>Import Attendance</>
-              )}
-            </button>
+            {isMobile ? (
+              <>
+                <button onClick={handleImport} disabled={importing || incompleteEmployees.length > 0} title={incompleteEmployees.length > 0 ? 'Resolve incomplete records before importing' : undefined} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display disabled:opacity-70">
+                {importing ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Importing...
+                  </>
+                ) : (
+                  <>Import</>
+                )}
+              </button>
+              </>
+            ) : (
+              <>
+                <button onClick={handleImport} disabled={importing || incompleteEmployees.length > 0} title={incompleteEmployees.length > 0 ? 'Resolve incomplete records before importing' : undefined} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display disabled:opacity-70">
+                {importing ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Importing...
+                  </>
+                ) : (
+                  <>Import Attendance</>
+                )}
+              </button>
+              </>
+            )}
           </div>
         </div>
       )}
 
       {selectedRow && (
-        <Modal open={!!selectedRow} title={`${selectedRow.employeeName} (ID: ${selectedRow.employeeId}) — Attendance Detail`} onClose={() => setSelectedRow(null)}>
-          <div className={`${isMobile ? 'w-full' : 'w-[70vw] max-w-7xl'}`}>
+        <Modal open={!!selectedRow} title={`${isMobile ? `${selectedRow.employeeName} (ID: ${selectedRow.employeeId})` : `${selectedRow.employeeName} (ID: ${selectedRow.employeeId}) — Attendance Detail`}`} onClose={() => setSelectedRow(null)}>
+          <div className={`${isMobile ? 'w-full max-h-[60vh]' : 'w-[70vw] max-w-7xl'}`}>
             {selectedEmployeeRecords.length === 0 ? (
               <div className="rounded-lg border border-slate-200 p-4 text-sm text-slate-500">No attendance data for this employee.</div>
             ) : isMobile ? (
-              <div className="space-y-3">
+              <div className="space-y-3 pb-3">
                 {selectedEmployeeRecords.map(record => (
                   <button
                     key={`${record.employeeId}-${record.date}`}
@@ -1476,33 +1585,43 @@ export default function ImportAttendance() {
       )}
 
       {selectedDetailRecord && (
-        <Modal open={!!selectedDetailRecord} title={`${selectedDetailRecord.employeeName} — Attendance Detail`} onClose={() => setSelectedDetailRecord(null)}>
+        <Modal open={!!selectedDetailRecord} title={`Attendance Detail`} onClose={() => setSelectedDetailRecord(null)}>
           <div className="w-2xl">
             <div className="space-y-0">
-              <div className="border-b border-slate-100 pb-3">
-                <p className="text-xs text-slate-400 font-display">Date</p>
-                <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.date}</p>
-              </div>
-              <div className="border-b border-slate-100 py-3">
-                <p className="text-xs text-slate-400 font-display">Day</p>
-                <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.day || '—'}</p>
-              </div>
-              <div className="border-b border-slate-100 py-3">
-                <p className="text-xs text-slate-400 font-display">Status</p>
-                <div className="mt-1">
-                  {(() => {
-                    const cls = getStatusBadgeClasses(selectedDetailRecord.status, selectedDetailRecord.day)
-                    return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${cls}`}>{mapWeekendStatusDisplay(selectedDetailRecord.status, selectedDetailRecord.day)}</span>
-                  })()}
+              <div className="grid grid-cols-2 gap-3 md:grid border-b border-slate-100">
+                <div className="py-3">
+                  <p className="text-xs text-slate-400 font-display">Employee</p>
+                  <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.employeeName}</p>
+                </div>
+                <div className="py-3">
+                  <p className="text-xs text-slate-400 font-display">Status</p>
+                  <div className="mt-1">
+                    {(() => {
+                      const cls = getStatusBadgeClasses(selectedDetailRecord.status, selectedDetailRecord.day)
+                      return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium font-display ${cls}`}>{mapWeekendStatusDisplay(selectedDetailRecord.status, selectedDetailRecord.day)}</span>
+                    })()}
+                  </div>
                 </div>
               </div>
-              <div className="border-b border-slate-100 py-3">
-                <p className="text-xs text-slate-400 font-display">Time In</p>
-                <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.firstOnDuty ?? selectedDetailRecord.timeIn ?? '—'}</p>
+              <div className="grid grid-cols-2 gap-3 md:grid border-b border-slate-100">
+                <div className="border-b border-slate-100 py-3">
+                  <p className="text-xs text-slate-400 font-display">Date</p>
+                  <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.date}</p>
+                </div>
+                <div className="border-b border-slate-100 py-3">
+                  <p className="text-xs text-slate-400 font-display">Day</p>
+                  <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.day || '—'}</p>
+                </div>
               </div>
-              <div className="py-3">
-                <p className="text-xs text-slate-400 font-display">Time Out</p>
-                <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.firstOffDuty ?? selectedDetailRecord.timeOut ?? '—'}</p>
+              <div className="grid grid-cols-2 gap-3 md:grid border-b border-slate-100">
+                <div className="py-3">
+                  <p className="text-xs text-slate-400 font-display">Time In</p>
+                  <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.firstOnDuty ?? selectedDetailRecord.timeIn ?? '—'}</p>
+                </div>
+                <div className="py-3">
+                  <p className="text-xs text-slate-400 font-display">Time Out</p>
+                  <p className="mt-1 text-sm font-medium text-slate-700">{selectedDetailRecord.firstOffDuty ?? selectedDetailRecord.timeOut ?? '—'}</p>
+                </div>
               </div>
             </div>
 

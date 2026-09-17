@@ -7,6 +7,7 @@ import { useApp } from '../App'
 import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import Modal from '../components/Modal'
 import PaginationFooter from '../components/PaginationFooter'
+import useIsMobile from '../hooks/isMobile'
 
 type PaymentEntry = {
   cash_advance_payments_id: string
@@ -48,9 +49,9 @@ type ReportPeriodOption = {
 }
 
 const statusStyles: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-700',
-  approved: 'bg-blue-100 text-blue-700',
-  released: 'bg-violet-100 text-violet-700',
+  pending: 'bg-yellow-100 text-amber-700',
+  approved: 'bg-green-100 text-green-700',
+  released: 'bg-green-700 text-violet-100',
   cancelled: 'bg-gray-100 text-gray-700',
   rejected: 'bg-red-100 text-red-700',
 }
@@ -98,9 +99,33 @@ interface SkeletonTableRowsProps {
   columns: number
   rows?: number
   columnConfig?: { width?: string; pill?: boolean }[]
+  mobile?: boolean
 }
 
-function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = false }: SkeletonTableRowsProps) {
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }, (_, rowIdx) => (
+          <div key={rowIdx} className="border-b border-slate-100 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 space-y-2">
+                <SkeletonBar width={columnConfig?.[0]?.width ?? "60%"} height="0.85rem" rounded="rounded-md" />
+                <SkeletonBar width={columnConfig?.[1]?.width ?? "30%"} height="0.7rem" rounded="rounded-md" />
+              </div>
+              <SkeletonBar width={columnConfig?.[2]?.width ?? "24%"} height="1.1rem" rounded="rounded-full" />
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-3">
+              {Array.from({ length: 3 }, (_, colIdx) => (
+                <SkeletonBar key={colIdx} width="70%" height="0.85rem" rounded="rounded-md" />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {Array.from({ length: rows }, (_, rowIdx) => (
@@ -125,6 +150,7 @@ function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRow
 
 export default function CashAdvancePage() {
   const { showToast } = useApp()
+  const isMobile = useIsMobile()
   const [employees, setEmployees] = useState<EmployeeOption[]>([])
   const [reportPeriods, setReportPeriods] = useState<ReportPeriodOption[]>([])
   const [advances, setAdvances] = useState<CashAdvanceItem[]>([])
@@ -490,7 +516,7 @@ export default function CashAdvancePage() {
         <div className="flex items-start justify-between mb-6">
           <div>
             <h2 className="text-xl font-bold text-slate-800 font-display">Cash Advance</h2>
-            <p className="text-sm text-slate-500 mt-0.5">Manage employee advances and payroll deductions</p>
+            <p className="text-sm text-slate-500 mt-0.5">Manage employee advances</p>
           </div>
           <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
             <Plus size={16} /> Add Cash Advance
@@ -519,24 +545,30 @@ export default function CashAdvancePage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left">
-              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-                <tr>
-                  <th className="px-4 py-3">Employee</th>
-                  <th className="px-4 py-3">Restaurant</th>
-                  <th className="px-4 py-3">Amount</th>
-                  <th className="px-4 py-3">Balance</th>
-                  <th className="px-4 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                <SkeletonTableRows columns={5} rows={PAGE_SIZE} columnConfig={[
-                  { width: "70%" }, { width: "45%" },
-                  { width: "45%" }, { width: "45%" },
-                  { width: "40%", pill: true }
-                ]} />
-              </tbody>
-            </table>
+            {!isMobile ? (
+              <table className="min-w-full text-left">
+                <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+                  <tr>
+                    <th className="px-4 py-3">Employee</th>
+                    <th className="px-4 py-3">Restaurant</th>
+                    <th className="px-4 py-3">Amount</th>
+                    <th className="px-4 py-3">Balance</th>
+                    <th className="px-4 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  <SkeletonTableRows columns={5} rows={PAGE_SIZE} columnConfig={[
+                    { width: "70%" }, { width: "45%" },
+                    { width: "45%" }, { width: "45%" },
+                    { width: "40%", pill: true }
+                  ]} />
+                </tbody>
+              </table>
+            ) : (
+              <SkeletonTableRows mobile columns={3} rows={PAGE_SIZE} columnConfig={[
+                { width: "70%" }, { width: "30%" }, { width: "35%" }
+              ]} />
+            )}
           </div>
         </div>
       </div>
@@ -548,7 +580,7 @@ export default function CashAdvancePage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-slate-800 font-display">Cash Advance</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Manage employee advances and payroll deductions</p>
+          <p className="text-sm text-slate-500 mt-0.5">Manage employee advances</p>
         </div>
         <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
           <Plus size={16} /> Add Cash Advance
@@ -600,6 +632,7 @@ export default function CashAdvancePage() {
         </div>
 
         <div className="overflow-x-auto">
+          {!isMobile ? (
           <table className="min-w-full text-left">
             <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
               <tr>
@@ -649,6 +682,71 @@ export default function CashAdvancePage() {
               )}
             </tbody>
           </table>
+          ) : (
+            <div className="flex flex-col">
+              {filteredAdvances.length === 0 ? (
+                <div className="p-4 text-sm text-slate-500">No cash advances found.</div>
+              ) : (
+                pageData.map(item => (
+                  <button
+                    key={item.cash_advances_id}
+                    type="button"
+                    onClick={() => { setSelectedAdvance(item.cash_advances_id); setShowDetailModal(true); }}
+                    className="text-left p-3 border-b border-slate-100 hover:bg-slate-50 flex flex-col gap-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-700 font-display">{item.employee_name}</div>
+                        <div className="text-xs text-slate-500">Requested: {item.date_requested ?? '—'}</div>
+                      </div>
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${statusStyles[item.status] ?? 'bg-slate-100 text-slate-600'}`}>{item.status}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Restaurant</div>
+                        <div className="text-xs text-slate-600 mt-0.5">{item.restaurant}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Amount</div>
+                        <div className="text-xs font-medium text-slate-700 mt-0.5">{formatCurrency(item.amount)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Balance</div>
+                        <div className="text-xs font-medium text-slate-700 mt-0.5">{formatCurrency(item.balance_remaining)}</div>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+              {emptyRowsCount > 0 && (
+                Array.from({ length: emptyRowsCount }).map((_, ei) => (
+                  <div key={`empty-mobile-${ei}`} className="invisible p-3 border-b border-slate-100 flex flex-col gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-700 font-display">Placeholder</div>
+                        <div className="text-xs text-slate-500">Requested: 2020-01-01</div>
+                      </div>
+                      <span className="text-xs px-2 py-1 rounded-full font-medium shrink-0">Status</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Restaurant</div>
+                        <div className="text-xs text-slate-600 mt-0.5">Restaurant</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Amount</div>
+                        <div className="text-xs font-medium text-slate-700 mt-0.5">PHP 0.00</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Balance</div>
+                        <div className="text-xs font-medium text-slate-700 mt-0.5">PHP 0.00</div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
         <PaginationFooter items={filteredAdvances} page={page} setPage={setPage} pageSize={PAGE_SIZE} noun="advances" />
       </div>
@@ -809,7 +907,7 @@ export default function CashAdvancePage() {
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Restaurant</label>
                 <select value={editDraft.restaurant} onChange={e => setEditDraft(prev => ({ ...prev, restaurant: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400">
-                  {['Lakay Ago', 'Aroo', 'Both'].map(option => <option key={option} value={option}>{option}</option>)}
+                  {['Lakay Ago', 'Aroo'].map(option => <option key={option} value={option}>{option}</option>)}
                 </select>
               </div>
               <div>
@@ -846,7 +944,7 @@ export default function CashAdvancePage() {
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Restaurant</label>
                 <select value={draft.restaurant} onChange={e => setDraft(prev => ({ ...prev, restaurant: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400">
-                  {['Lakay Ago', 'Aroo', 'Both'].map(option => <option key={option} value={option}>{option}</option>)}
+                  {['Lakay Ago', 'Aroo'].map(option => <option key={option} value={option}>{option}</option>)}
                 </select>
               </div>
               <div>

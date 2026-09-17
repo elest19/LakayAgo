@@ -178,9 +178,26 @@ interface SkeletonTableRowsProps {
   columns: number
   rows?: number
   columnConfig?: { width?: string; pill?: boolean }[]
+  mobile?: boolean
 }
 
-function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = false }: SkeletonTableRowsProps) {
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }, (_, rowIdx) => (
+          <div key={rowIdx} className="border-b border-slate-50 p-3 flex items-center justify-between gap-3">
+            <div className="flex-1 space-y-2">
+              <SkeletonBar width={columnConfig?.[0]?.width ?? "60%"} height="0.85rem" rounded="rounded-md" />
+              <SkeletonBar width={columnConfig?.[1]?.width ?? "35%"} height="0.7rem" rounded="rounded-md" />
+            </div>
+            <SkeletonBar width={columnConfig?.[2]?.width ?? "22%"} height="0.9rem" rounded="rounded-md" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {Array.from({ length: rows }, (_, rowIdx) => (
@@ -332,6 +349,8 @@ export default function Payslips() {
     },
   })
 
+  const releasedPeriods = (periods || []).filter(p => ((p.status ?? p.report_period_status) || '').toLowerCase() === 'released')
+
   const filtered = payslips.filter(p => {
     const q = search.toLowerCase()
     const matchQ = !q || `${p.emp.firstName} ${p.emp.lastName}`.toLowerCase().includes(q)
@@ -354,25 +373,55 @@ export default function Payslips() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
-        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400">
-          <Search size={14} className="text-slate-400 shrink-0" />
-          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+      {isMobile ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          </div>
+          <div className="w-full">
+            <select value={period} onChange={e => { setPeriod(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+              <option value="all">All Payroll Period</option>
+              {releasedPeriods.length === 0 ? (
+                <option value="">Select payroll period</option>
+              ) : (
+                releasedPeriods.map(p => (
+                  <option key={p.report_period_id ?? p.id} value={String(p.report_period_id ?? p.id)}>{p.label || `${p.period_start} – ${p.period_end}`}</option>
+                ))
+              )}
+            </select>
+          </div>
+          <div className="w-full">
+            <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+              <option value="">Restaurant: All</option>
+              {['Lakay Ago', 'Aroo'].map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          {/* <button onClick={() => clearEmployeesCache()} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white hover:bg-slate-50 font-display">Refresh Employee Data</button> */}
         </div>
-        <select value={period} onChange={e => { setPeriod(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option value="all">All Payroll Period</option>
-          {periods.length === 0 ? (
-            <option value="">Select payroll period</option>
-          ) : (
-            periods.map(p => <option key={p.report_period_id ?? p.id} value={String(p.report_period_id ?? p.id)}>{p.label || `${p.period_start} – ${p.period_end}`}</option>)
-          )}
-        </select>
-        <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-          <option value="">Restaurant: All</option>
-          {['Lakay Ago', 'Aroo'].map(r => <option key={r} value={r}>{r}</option>)}
-        </select>
-        {/* <button onClick={() => clearEmployeesCache()} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white hover:bg-slate-50 font-display">Refresh Employee Data</button> */}
-      </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          </div>
+          <select value={period} onChange={e => { setPeriod(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="all">All Payroll Period</option>
+            {releasedPeriods.length === 0 ? (
+              <option value="">Select payroll period</option>
+            ) : (
+              releasedPeriods.map(p => (
+                <option key={p.report_period_id ?? p.id} value={String(p.report_period_id ?? p.id)}>{p.label || `${p.period_start} – ${p.period_end}`}</option>
+              ))
+            )}
+          </select>
+          <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
+            <option value="">Restaurant: All</option>
+            {['Lakay Ago', 'Aroo'].map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+          {/* <button onClick={() => clearEmployeesCache()} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white hover:bg-slate-50 font-display">Refresh Employee Data</button> */}
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -440,11 +489,16 @@ export default function Payslips() {
           ) : (
             <div className="flex flex-col">
               {loading ? (
-                <SkeletonTableRows columns={3} rows={PAGE_SIZE} columnConfig={[
-                  { width: "65%" },
-                  { width: "45%" },
-                  { width: "35%" },
-                ]} />
+                <SkeletonTableRows
+                  mobile
+                  columns={3}
+                  rows={PAGE_SIZE}
+                  columnConfig={[
+                    { width: "65%" },
+                    { width: "45%" },
+                    { width: "35%" },
+                  ]}
+                />
               ) : filtered.length === 0 ? (
                 <div className="p-4 text-sm text-slate-500">No payslips available for this period.</div>
               ) : (
@@ -452,7 +506,7 @@ export default function Payslips() {
                   <button key={p.id} onClick={() => setViewing(p)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-700">{p.emp.firstName} {p.emp.lastName}</div>
-                      <div className="text-xs text-slate-400">{p.period} • {p.emp.restaurant}</div>
+                      <div className="text-xs text-slate-400">Restaurant: {p.emp.restaurant}</div>
                     </div>
                     <div className="text-sm font-mono text-emerald-700">{formatCurrency(p.net)}</div>
                   </button>

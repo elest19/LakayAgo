@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { Plus, ArrowRight, X, Download, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, ArrowRight, X, Download, ChevronLeft, ChevronRight, Edit2, Trash } from 'lucide-react'
 import useIsMobile from '../hooks/isMobile'
 const payrollPeriods: any[] = []
 // note: keep fallback `payrollPeriods` available for safety; prefer backend data when available
@@ -48,9 +48,26 @@ interface SkeletonTableRowsProps {
   columns: number
   rows?: number
   columnConfig?: { width?: string; pill?: boolean }[]
+  mobile?: boolean
 }
 
-function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = false }: SkeletonTableRowsProps) {
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }, (_, rowIdx) => (
+          <div key={rowIdx} className="border-b border-slate-50 p-3 flex items-center justify-between gap-3">
+            <div className="flex-1 space-y-2">
+              <SkeletonBar width={columnConfig?.[0]?.width ?? "60%"} height="0.85rem" rounded="rounded-md" />
+              <SkeletonBar width={columnConfig?.[1]?.width ?? "30%"} height="0.7rem" rounded="rounded-md" />
+            </div>
+            <SkeletonBar width={columnConfig?.[2]?.width ?? "24%"} height="0.85rem" rounded="rounded-md" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {Array.from({ length: rows }, (_, rowIdx) => (
@@ -292,7 +309,7 @@ export default function PayrollPeriods() {
   }
 
   const renderPagination = () => (
-    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
+    <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-slate-100">
       <p className="text-xs text-slate-500">
         Showing {visiblePeriods.length === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, visiblePeriods.length)} of {visiblePeriods.length} periods
       </p>
@@ -415,21 +432,36 @@ export default function PayrollPeriods() {
               </table>
             ) : (
               <div className="flex flex-col">
-                {pageData.map(pp => (
-                  <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
-                      <div className="text-xs text-slate-400">{pp.restaurant} • {pp.tabulation_date}</div>
-                    </div>
-                    <div className="text-sm text-emerald-700">
-                      <div className="text-xs text-slate-400">{pp.status === 'Pending' && (!pp.source_file || pp.source_file.length === 0) ? 'No Attendance Sheet' : pp.status}</div>
-                    </div>
-                  </button>
-                ))}
+                {periods === null ? (
+                  <SkeletonTableRows mobile columns={3} rows={6} columnConfig={[
+                    { width: "55%" }, { width: "65%" }, { width: "30%" }
+                  ]} />
+                ) : (
+                  pageData.map(pp => (
+                    <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
+                        <div className="text-xs text-slate-400">{pp.restaurant} • {pp.tabulation_date}</div>
+                      </div>
+                      <div className="text-sm text-emerald-700">
+                        <div className="text-sm text-emerald-700">
+                          {(() => {
+                            const key = String(pp.status || '') as keyof typeof statusColor
+                            return (
+                              <span className={`inline-flex items-center justify-center text-xs px-3 py-1 rounded-full font-medium font-display whitespace-nowrap ${statusColor[key] || 'bg-slate-100 text-slate-500'}`}>
+                                {pp.status === 'Pending' && (!pp.source_file || pp.source_file.length === 0) ? 'No Attendance' : pp.status}
+                              </span>
+                            )
+                          })()}
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             )}
           </div>
-          {!isMobile && renderPagination()}
+          {renderPagination()}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -492,17 +524,32 @@ export default function PayrollPeriods() {
               </table>
             ) : (
               <div className="flex flex-col">
-                {pageData.map(pp => (
-                  <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
-                      <div className="text-xs text-slate-400">{pp.restaurant} • {pp.tabulation_date}</div>
-                    </div>
-                    <div className="text-sm text-emerald-700">
-                      <div className="text-xs text-slate-400">{pp.status === 'Pending' && (!pp.source_file || pp.source_file.length === 0) ? 'No Attendance Sheet' : pp.status}</div>
-                    </div>
-                  </button>
-                ))}
+                {periods === null ? (
+                  <SkeletonTableRows mobile columns={3} rows={6} columnConfig={[
+                    { width: "55%" }, { width: "65%" }, { width: "30%" }
+                  ]} />
+                ) : (
+                  pageData.map(pp => (
+                    <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
+                        <div className="text-xs text-slate-400">{pp.restaurant} • {pp.tabulation_date}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-emerald-700">
+                          {(() => {
+                            const key = String(pp.status || '') as keyof typeof statusColor
+                            return (
+                              <span className={`inline-flex items-center justify-center text-xs px-3 py-1 rounded-full font-medium font-display whitespace-nowrap ${statusColor[key] || 'bg-slate-100 text-slate-500'}`}>
+                                {pp.status === 'Pending' && (!pp.source_file || pp.source_file.length === 0) ? 'No Attendance Sheet' : pp.status}
+                              </span>
+                            )
+                          })()}
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             )}
             {renderPagination()}
@@ -521,7 +568,16 @@ export default function PayrollPeriods() {
                     </div>
                     <div>
                       <p className="text-xs text-slate-400">Status</p>
-                      <p className="text-sm font-medium">{selectedPeriod.status}</p>
+                      {(() => {
+                        const key = String(selectedPeriod.status || '') as keyof typeof statusColor
+                        return (
+                          <span className={`inline-flex items-center justify-center text-xs px-2.5 py-0.5 rounded-full font-medium font-display whitespace-nowrap ${statusColor[key] || 'bg-slate-100 text-slate-500'}`}>
+                            {selectedPeriod.status === 'Pending' && (!selectedPeriod.source_file || selectedPeriod.source_file.length === 0)
+                              ? 'No Attendance Sheet'
+                              : selectedPeriod.status}
+                          </span>
+                        )
+                      })()}
                     </div>
                     <div>
                       <p className="text-xs text-slate-400">Period Start</p>
@@ -607,16 +663,18 @@ export default function PayrollPeriods() {
                           setShowCreate(true)
                           setSelectedPeriod(null)
                         }}
-                        className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display"
+                        className="flex items-center gap-1 text-xs p-3 px-5 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display"
                         title="Edit Payroll Period"
                       >
+                      <Edit2 size={12} className="shrink-0" />
                         Edit
                       </button>
                       <button
                         onClick={() => setShowDeleteConfirm(true)}
-                        className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-red-600 text-white hover:bg-red-700 font-display"
+                        className="flex items-center gap-1 text-xs p-3 rounded-xl font-medium bg-red-600 text-white hover:bg-red-700 font-display"
                         title="Delete Payroll Period"
                       >
+                      <Trash size={12} className="shrink-0" />
                         Delete
                       </button>
                     </div>

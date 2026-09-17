@@ -11,7 +11,7 @@ export async function GET(req: Request, context: any) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { employeeId } = await params
-    const { rows } = await query('select employee_id, source_employee_id, name, department, pay_per_day, status, restaurant, contact_number, sss, philhealth, pagibig, month_pay_13th from employees where employee_id = $1 limit 1', [Number(employeeId)])
+    const { rows } = await query('select employee_id, source_employee_id, name, department, pay_per_day, status, restaurant, contact_number, address, sss, philhealth, pagibig, month_pay_13th from employees where employee_id = $1 limit 1', [Number(employeeId)])
     const emp = rows[0]
     if (!emp) return NextResponse.json({ employee: null })
 
@@ -41,7 +41,7 @@ export async function PUT(req: Request, context: any) {
       department: 'department',
       pay_per_day: 'pay_per_day',
       status: 'status',
-      email: 'email',
+      address: 'address',
       contactNumber: 'contact_number',
       sss: 'sss',
       philhealth: 'philhealth',
@@ -97,6 +97,39 @@ export async function PUT(req: Request, context: any) {
     return NextResponse.json({ employee: mapEmployee(updated) })
   } catch (err) {
     console.error('PUT /api/employees/[id] error:', err) 
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
+  }
+}
+
+export async function DELETE(req: Request, context: any) {
+  const { params } = context as any
+  try {
+    const session = await getSessionFromRequest(req)
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const { employeeId } = await params
+
+    const { rows: existingRows } = await query('select * from employees where employee_id = $1 limit 1', [Number(employeeId)])
+    const emp = existingRows[0]
+    if (!emp) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (session.role !== 'SuperAdmin' && emp.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+    // Hard delete: related rows (attendance, leave, cash advances, deductions,
+    // leave balances, payslips) cascade; cash_advances.approved_by is set null.
+    try {
+      const { rows: deletedRows } = await query('delete from employees where employee_id = $1 returning *', [Number(employeeId)])
+      const deleted = deletedRows[0] ?? emp
+      await logAudit({ user_id: session.user_id, restaurant: deleted.restaurant ?? emp.restaurant, action: 'delete_employee', table_name: 'employees', record_id: String(employeeId), old_data: deleted })
+      return NextResponse.json({ deleted: mapEmployee(deleted) })
+    } catch (err: any) {
+      console.error('DELETE /api/employees/[id] failed', err)
+      if (String(err?.message || '').toLowerCase().includes('violat')) {
+        return NextResponse.json({ error: 'Cannot delete: employee is referenced by existing records' }, { status: 400 })
+      }
+      return NextResponse.json({ error: 'Server error' }, { status: 500 })
+    }
+  } catch (err) {
+    console.error('DELETE /api/employees/[id] error:', err)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
 }

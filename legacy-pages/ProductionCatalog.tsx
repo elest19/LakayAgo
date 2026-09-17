@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Search, Pencil, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, Pencil, Plus, Trash2, ChevronLeft, ChevronRight, Archive, ArchiveRestore, Send} from 'lucide-react'
 import { useApp } from '../App'
 import Modal from '../components/Modal'
 import useIsMobile from '../hooks/isMobile'
@@ -84,9 +84,28 @@ interface SkeletonTableRowsProps {
   columns: number
   rows?: number
   columnConfig?: { width?: string; pill?: boolean }[]
+  mobile?: boolean
 }
 
-function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+export function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = false }: SkeletonTableRowsProps) {
+  // The mobile card list renders outside a <table>, so rows must be divs here —
+  // a <tr> inside a <div> is invalid HTML and breaks hydration.
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }, (_, rowIdx) => (
+          <div key={rowIdx} className="border-b border-slate-100 p-3 flex items-center justify-between gap-3">
+            <div className="flex-1 space-y-2">
+              <SkeletonBar width={columnConfig?.[0]?.width ?? "60%"} height="0.85rem" rounded="rounded-md" />
+              <SkeletonBar width={columnConfig?.[1]?.width ?? "30%"} height="0.7rem" rounded="rounded-md" />
+            </div>
+            <SkeletonBar width={columnConfig?.[2]?.width ?? "24%"} height="0.85rem" rounded="rounded-md" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {Array.from({ length: rows }, (_, rowIdx) => (
@@ -184,8 +203,19 @@ export default function ProductionCatalog() {
   const [addStockId, setAddStockId] = useState<string | null>(null)
   const [addStockValue, setAddStockValue] = useState('')
   const [addStockLoading, setAddStockLoading] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+  // busy flag while an archive/restore/delete request is in flight (all confirm-modal buttons lock)
+  const [savingAction, setSavingAction] = useState(false)
+  // pending confirmation — { item, action } where action is 'archive' | 'restore' | 'delete'
+  const [confirmTarget, setConfirmTarget] = useState<{ item: ProductionItem; action: 'archive' | 'restore' | 'delete' } | null>(null)
 
-  const filteredItems = useMemo(() => productionStock.filter(item => item.name.toLowerCase().includes(search.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name)), [productionStock, search])
+  const filteredItems = useMemo(() => productionStock
+    .filter(item => (showArchived ? item.isArchived : !item.isArchived))
+    .filter(item => item.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name)), [productionStock, search, showArchived])
+
+  // jump back to page 1 when the archive filter changes so the view isn't stuck on an empty page
+  useEffect(() => { setLakayPage(1); setArooPage(1) }, [showArchived])
 
   const resetForm = () => {
     setForm(emptyForm)
@@ -308,9 +338,52 @@ export default function ProductionCatalog() {
     try {
       const res = await fetch(`/api/production_inventory?id=${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Archive failed')
-      setProductionStock(prev => prev.filter(p => p.id !== id))
+      // keep the row in state flagged as archived so the Archived view can list it
+      setProductionStock(prev => prev.map(p => (p.id === id ? { ...p, isArchived: true } : p)))
       showToast({ type: 'success', message: 'Production item archived' })
     } catch (err) { showToast({ type: 'error', message: 'Failed to archive production item' }) }
+  }
+
+  const restoreItem = async (id: string) => {
+    try {
+      const res = await fetch('/api/production_inventory', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ production_inventory_id: Number(id), is_archived: false }),
+      })
+      if (!res.ok) throw new Error('Restore failed')
+      setProductionStock(prev => prev.map(p => (p.id === id ? { ...p, isArchived: false } : p)))
+      showToast({ type: 'success', message: 'Production item restored' })
+    } catch (err) { showToast({ type: 'error', message: 'Failed to restore production item' }) }
+  }
+
+  const deleteProductionItem = async (id: string) => {
+    try {
+      const res = await fetch(`/api/production_inventory?id=${id}&hard_delete=true`, { method: 'DELETE' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || 'Delete failed')
+      setProductionStock(prev => prev.filter(p => p.id !== id))
+      showToast({ type: 'success', message: 'Production item permanently deleted' })
+    } catch (err: any) {
+      showToast({ type: 'error', message: 'Failed to delete production item', description: err?.message || undefined })
+    }
+  }
+
+  // run the confirmed archive/restore/delete. The confirm modal stays open and locked
+  // (buttons unclickable, cursor-not-allowed) while the request is in flight.
+  const confirmArchiveAction = async () => {
+    const target = confirmTarget
+    if (!target || savingAction) return
+    const id = target.item.id
+    setSavingAction(true)
+    try {
+      if (target.action === 'archive') await archiveItem(id)
+      else if (target.action === 'restore') await restoreItem(id)
+      else await deleteProductionItem(id)
+      setConfirmTarget(null)
+    } finally {
+      setSavingAction(false)
+    }
   }
 
   const handleAddStock = async (item: ProductionItem) => {
@@ -372,9 +445,15 @@ export default function ProductionCatalog() {
       const emptyCount = pagedItems.length === 0 ? 0 : Math.max(0, PAGE_SIZE - pagedItems.length)
       return (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6" style={{ display: loading || items.length > 0 ? 'block' : 'none' }}>
-          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-            <h3 className="text-lg font-semibold text-slate-700 font-display">{title}</h3>
-          </div>
+          {isMobile ?  (
+            <div className="px-4 py-3 border-b border-slate-100 bg-indigo-600 ">
+              <h3 className="text-lg font-semibold text-white font-display">{title}</h3>
+            </div>
+          ) : (
+            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+              <h3 className="text-lg font-semibold text-slate-700 font-display">{title}</h3>
+            </div>
+          )}
           {!isMobile ? (
             <>
               <div className="overflow-x-auto">
@@ -388,9 +467,9 @@ export default function ProductionCatalog() {
                     <col style={{ width: '27%' }} />
                   </colgroup>
                   <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
+                  <tr className="border-b border-slate-100 bg-indigo-600">
                     {['Name', 'Recipe Unit', 'Stock', 'Leftover Stock', 'Status', 'Actions'].map(column => (
-                  <th key={column} className={`text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap`}>
+                  <th key={column} className={`text-left py-3 px-4 text-xs font-semibold text-white uppercase tracking-wide font-display whitespace-nowrap`}>
                     {column}
                   </th>
                   ))}
@@ -438,10 +517,15 @@ export default function ProductionCatalog() {
                                   <button type="button" onClick={() => { setAddStockId(null); setAddStockValue('') }} className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-3 py-1 hover:bg-slate-50">Cancel</button>
                                 </div>
                               ) : (
-                                <div className="flex items-center gap-2">
-                                  <button type="button" onClick={() => { setAddStockId(item.id); setAddStockValue('') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-800">+ Add Stock</button>
-                                  <button type="button" onClick={() => openEdit(item)} className="text-xs font-medium text-slate-600 hover:text-slate-900">Edit</button>
-                                  <button type="button" onClick={() => archiveItem(item.id)} className="text-xs font-medium text-red-600 hover:text-red-800">Delete</button>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); setAddStockId(item.id); setAddStockValue('') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">+ Add Stock</button>
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(item) }} className="text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline flex items-center gap-1"><Pencil size={12} /> Edit</button>
+                                  {item.isArchived ? (
+                                    <button type="button" onClick={(e) => { e.stopPropagation(); setConfirmTarget({ item, action: 'restore' }) }} className="text-xs font-medium text-emerald-600 hover:text-emerald-800 hover:underline flex items-center gap-1"><ArchiveRestore size={12} /> Restore</button>
+                                  ) : (
+                                    <button type="button" onClick={(e) => { e.stopPropagation(); setConfirmTarget({ item, action: 'archive' }) }} className="text-xs font-medium text-violet-500 hover:text-violet-600 hover:underline flex items-center gap-1"><Archive size={12} /> Archive</button>
+                                  )}
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); setConfirmTarget({ item, action: 'delete' }) }} className="text-xs font-medium text-red-600 hover:text-red-800 hover:underline flex items-center gap-1"><Trash2 size={12} /> Delete</button>
                                 </div>
                               )}
                             </td>
@@ -467,9 +551,10 @@ export default function ProductionCatalog() {
               <PaginationFooter items={items} page={pageState.page} setPage={pageState.setPage} />
             </>
           ) : (
-            <div className="p-4">
+            <div className="p-2">
               {loading ? (
                 <SkeletonTableRows
+                  mobile
                   columns={3}
                   rows={PAGE_SIZE}
                   columnConfig={[
@@ -483,13 +568,41 @@ export default function ProductionCatalog() {
               ) : (
                 <>
                   {pagedItems.map(item => (
-                    <button key={item.id} type="button" onClick={() => setSelectedItem(item)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 w-full">
+                    <div
+                      key={item.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedItem(item)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedItem(item) } }}
+                      className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 w-full cursor-pointer"
+                    >
                       <div>
                         <div className="text-sm font-semibold text-slate-700 font-display">{item.name}</div>
-                        <div className="text-xs text-slate-400">{unitAbbrev(item.unit)}</div>
+                        <div className="text-xs text-slate-400">{item.stock} {item.unit}</div>
                       </div>
-                      <div className="text-sm font-mono text-slate-700">{formatStock(item.stock, item.unit)}</div>
-                    </button>
+                      {addStockId === item.id ? (
+                        <div onClick={e => e.stopPropagation()}>
+                          <div>
+                            <input
+                              value={addStockValue}
+                              onChange={e => { if (e.target.value === '' || /^\d*\.?\d{0,2}$/.test(e.target.value)) setAddStockValue(e.target.value) }}
+                              placeholder="Amount"
+                              inputMode="decimal"
+                              autoFocus
+                              className="w-30 border border-slate-200 rounded-lg px-2 py-1 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                              <button type="button" onClick={(e) => { e.stopPropagation(); handleAddStock(item) }} disabled={addStockLoading} className="text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-3 py-1">Add</button>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); setAddStockId(null); setAddStockValue('') }} className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-3 py-1 hover:bg-slate-50">Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                          <>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); setAddStockId(item.id); setAddStockValue('') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">+ Add Stock</button>
+                          </>
+                      )}
+                    </div>
                   ))}
                   <PaginationFooter items={items} page={pageState.page} setPage={pageState.setPage} />
                 </>
@@ -513,37 +626,80 @@ export default function ProductionCatalog() {
     <div className="p-6">
       <div className="flex items-center justify-between gap-3 mb-6">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 font-display">Production Catalog</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Manage production stock by item and department</p>
+          <h2 className="text-xl font-bold text-slate-800 font-display">Ingredients Inventory</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Manage ingredient stock by item</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 shadow-sm">
-        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
-          <Search size={14} className="text-slate-400 shrink-0" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search production item..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
-        </div>
-      </div>
-      <div className="flex items-center justify-end gap-3 mb-4">
-        <button type="button" onClick={openCreate} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
-          <Plus size={16} /> Add Item
-        </button>
-        <TransferButton productionStock={productionStock} onTransferComplete={() => {
-          // refetch
-          fetch('/api/production_inventory').then(r => r.json()).then(j => setProductionStock((j.production_inventory || []).map((r: any) => ({ id: String(r.production_inventory_id), name: r.name, restaurant: r.restaurant, unit: r.unit || '', stock: Number(r.stock) || 0, isArchived: Boolean(r.is_archived), createdAt: r.created_at, createdBy: r.created_by || 'System', updatedAt: r.updated_at || r.created_at, updatedBy: r.updated_by || 'System', recipe_unit: r.recipe_unit || null, conversion_factor: r.conversion_factor !== undefined ? Number(r.conversion_factor) : null, ingredient_category: r.ingredient_category || null }))))
-        }} />
-      </div>
+      {isMobile ? (
+        <>
+          <div className="bg-white rounded-xl border border-slate-200 p-2 mb-5 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center gap-2">
+              <div>
+                <select
+                  value={showArchived ? 'archived' : 'active'}
+                  onChange={e => setShowArchived(e.target.value === 'archived')}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600 md:w-48"
+                >
+                  <option value="active">Active Ingredients</option>
+                  <option value="archived">Archived Ingredients</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 justify-end gap-3">
+                <button type="button" onClick={openCreate} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
+                  <Plus size={16} /> Add Item
+                </button>
+                <TransferButton title="Transfer" productionStock={productionStock} onTransferComplete={() => {
+                  // refetch
+                  fetch('/api/production_inventory').then(r => r.json()).then(j => setProductionStock((j.production_inventory || []).map((r: any) => ({ id: String(r.production_inventory_id), name: r.name, restaurant: r.restaurant, unit: r.unit || '', stock: Number(r.stock) || 0, isArchived: Boolean(r.is_archived), createdAt: r.created_at, createdBy: r.created_by || 'System', updatedAt: r.updated_at || r.created_at, updatedBy: r.updated_by || 'System', recipe_unit: r.recipe_unit || null, conversion_factor: r.conversion_factor !== undefined ? Number(r.conversion_factor) : null, ingredient_category: r.ingredient_category || null }))))
+                }} />
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="bg-white rounded-xl border border-slate-200 p-3 mb-5 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center gap-2">
+              <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 flex-1">
+                <Search size={14} className="text-slate-400 shrink-0" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ingredient..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+              </div>
+              <div>
+                <select
+                  value={showArchived ? 'archived' : 'active'}
+                  onChange={e => setShowArchived(e.target.value === 'archived')}
+                  className="border border-slate-200 rounded-lg px-3 py-3 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600 md:w-48"
+                >
+                  <option value="active">Active Ingredients</option>
+                  <option value="archived">Archived Ingredients</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 mb-4">
+            <button type="button" onClick={openCreate} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg font-display">
+              <Plus size={16} /> Add Item
+            </button>
+            <TransferButton title="Transfer Stock" productionStock={productionStock} onTransferComplete={() => {
+              // refetch
+              fetch('/api/production_inventory').then(r => r.json()).then(j => setProductionStock((j.production_inventory || []).map((r: any) => ({ id: String(r.production_inventory_id), name: r.name, restaurant: r.restaurant, unit: r.unit || '', stock: Number(r.stock) || 0, isArchived: Boolean(r.is_archived), createdAt: r.created_at, createdBy: r.created_by || 'System', updatedAt: r.updated_at || r.created_at, updatedBy: r.updated_by || 'System', recipe_unit: r.recipe_unit || null, conversion_factor: r.conversion_factor !== undefined ? Number(r.conversion_factor) : null, ingredient_category: r.ingredient_category || null }))))
+            }} />
+          </div>
+        </>
+      )}
       {renderTable()}
 
       <Modal
         open={showAddModal}
-        title={editingItem ? 'Edit Production Item' : 'Add Production Item'}
+        title={editingItem ? 'Edit Ingredient' : 'Add Ingredient'}
         onClose={() => {
+          if (loading) return
           setShowAddModal(false);
           resetForm();
         }}
       >
-        <div className="w-full max-w-lg space-y-4">
+        <div className="w-full max-w-lg max-h-[60vh] overflow-y-auto space-y-4 p-2">
           {/* Name */}
           <div className="w-full">
             <label className="block text-xs font-medium text-slate-600 mb-1 font-display">
@@ -554,8 +710,9 @@ export default function ProductionCatalog() {
               onChange={e =>
                 setForm(prev => ({ ...prev, name: e.target.value }))
               }
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}
               placeholder="Enter name"
+              readOnly={!form.ingredient_category}
             />
             {formErrors.name && (
               <p className="mt-1 text-xs text-red-600">
@@ -568,15 +725,15 @@ export default function ProductionCatalog() {
           <div className="grid grid-cols-2 gap-3 w-full">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1 font-display">
-                Stock Unit (When Bought)
+                Stock Unit
               </label>
               {form.ingredient_category === 'volume' ? (
-                <select value={form.unit} onChange={e => setForm(prev => ({ ...prev, unit: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100">
+                <select value={form.unit} onChange={e => setForm(prev => ({ ...prev, unit: e.target.value }))} className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}>
                   <option value="">Select unit</option>
                   {VOLUME_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               ) : form.ingredient_category === 'weight' ? (
-                <select value={form.unit} onChange={e => setForm(prev => ({ ...prev, unit: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100">
+                <select value={form.unit} onChange={e => setForm(prev => ({ ...prev, unit: e.target.value }))} className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}>
                   <option value="">Select unit</option>
                   {WEIGHT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
@@ -585,8 +742,8 @@ export default function ProductionCatalog() {
                   disabled={!form.ingredient_category || !['weight','volume','quantity'].includes(form.ingredient_category)}
                   value={form.unit}
                   onChange={e => setForm(prev => ({ ...prev, unit: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                  placeholder={form.ingredient_category ? `ex. pcs, kg` : `Select Category First`}
+                  className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}
+                  placeholder={form.ingredient_category ? `ex. pcs, kg` : `Select Category`}
                 />
               )}
             </div>
@@ -604,7 +761,7 @@ export default function ProductionCatalog() {
                     setForm(prev => ({ ...prev, stock: e.target.value }));
                   }
                 }}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}
                 placeholder="0"
                 inputMode="decimal"
               />
@@ -623,17 +780,17 @@ export default function ProductionCatalog() {
                 Recipe Unit
               </label>
               {form.ingredient_category === 'volume' ? (
-                <select value={form.recipe_unit} onChange={e => setForm(prev => ({ ...prev, recipe_unit: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100">
+                <select value={form.recipe_unit} onChange={e => setForm(prev => ({ ...prev, recipe_unit: e.target.value }))} className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}>
                   <option value="">Select recipe unit</option>
                   {VOLUME_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               ) : form.ingredient_category === 'weight' ? (
-                <select value={form.recipe_unit} onChange={e => setForm(prev => ({ ...prev, recipe_unit: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100">
+                <select value={form.recipe_unit} onChange={e => setForm(prev => ({ ...prev, recipe_unit: e.target.value }))} className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}>
                   <option value="">Select recipe unit</option>
                   {WEIGHT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               ) : (
-                <input disabled value={form.unit || 'pcs'} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-100" />
+                <input disabled value={form.unit || 'pcs'} className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm ${!form.ingredient_category ? 'bg-slate-200' : 'bg-slate-100'}`} />
               )}
             </div>
             <div>
@@ -641,17 +798,19 @@ export default function ProductionCatalog() {
                 <>
                   <label className="flex items-center gap-1 text-xs font-medium text-slate-600 mb-1 font-display">
                     Conversion Factor
-                    <span className="relative inline-block">
-                      <button
-                        type="button"
-                        onClick={() => setShowConversionTooltip(prev => !prev)}
-                        onBlur={() => setShowConversionTooltip(false)}
-                        className="w-4 h-4 flex items-center justify-center rounded-full bg-green-500 text-slate-100 text-[10px] font-bold hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                        aria-label="What is Conversion Factor?"
-                      >
-                        ?
-                      </button>
-                      {showConversionTooltip && (
+                    {!isMobile && (
+                      <>
+                      <span className="relative inline-block">
+                        <button
+                          type="button"
+                          onClick={() => setShowConversionTooltip(prev => !prev)}
+                          onBlur={() => setShowConversionTooltip(false)}
+                          className="w-4 h-4 flex items-center justify-center rounded-full bg-green-500 text-slate-100 text-[10px] font-bold hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                          aria-label="What is Conversion Factor?"
+                        >
+                          ?
+                        </button>
+                        {showConversionTooltip && (
                         <div
                           style={{
                             position: 'absolute',
@@ -677,6 +836,8 @@ export default function ProductionCatalog() {
                         </div>
                       )}
                     </span>
+                      </>
+                    )}
                   </label>
                   <input
                     value={form.conversion_factor}
@@ -685,7 +846,7 @@ export default function ProductionCatalog() {
                         setForm(prev => ({ ...prev, conversion_factor: e.target.value }));
                       }
                     }}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}
                     placeholder="Grams per tbsp/tsp (e.g. 18)"
                   />
                   {formErrors.conversion_factor && (
@@ -715,7 +876,7 @@ export default function ProductionCatalog() {
                   recipe_unit: e.target.value === 'quantity' ? prev.unit || '' : prev.recipe_unit,
                 }))
               }
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none"
             >
               <option value="">Unspecified</option>
               <option value="weight">Weight (Solid, ex. Flour)</option>
@@ -726,66 +887,66 @@ export default function ProductionCatalog() {
 
           {/* Weight + Spoon unit reference table */}
           {form.ingredient_category === 'weight' && isSpoonUnit(form.recipe_unit || '') && (
-  <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200 w-md">
-    {isCupUnit(form.recipe_unit || '') ? (
-      <>
-        <p className="text-xs font-semibold text-slate-700 mb-2">Approximate grams per 1 cup (use as reference for Conversion Factor):</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-slate-300">
-                <th className="py-1 px-2 text-left font-medium text-slate-600">Ingredient</th>
-                <th className="py-1 px-2 text-right font-medium text-slate-600">1 cup ≈ (g)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              <tr><td className="py-1 px-2 text-slate-700">Liver Spread</td><td className="py-1 px-2 text-right text-slate-700">225</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Rolled Oats</td><td className="py-1 px-2 text-right text-slate-700">90</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Bread Crumbs (dried)</td><td className="py-1 px-2 text-right text-slate-700">108</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Panko Breadcrumbs</td><td className="py-1 px-2 text-right text-slate-700">50</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Mayonnaise</td><td className="py-1 px-2 text-right text-slate-700">220</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Peanut Butter</td><td className="py-1 px-2 text-right text-slate-700">258</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Desiccated Coconut</td><td className="py-1 px-2 text-right text-slate-700">93</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Powdered Milk</td><td className="py-1 px-2 text-right text-slate-700">68</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Cornmeal</td><td className="py-1 px-2 text-right text-slate-700">138</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Raisins</td><td className="py-1 px-2 text-right text-slate-700">145</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p className="text-xs text-slate-500 mt-2">Note: Values are approximate. Use actual product density for precise conversions.</p>
-      </>
-    ) : (
-      <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200 w-md">
-        <p className="text-xs font-semibold text-slate-700 mb-2">Approximate grams per 1 tbsp (use as reference for Conversion Factor):</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-slate-300">
-                <th className="py-1 px-2 text-left font-medium text-slate-600">Ingredient</th>
-                <th className="py-1 px-2 text-right font-medium text-slate-600">1 tbsp ≈ (g)</th>
-                <th className="py-1 px-2 text-right font-medium text-slate-600">1 tsp ≈ (g)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              <tr><td className="py-1 px-2 text-slate-700">Salt</td><td className="py-1 px-2 text-right text-slate-700">18</td><td className="py-1 px-2 text-right text-slate-700">6</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Sugar</td><td className="py-1 px-2 text-right text-slate-700">12.5</td><td className="py-1 px-2 text-right text-slate-700">4.17</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Flour</td><td className="py-1 px-2 text-right text-slate-700">8</td><td className="py-1 px-2 text-right text-slate-700">2.67</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Baking Soda</td><td className="py-1 px-2 text-right text-slate-700">14</td><td className="py-1 px-2 text-right text-slate-700">4.67</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Rice</td><td className="py-1 px-2 text-right text-slate-700">12</td><td className="py-1 px-2 text-right text-slate-700">4</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Ground Pepper</td><td className="py-1 px-2 text-right text-slate-700">6</td><td className="py-1 px-2 text-right text-slate-700">2</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">MSG</td><td className="py-1 px-2 text-right text-slate-700">8</td><td className="py-1 px-2 text-right text-slate-700">2.67</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Garlic Powder</td><td className="py-1 px-2 text-right text-slate-700">9</td><td className="py-1 px-2 text-right text-slate-700">3</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Cocoa Powder</td><td className="py-1 px-2 text-right text-slate-700">5</td><td className="py-1 px-2 text-right text-slate-700">1.67</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Cheese (grated)</td><td className="py-1 px-2 text-right text-slate-700">5</td><td className="py-1 px-2 text-right text-slate-700">1.67</td></tr>
-              <tr><td className="py-1 px-2 text-slate-700">Butter</td><td className="py-1 px-2 text-right text-slate-700">14</td><td className="py-1 px-2 text-right text-slate-700">4.67</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p className="text-xs text-slate-500 mt-2">Note: Values are approximate. Use actual product density for precise conversions.</p>
-      </div>
-    )}
-  </div>
-)}
+            <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200 w-md">
+              {isCupUnit(form.recipe_unit || '') ? (
+                <>
+                  <p className="text-xs font-semibold text-slate-700 mb-2">Approximate grams per 1 cup (use as reference for Conversion Factor):</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-300">
+                          <th className="py-1 px-2 text-left font-medium text-slate-600">Ingredient</th>
+                          <th className="py-1 px-2 text-right font-medium text-slate-600">1 cup ≈ (g)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        <tr><td className="py-1 px-2 text-slate-700">Liver Spread</td><td className="py-1 px-2 text-right text-slate-700">225</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Rolled Oats</td><td className="py-1 px-2 text-right text-slate-700">90</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Bread Crumbs (dried)</td><td className="py-1 px-2 text-right text-slate-700">108</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Panko Breadcrumbs</td><td className="py-1 px-2 text-right text-slate-700">50</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Mayonnaise</td><td className="py-1 px-2 text-right text-slate-700">220</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Peanut Butter</td><td className="py-1 px-2 text-right text-slate-700">258</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Desiccated Coconut</td><td className="py-1 px-2 text-right text-slate-700">93</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Powdered Milk</td><td className="py-1 px-2 text-right text-slate-700">68</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Cornmeal</td><td className="py-1 px-2 text-right text-slate-700">138</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Raisins</td><td className="py-1 px-2 text-right text-slate-700">145</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">Note: Values are approximate. Use actual product density for precise conversions.</p>
+                </>
+              ) : (
+                <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200 w-md">
+                  <p className="text-xs font-semibold text-slate-700 mb-2">Approximate grams per 1 tbsp (use as reference for Conversion Factor):</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-300">
+                          <th className="py-1 px-2 text-left font-medium text-slate-600">Ingredient</th>
+                          <th className="py-1 px-2 text-right font-medium text-slate-600">1 tbsp ≈ (g)</th>
+                          <th className="py-1 px-2 text-right font-medium text-slate-600">1 tsp ≈ (g)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        <tr><td className="py-1 px-2 text-slate-700">Salt</td><td className="py-1 px-2 text-right text-slate-700">18</td><td className="py-1 px-2 text-right text-slate-700">6</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Sugar</td><td className="py-1 px-2 text-right text-slate-700">12.5</td><td className="py-1 px-2 text-right text-slate-700">4.17</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Flour</td><td className="py-1 px-2 text-right text-slate-700">8</td><td className="py-1 px-2 text-right text-slate-700">2.67</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Baking Soda</td><td className="py-1 px-2 text-right text-slate-700">14</td><td className="py-1 px-2 text-right text-slate-700">4.67</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Rice</td><td className="py-1 px-2 text-right text-slate-700">12</td><td className="py-1 px-2 text-right text-slate-700">4</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Ground Pepper</td><td className="py-1 px-2 text-right text-slate-700">6</td><td className="py-1 px-2 text-right text-slate-700">2</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">MSG</td><td className="py-1 px-2 text-right text-slate-700">8</td><td className="py-1 px-2 text-right text-slate-700">2.67</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Garlic Powder</td><td className="py-1 px-2 text-right text-slate-700">9</td><td className="py-1 px-2 text-right text-slate-700">3</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Cocoa Powder</td><td className="py-1 px-2 text-right text-slate-700">5</td><td className="py-1 px-2 text-right text-slate-700">1.67</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Cheese (grated)</td><td className="py-1 px-2 text-right text-slate-700">5</td><td className="py-1 px-2 text-right text-slate-700">1.67</td></tr>
+                        <tr><td className="py-1 px-2 text-slate-700">Butter</td><td className="py-1 px-2 text-right text-slate-700">14</td><td className="py-1 px-2 text-right text-slate-700">4.67</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">Note: Values are approximate. Use actual product density for precise conversions.</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Restaurant */}
           <div className="w-full">
@@ -797,7 +958,7 @@ export default function ProductionCatalog() {
               onChange={e =>
                 setForm(prev => ({ ...prev, restaurant: e.target.value }))
               }
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}
             >
               <option value="Lakay Ago">Lakay Ago</option>
               <option value="Aroo">Aroo</option>
@@ -814,19 +975,22 @@ export default function ProductionCatalog() {
             <button
               type="button"
               onClick={() => {
+                if (loading) return
                 setShowAddModal(false);
                 resetForm();
               }}
-              className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display"
+              disabled={loading}
+              className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={handleSave}
-              className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display"
+              disabled={loading}
+              className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
-              Save
+              {loading ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
@@ -837,8 +1001,8 @@ export default function ProductionCatalog() {
           <div className="space-y-3 w-full max-w-md">
             <div className="grid grid-cols-2 gap-3 w-md">
               <div>
-                <p className="text-xs text-slate-400">Unit</p>
-                <p className="text-sm font-medium">{unitAbbrev(selectedItem.unit)}</p>
+                <p className="text-xs text-slate-400">Stock</p>
+                <p className="text-sm font-medium">{selectedItem.stock} {selectedItem.unit}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Recipe Unit</p>
@@ -846,16 +1010,13 @@ export default function ProductionCatalog() {
               </div>
               <div>
                 <p className="text-xs text-slate-400">Conversion Factor</p>
-                <p className="text-sm font-medium">{(selectedItem as any).conversion_factor ?? '-'}</p>
+                <p className="text-sm font-medium">{(selectedItem as any).conversion_factor ?? '-'} {(selectedItem as any).recipe_unit ? unitAbbrev((selectedItem as any).recipe_unit) : '-'} to {selectedItem.unit}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Ingredient Category</p>
                 <p className="text-sm font-medium">{(selectedItem as any).ingredient_category || '-'}</p>
               </div>
-              <div>
-                <p className="text-xs text-slate-400">Stock</p>
-                <p className="text-sm font-medium">{formatStock(selectedItem.stock, (selectedItem as any).unit)}</p>
-              </div>
+              
               <div>
                 <p className="text-xs text-slate-400">Status</p>
                 <p className="text-sm font-medium">{selectedItem.isArchived ? 'Archived' : 'Active'}</p>
@@ -864,22 +1025,87 @@ export default function ProductionCatalog() {
                 <p className="text-xs text-slate-400">Created</p>
                 <p className="text-sm font-medium">{new Date(selectedItem.createdAt).toLocaleDateString()}</p>
               </div>
-              <div>
-                <p className="text-xs text-slate-400">Updated</p>
-                <p className="text-sm font-medium">{new Date(selectedItem.updatedAt).toLocaleDateString()}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Created By</p>
-                <p className="text-sm font-medium">{selectedItem.createdBy}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Updated By</p>
-                <p className="text-sm font-medium">{selectedItem.updatedBy}</p>
-              </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button type="button" onClick={() => { setSelectedItem(null); openEdit(selectedItem) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
-              <button type="button" onClick={() => { setSelectedItem(null); setShowAddModal(false); archiveItem(selectedItem.id) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Delete</button>
+            {isMobile ? (
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); setConfirmTarget({ item: t, action: 'delete' }) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg flex items-center gap-1"><Trash2 size={14} /> Delete</button>
+                {selectedItem.isArchived ? (
+                  <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); setConfirmTarget({ item: t, action: 'restore' }) }} className="px-3 py-2 text-sm text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center gap-1"><ArchiveRestore size={14} /> Restore</button>
+                ) : (
+                  <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); setConfirmTarget({ item: t, action: 'archive' }) }} className="px-3 py-2 text-sm text-white bg-violet-600 hover:bg-violet-700 rounded-lg flex items-center gap-1"><Archive size={14} /> Archive</button>
+                )}
+                <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); openEdit(t) }} className="w-full px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex justify-center items-center gap-1"><Pencil size={14} /> Edit</button>
+              </div>
+            ) : (
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); setConfirmTarget({ item: t, action: 'delete' }) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg flex items-center gap-1"><Trash2 size={14} /> Delete</button>
+                {selectedItem.isArchived ? (
+                  <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); setConfirmTarget({ item: t, action: 'restore' }) }} className="px-3 py-2 text-sm text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center gap-1"><ArchiveRestore size={14} /> Restore</button>
+                ) : (
+                  <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); setConfirmTarget({ item: t, action: 'archive' }) }} className="px-3 py-2 text-sm text-white bg-violet-600 hover:bg-violet-700 rounded-lg flex items-center gap-1"><Archive size={14} /> Archive</button>
+                )}
+                <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); openEdit(t) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1"><Pencil size={14} /> Edit</button>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Archive / Restore / Delete confirmation modal */}
+      {confirmTarget && (
+        <Modal
+          open={!!confirmTarget}
+          title={confirmTarget.action === 'archive' ? 'Confirm archive' : confirmTarget.action === 'restore' ? 'Confirm restore' : 'Confirm deletion'}
+          onClose={() => { if (!savingAction) setConfirmTarget(null) }}
+        >
+          <div className="w-full max-w-sm">
+            <p className="text-sm text-slate-600 mb-2">
+              {confirmTarget.action === 'archive' && <>Are you sure you want to archive <span className="font-semibold">{confirmTarget.item.name}</span>?</>}
+              {confirmTarget.action === 'restore' && <>Are you sure you want to restore <span className="font-semibold">{confirmTarget.item.name}</span>?</>}
+              {confirmTarget.action === 'delete' && <>Are you sure you want to permanently delete <span className="font-semibold">{confirmTarget.item.name}</span>? This cannot be undone.</>}
+            </p>
+            <p className="text-xs text-slate-500 mb-4">
+              {confirmTarget.action === 'archive' && 'Archived items are hidden from the Active items view and can be listed again anytime using Restore.'}
+              {confirmTarget.action === 'restore' && 'This item will show up again in the Active items view.'}
+              {confirmTarget.action === 'delete' && 'Items referenced by existing sales, recipes or food packages cannot be deleted.'}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmTarget(null)}
+                disabled={savingAction}
+                className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              {confirmTarget.action === 'delete' ? (
+                <button
+                  type="button"
+                  onClick={confirmArchiveAction}
+                  disabled={savingAction}
+                  className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                >
+                  <Trash2 size={14} /> {savingAction ? 'Deleting…' : 'Delete'}
+                </button>
+              ) : confirmTarget.action === 'archive' ? (
+                <button
+                  type="button"
+                  onClick={confirmArchiveAction}
+                  disabled={savingAction}
+                  className="px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-violet-600"
+                >
+                  <Archive size={14} /> {savingAction ? 'Archiving…' : 'Archive'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={confirmArchiveAction}
+                  disabled={savingAction}
+                  className="px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600"
+                >
+                  <ArchiveRestore size={14} /> {savingAction ? 'Restoring…' : 'Restore'}
+                </button>
+              )}
             </div>
           </div>
         </Modal>
@@ -888,7 +1114,7 @@ export default function ProductionCatalog() {
   )
 }
 
-function TransferButton({ productionStock, onTransferComplete }: { productionStock: ProductionItem[], onTransferComplete: () => void }) {
+function TransferButton({ title, productionStock, onTransferComplete }: { title: string; productionStock: ProductionItem[], onTransferComplete: () => void }) {
   const { showToast } = useApp()
   const [open, setOpen] = useState(false)
   const [fromId, setFromId] = useState<string | null>(null)
@@ -947,10 +1173,10 @@ function TransferButton({ productionStock, onTransferComplete }: { productionSto
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
-        Transfer Stock
+      <button type="button" onClick={() => setOpen(true)} className={`flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display`}>
+        <Send size={16} /> {title}
       </button>
-      <Modal open={open} title="Transfer Production Stock" onClose={() => setOpen(false)}>
+      <Modal open={open} title="Transfer Production Stock" onClose={() => { if (!loading) setOpen(false) }}>
         <div className="space-y-4 w-full">
           <div className='w-md relative'>
             <label className="block text-xs font-medium text-slate-600 mb-1">From (source)</label>
@@ -988,8 +1214,8 @@ function TransferButton({ productionStock, onTransferComplete }: { productionSto
             <input value={qty} onChange={e => { if (e.target.value === '' || /^\d*\.?\d{0,2}$/.test(e.target.value)) setQty(e.target.value) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" inputMode="decimal" />
           </div>
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <button type="button" onClick={() => setOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-            <button type="button" onClick={handleSubmit} disabled={loading} className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg">Transfer</button>
+            <button type="button" onClick={() => { if (!loading) setOpen(false) }} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-slate-50">Cancel</button>
+            <button type="button" onClick={handleSubmit} disabled={loading} className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-amber-600">{loading ? 'Transferring…' : 'Transfer'}</button>
           </div>
         </div>
       </Modal>

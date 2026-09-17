@@ -31,7 +31,7 @@ export interface Employee {
   restaurant: string
   pay_per_day: number
   status: 'Active' | 'Inactive' | 'On Leave'
-  email: string
+  address: string
   contactNumber: string
   sss?: number
   philhealth?: number
@@ -138,7 +138,7 @@ export interface AuditLog {
   description: string
 }
 
-export type InventoryCategory = 'Menu Item' | 'Menu Bundle' | 'Others'
+export type InventoryCategory = 'Menu Item' | 'Food Bundle' | 'Others'
 
 export interface InventoryItem {
   id: string

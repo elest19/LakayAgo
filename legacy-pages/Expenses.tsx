@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2 } from 'lucide-react'
 import { useApp } from '../App'
 import Modal from '../components/Modal'
 import useIsMobile from '../hooks/isMobile'
@@ -374,7 +374,7 @@ export default function Expenses() {
     setDeleteExpenseTarget(expense)
   }
 
-  const tableHeaders = ['Expense', 'Restaurant', 'Date Added', 'Amount']
+  const tableHeaders = ['Expense', 'Restaurant', 'Date Added', 'Amount', 'Actions']
 
   const renderTable = () => (
     <div className="bg-white shadow-sm overflow-hidden">
@@ -395,18 +395,19 @@ export default function Expenses() {
             <tbody className="divide-y divide-slate-50">
               {expensesLoading ? (
                 <SkeletonTableRows
-                  columns={4}
+                  columns={5}
                   rows={dailyExpensePageSize}
                   columnConfig={[
                     { width: '60%' },
                     { width: '20%' },
                     { width: '30%' },
                     { width: '25%', pill: false },
+                    { width: '40%' },
                   ]}
                 />
               ) : paginatedDailyExpenses.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-400">No expenses recorded.</td>
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">No expenses recorded.</td>
                 </tr>
               ) : (
                 paginatedDailyExpenses.map(expense => (
@@ -427,6 +428,24 @@ export default function Expenses() {
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{expense.restaurant}</td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(expense.createdAt).toLocaleDateString()}</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-700 text-right">{formatCurrency(expense.amount)}</td>
+                    <td className="py-3 px-4 text-center">
+                      <div className="flex items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => openEdit(expense)}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer"
+                        >
+                          <Pencil size={14} /> Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(expense)}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-800 hover:underline cursor-pointer"
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -437,6 +456,7 @@ export default function Expenses() {
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">2020-01-01</td>
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">Restaurant</td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-700 text-right">PHP 0.00</td>
+                    <td className="py-3 px-4 text-center"><div className="invisible">Actions</div></td>
                   </tr>
                 ))
               )}
@@ -470,17 +490,6 @@ export default function Expenses() {
               )
             ))
             }
-            {dailyEmptyCount > 0 && (
-              Array.from({ length: dailyEmptyCount }).map((_, ei) => (
-                <div key={`empty-mobile-${ei}`} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 invisible">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-700 font-display">Placeholder</div>
-                    <div className="text-xs text-slate-400">2020-01-01</div>
-                  </div>
-                  <div className="text-sm font-mono text-slate-700">PHP 0.00</div>
-                </div>
-              ))
-            )}
           </div>
         )}
       </div>
@@ -581,6 +590,33 @@ export default function Expenses() {
             <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold tracking-wide text-slate-600 font-display">Service Transaction Expenses</h3>
             </div>
+            {isMobile ? (
+              <div className="flex flex-col">
+                {txLoading ? (
+                  Array.from({ length: serviceExpensePageSize }).map((_, idx) => (
+                    <div key={`skel-mobile-srv-${idx}`} className="text-left p-3 border-b border-slate-50 flex items-center justify-between gap-3">
+                      <div className="w-full">
+                        <div className="mb-2"><SkeletonBar width="60%" height="0.9rem" rounded="rounded-md" /></div>
+                        <div className="text-xs text-slate-400"><SkeletonBar width="30%" height="0.7rem" rounded="rounded-md" /></div>
+                      </div>
+                      <div className="w-24"><SkeletonBar width="90%" height="0.9rem" rounded="rounded-md" /></div>
+                    </div>
+                  ))
+                ) : paginatedServiceExpenseRows.length === 0 ? (
+                  <div className="p-4 text-sm text-slate-400">No finalized service transaction expenses.</div>
+                ) : (
+                  paginatedServiceExpenseRows.map(expense => (
+                    <div key={expense.id} className="text-left p-3 border-b border-slate-50 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-700 font-display">{expense.expense}</div>
+                        <div className="text-xs text-slate-400">{expense.restaurant} · {new Date(expense.createdAt).toLocaleDateString()}</div>
+                      </div>
+                      <div className="text-sm font-mono text-slate-700">{formatCurrency(expense.amount)}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -617,7 +653,7 @@ export default function Expenses() {
                       </tr>
                     ))
                   )}
-                  {serviceExpenseEmptyCount > 0 && (
+                  {!isMobile && serviceExpenseEmptyCount > 0 && (
                     Array.from({ length: serviceExpenseEmptyCount }).map((_, ei) => (
                       <tr key={`empty-srv-${ei}`} className="invisible">
                         <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display text-center">Placeholder</td>
@@ -630,6 +666,7 @@ export default function Expenses() {
                 </tbody>
               </table>
             </div>
+            )}
             <PaginationFooter items={serviceTransactionExpenses} page={serviceExpensePage} setPage={setServiceExpensePage} pageSize={serviceExpensePageSize} noun="expenses" />
           </div>
         </div>
@@ -724,7 +761,7 @@ export default function Expenses() {
               </div>
               <div className="rounded-lg border border-slate-200 p-3">
                 <p className="text-xs text-slate-500">Date Added</p>
-                <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{new Date().toLocaleString()}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800 font-display">{new Date().toLocaleDateString()}</p>
               </div>
             </div>
 
@@ -746,7 +783,7 @@ export default function Expenses() {
                </div>
                <div>
                  <p className="text-xs text-slate-400">Date Added</p>
-                 <p className="text-sm font-medium">{new Date(selectedExpense.createdAt).toLocaleString()}</p>
+                 <p className="text-sm font-medium">{new Date(selectedExpense.createdAt).toLocaleDateString()}</p>
                </div>
                <div>
                  <p className="text-xs text-slate-400">Restaurant</p>
@@ -754,8 +791,12 @@ export default function Expenses() {
                </div>
              </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button type="button" onClick={() => { setSelectedExpense(null); openEdit(selectedExpense) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
-              <button type="button" onClick={() => { setSelectedExpense(null); handleDelete(selectedExpense) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Delete</button>
+              <button type="button" onClick={() => { setSelectedExpense(null); openEdit(selectedExpense) }} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg cursor-pointer">
+                <Pencil size={14} /> Edit
+              </button>
+              <button type="button" onClick={() => { setSelectedExpense(null); handleDelete(selectedExpense) }} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg cursor-pointer">
+                <Trash2 size={14} /> Delete
+              </button>
             </div>
           </div>
         </Modal>

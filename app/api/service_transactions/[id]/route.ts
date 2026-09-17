@@ -26,7 +26,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     const { id } = await params
     const body = await req.json()
-    const { price, downpayment, discount, expenses, penalty, status, service_date, balance, deductions_applied: _deductionsApplied } = body
+    if (Object.prototype.hasOwnProperty.call(body, 'expenses')) {
+      return NextResponse.json({ error: 'Expenses are derived from transaction expense lines and cannot be set directly.' }, { status: 400 })
+    }
+
+    const { price, downpayment, discount, penalty, status, service_date, balance, deductions_applied: _deductionsApplied } = body
 
     const existingRes = await query('SELECT * FROM service_transactions WHERE service_transaction_id = $1 LIMIT 1', [id])
     const existing = existingRes.rows[0]
@@ -40,7 +44,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (price !== undefined) { updates.push(`price = $${idx++}`); values.push(Number(price)) }
     if (downpayment !== undefined) { updates.push(`downpayment = $${idx++}`); values.push(Number(downpayment)) }
     if (discount !== undefined) { updates.push(`discount = $${idx++}`); values.push(Number(discount)) }
-    if (expenses !== undefined) { updates.push(`expenses = $${idx++}`); values.push(Number(expenses)) }
     if (penalty !== undefined) {
       const penaltyValue = Number(penalty)
       if (!Number.isFinite(penaltyValue) || penaltyValue < 0) return NextResponse.json({ error: 'Penalty must be a non-negative number' }, { status: 400 })

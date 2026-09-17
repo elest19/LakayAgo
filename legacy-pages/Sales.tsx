@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Search, Plus, Pencil, Trash2 } from 'lucide-react'
 import { useApp } from '../App'
 import Modal from '../components/Modal'
+import PaginationFooter from '../components/PaginationFooter'
+import SearchableSelect from '../components/SearchableSelect'
 import useIsMobile from '../hooks/isMobile'
 import DateFilter, { dateInRange, defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
 import type { InventoryCategory, InventoryItem, SaleRecord } from '../types'
@@ -23,6 +25,81 @@ const formatCurrency = (value: number) =>
     currency: 'PHP',
     minimumFractionDigits: 2,
   }).format(value)
+
+const SALE_CATEGORIES: InventoryCategory[] = ['Menu Item', 'Food Bundle', 'Others']
+
+// Mirrors SalesSummary's skeleton helpers: a pulsing placeholder bar shaped like real content.
+function SkeletonBar({ width = '100%', height = '1rem', rounded = 'rounded-md', className = '' }: { width?: string | number; height?: string | number; rounded?: string; className?: string }) {
+  return (
+    <div
+      className={`bg-slate-200 animate-pulse ${rounded} ${className}`}
+      style={{
+        width: typeof width === 'number' ? `${width}px` : width,
+        height: typeof height === 'number' ? `${height}px` : height,
+      }}
+    />
+  )
+}
+
+// Mirrors the sales list while data loads: desktop uses the real table's indigo header row plus
+// placeholder rows; mobile renders card-shaped rows (a <tr> outside a <table> is invalid HTML,
+// so the mobile variant is built from divs like the stacked cards it stands in for).
+function SalesTableSkeleton({ rows = 6, mobile = false }: { rows?: number; mobile?: boolean }) {
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }).map((_, rowIndex) => (
+          <div key={`sale-skeleton-card-${rowIndex}`} className="flex items-center justify-between gap-3 border-b border-slate-50 p-3 last:border-b-0">
+            <div className="min-w-0 flex-1 space-y-2">
+              <SkeletonBar width="60%" height="0.875rem" />
+              <SkeletonBar width="40%" height="0.75rem" />
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <SkeletonBar width="5rem" height="0.875rem" />
+              <SkeletonBar width="3rem" height="0.75rem" />
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <table className="w-full">
+      <thead>
+        <tr className="border-b border-slate-200 bg-indigo-600">
+          {['Item', 'Sale Created', 'No. of Sales', 'Category', 'Discount', 'Cost', 'Actions'].map(header => (
+            <th key={header} className={` ${header === 'Item' ? 'text-left' : header === 'Cost' ? 'text-right' : header === 'Discount' ? 'text-right' : 'text-center'} py-3 px-4 text-xs font-semibold text-white/70 uppercase tracking-wide font-display whitespace-nowrap`}>
+              {header}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-50">
+        {Array.from({ length: rows }).map((_, rowIndex) => (
+          <tr key={`sale-skeleton-row-${rowIndex}`}>
+            <td className="py-3 px-4"><SkeletonBar width="60%" height="0.875rem" /></td>
+            <td className="py-3 px-4"><SkeletonBar width="5rem" height="0.75rem" className="mx-auto" /></td>
+            <td className="py-3 px-4"><SkeletonBar width="1.5rem" height="0.75rem" className="mx-auto" /></td>
+            <td className="py-3 px-4"><SkeletonBar width="5rem" height="0.75rem" className="mx-auto" /></td>
+            <td className="py-3 px-4"><SkeletonBar width="3.5rem" height="0.75rem" className="ml-auto" /></td>
+            <td className="py-3 px-4"><SkeletonBar width="3.5rem" height="0.75rem" className="ml-auto" /></td>
+            <td className="py-3 px-4"><SkeletonBar width="4rem" height="0.75rem" className="mx-auto" /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+// Bundle sales are not stored with a category, so GET /api/sales derives it from the
+// referenced food_packages row. Normalise whatever comes back (including the legacy
+// 'Menu Bundle' value) into the categories this page filters and displays.
+const normalizeSaleCategory = (value: unknown): InventoryCategory => {
+  if (value === 'Others') return 'Others'
+  if (value === 'Food Bundle' || value === 'Menu Bundle') return 'Food Bundle'
+  return 'Menu Item'
+}
 
 type Restaurant = 'Lakay Ago' | 'Aroo'
 
@@ -82,7 +159,7 @@ const getSaleValidationErrors = (form: SaleFormState) => {
     }
   }
 
-  if (!['Menu Item', 'Others', 'Menu Bundle'].includes(form.category)) {
+  if (!SALE_CATEGORIES.includes(form.category)) {
     errors.category = 'Category is invalid.'
   }
 
@@ -98,6 +175,7 @@ export default function Sales() {
   const [search, setSearch] = useState('')
   const [selectedItemFilter, setSelectedItemFilter] = useState('All Items')
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'All' | InventoryCategory>('All')
+  const [selectedRestaurantFilter, setSelectedRestaurantFilter] = useState('All Restaurants')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingSale, setEditingSale] = useState<SaleRecord | null>(null)
   const [form, setForm] = useState<SaleFormState>(emptyForm())
@@ -109,7 +187,10 @@ export default function Sales() {
   const [returnIngredientsStock, setReturnIngredientsStock] = useState(false)
   const [salesPage, setSalesPage] = useState(1)
   const [dateFilter, setDateFilter] = useState<DateFilterValue>(defaultDateFilterValue)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [isBulkSaleModalOpen, setIsBulkSaleModalOpen] = useState(false)
+  const [bulkSaleRestaurant, setBulkSaleRestaurant] = useState<Restaurant | ''>('')
+  const [bulkSaleRows, setBulkSaleRows] = useState<Array<{ id: string; itemId: string; item: string; cost: string; quantity: string; discount: string }>>([])
 
   const loadInventory = async (restaurant?: string) => {
     try {
@@ -144,7 +225,7 @@ export default function Sales() {
       if (!res.ok) return
       const j = await res.json()
       const rows = j.sales || []
-      setSalesRecords(rows.map((s: any) => ({ id: String(s.sales_id || s.id), item: s.item, cost: Number(s.cost || s.price || 0), numberOfSales: Number(s.number_of_sales || s.numberOfSales || 0), discount: Number(s.discount || 0), category: s.category || 'Menu Item', restaurant: s.restaurant || '', createdAt: s.created_at || s.createdAt, createdBy: s.created_by || s.createdBy, updatedAt: s.updated_at || s.updatedAt, updatedBy: s.updated_by || s.updatedBy })))
+      setSalesRecords(rows.map((s: any) => ({ id: String(s.sales_id || s.id), item: s.item, cost: Number(s.cost || s.price || 0), numberOfSales: Number(s.number_of_sales || s.numberOfSales || 0), discount: Number(s.discount || 0), category: normalizeSaleCategory(s.category), restaurant: s.restaurant || '', createdAt: s.created_at || s.createdAt, createdBy: s.created_by || s.createdBy, updatedAt: s.updated_at || s.updatedAt, updatedBy: s.updated_by || s.updatedBy })))
     } catch (err) {
       console.error('Failed loading sales', err)
     }
@@ -172,7 +253,19 @@ export default function Sales() {
     }
   }
 
-  useEffect(() => { loadInventory(); loadFoodBundles(); loadSales(); }, [])
+  // Initial load gates the skeleton: run all three fetches in parallel, clear loading when they settle.
+  // Loading stays false for later refreshes (create/delete) so the skeleton only shows on first paint.
+  useEffect(() => {
+    let mounted = true
+    setLoading(true)
+    Promise.all([loadInventory(), loadFoodBundles(), loadSales()])
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   useEffect(() => {
     if (deleteSaleTarget) {
@@ -182,6 +275,11 @@ export default function Sales() {
 
   const itemFilterOptions = ['All Items', ...inventoryItems.map(item => item.item)]
 
+  const restaurantOptions = useMemo(
+    () => Array.from(new Set(salesRecords.map(sale => sale.restaurant).filter(Boolean) as string[])).sort(),
+    [salesRecords],
+  )
+
   const salesDateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
 
   const filteredSales = useMemo(() => {
@@ -190,20 +288,21 @@ export default function Sales() {
       const matchCategory = selectedCategoryFilter === 'All' || sale.category === selectedCategoryFilter
       const matchSearch = !search || sale.item.toLowerCase().includes(search.toLowerCase())
       const matchDate = dateInRange(sale.createdAt, salesDateRange)
-      return matchItem && matchCategory && matchSearch && matchDate
+      const matchRestaurant = selectedRestaurantFilter === 'All Restaurants' || sale.restaurant === selectedRestaurantFilter
+      return matchItem && matchCategory && matchSearch && matchDate && matchRestaurant
     })
-  }, [salesRecords, search, selectedCategoryFilter, selectedItemFilter, salesDateRange])
+  }, [salesRecords, search, selectedCategoryFilter, selectedItemFilter, salesDateRange, selectedRestaurantFilter])
 
   const salesMetrics = useMemo(() => {
     const grandTotalSales = filteredSales.reduce((sum, sale) => sum + sale.cost * sale.numberOfSales, 0)
     const orderDiscount = filteredSales.reduce((sum, sale) => sum + sale.discount, 0)
     const netSales = Math.max(grandTotalSales - orderDiscount, 0)
+    const salesNumber = filteredSales.reduce((sum, sale) => sum + sale.numberOfSales, 0)
 
-    return { grandTotalSales, orderDiscount, netSales }
+    return { grandTotalSales, orderDiscount, netSales, salesNumber }
   }, [filteredSales])
 
   const salesPageSize = 10
-  const salesPageTotal = Math.max(1, Math.ceil(filteredSales.length / salesPageSize))
   const paginatedSales = useMemo(
     () => filteredSales.slice((salesPage - 1) * salesPageSize, salesPage * salesPageSize),
     [filteredSales, salesPage],
@@ -211,9 +310,9 @@ export default function Sales() {
 
   const salesEmptyCount = paginatedSales.length === 0 ? 0 : Math.max(0, salesPageSize - paginatedSales.length)
 
-  useEffect(() => { setSalesPage(1) }, [search, selectedItemFilter, selectedCategoryFilter, dateFilter, salesRecords.length])
+  useEffect(() => { setSalesPage(1) }, [search, selectedItemFilter, selectedCategoryFilter, selectedRestaurantFilter, dateFilter, salesRecords.length])
 
-  const { grandTotalSales, netSales, orderDiscount } = salesMetrics
+  const { grandTotalSales, netSales, orderDiscount, salesNumber } = salesMetrics
 
   const resetForm = () => {
     setForm(emptyForm())
@@ -226,6 +325,100 @@ export default function Sales() {
     resetForm()
     setActiveItemTab('menu_items')
     setIsModalOpen(true)
+  }
+
+  const createBulkSaleRow = (): { id: string; itemId: string; item: string; cost: string; quantity: string; discount: string } => ({
+    id: `bulk-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    itemId: '',
+    item: '',
+    cost: '',
+    quantity: '',
+    discount: '',
+  })
+
+  const resetBulkSaleForm = () => {
+    setBulkSaleRestaurant('')
+    setBulkSaleRows([createBulkSaleRow()])
+  }
+
+  const openBulkSaleModal = () => {
+    resetBulkSaleForm()
+    setIsBulkSaleModalOpen(true)
+  }
+
+  const updateBulkSaleRow = (rowId: string, updates: Partial<{ itemId: string; item: string; cost: string; quantity: string; discount: string }>) => {
+    setBulkSaleRows(prev => prev.map(row => (row.id === rowId ? { ...row, ...updates } : row)))
+  }
+
+  const handleBulkSaleItemSelect = (rowId: string, itemId: string) => {
+    const selectedItem = inventoryItems.find(item => item.id === itemId)
+    if (!selectedItem) {
+      updateBulkSaleRow(rowId, { itemId: '', item: '', cost: '' })
+      return
+    }
+    updateBulkSaleRow(rowId, {
+      itemId: selectedItem.id,
+      item: selectedItem.item,
+      cost: String(selectedItem.cost),
+      quantity: '1',
+      discount: '0',
+    })
+  }
+
+  const handleBulkSaleSave = () => {
+    if (!bulkSaleRestaurant) {
+      showToast({ type: 'error', message: 'Select a restaurant' })
+      return
+    }
+
+    const validRows = bulkSaleRows.filter(row => row.itemId && row.item)
+    if (validRows.length === 0) {
+      showToast({ type: 'error', message: 'Add at least one menu item' })
+      return
+    }
+
+    for (const row of validRows) {
+      const quantity = Number(row.quantity)
+      const cost = Number(row.cost)
+      const discount = Number(row.discount || 0)
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        showToast({ type: 'error', message: `Invalid quantity for ${row.item || 'selected item'}` })
+        return
+      }
+      if (!Number.isFinite(cost) || cost < 0) {
+        showToast({ type: 'error', message: `Invalid price for ${row.item || 'selected item'}` })
+        return
+      }
+      if (!Number.isFinite(discount) || discount < 0) {
+        showToast({ type: 'error', message: `Invalid discount for ${row.item || 'selected item'}` })
+        return
+      }
+    }
+
+    const payload = {
+      sales: validRows.map(row => ({
+        food_and_beverage_id: Number(row.itemId),
+        item: row.item,
+        cost: Number(row.cost || 0),
+        number_of_sales: Number(row.quantity || 0),
+        discount: Number(row.discount || 0),
+        restaurant: bulkSaleRestaurant,
+        source: 'item',
+      }))
+    }
+
+    fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then(async r => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          throw new Error(err.error || 'Failed to save bulk sale')
+        }
+        await loadSales()
+        showToast({ type: 'success', message: 'Bulk sale saved', description: `${validRows.length} menu items recorded.` })
+        setIsBulkSaleModalOpen(false)
+        resetBulkSaleForm()
+      })
+      .catch(err => showToast({ type: 'error', message: 'Failed to save bulk sale', description: err.message || undefined }))
   }
 
   const openEditSale = (sale: SaleRecord) => {
@@ -259,7 +452,7 @@ export default function Sales() {
     if (source === 'food_bundles') {
       const selectedBundle = foodBundles.find(b => String(b.food_package_id) === itemId)
       if (!selectedBundle) {
-        setForm(prev => ({ ...prev, itemId: '', item: '', foodCost: '', category: 'Menu Item' }))
+        setForm(prev => ({ ...prev, itemId: '', item: '', foodCost: '', category: 'Food Bundle' }))
         return
       }
       setForm(prev => ({
@@ -267,7 +460,7 @@ export default function Sales() {
         itemId: String(selectedBundle.food_package_id),
         item: selectedBundle.name,
         foodCost: String(selectedBundle.price),
-        category: 'Menu Bundle',
+        category: 'Food Bundle',
         restaurant: (selectedBundle.restaurant || '') as Restaurant | '',
       }))
     } else {
@@ -281,7 +474,7 @@ export default function Sales() {
         itemId: selectedItem.id,
         item: selectedItem.item,
         foodCost: String(selectedItem.cost),
-        category: selectedItem.category,
+        category: normalizeSaleCategory(selectedItem.category),
         restaurant: selectedItem.restaurant,
       }))
     }
@@ -329,7 +522,7 @@ export default function Sales() {
       number_of_sales: parsedSales,
       discount: parsedDiscount,
       restaurant: previewSale.restaurant || 'Both',
-      source: previewSale.category === 'Menu Bundle' ? 'bundle' : 'item',
+      source: previewSale.category === 'Food Bundle' ? 'bundle' : 'item',
     }
 
     // submit to API which will call RPC and perform deductions atomically
@@ -365,17 +558,19 @@ export default function Sales() {
     setDeleteSaleTarget(sale)
   }
 
-  const tableHeaders = ['Item', 'Cost', 'No. of Sales', 'Discount', 'Category', 'Sale Created']
+  const tableHeaders = ['Item', 'Sale Created', 'No. of Sales', 'Category', 'Discount' ,'Cost', 'Actions']
 
   const renderTable = () => (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
-        {!isMobile ? (
+        {loading ? (
+          <SalesTableSkeleton mobile={isMobile} rows={isMobile ? 6 : 10} />
+        ) : !isMobile ? (
           <table className="w-full">
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50">
+              <tr className="border-b border-slate-200 bg-indigo-600">
                 {tableHeaders.map(header => (
-                  <th key={header} className="text-center py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">
+                  <th key={header} className={` ${header === 'Item' ? 'text-left' : header === 'Cost' ? 'text-right' : header === 'Discount' ? 'text-right' : 'text-center' } py-3 px-4 text-xs font-semibold text-white uppercase tracking-wide font-display whitespace-nowrap`}>
                     {header}
                   </th>
                 ))}
@@ -384,7 +579,7 @@ export default function Sales() {
             <tbody className="divide-y divide-slate-50">
                 {paginatedSales.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">No sales records found.</td>
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">No sales records found.</td>
                 </tr>
               ) : (
                 paginatedSales.map(sale => (
@@ -402,11 +597,21 @@ export default function Sales() {
                     }}
                   >
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display ">{sale.item}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{formatCurrency(sale.cost)}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 text-center">{sale.numberOfSales}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 text-center">{formatCurrency(sale.discount)}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 text-center">{sale.category}</td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(sale.createdAt).toLocaleDateString()}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-600 text-center">{sale.numberOfSales}</td>
+                    <td className="py-3 px-4 text-sm text-slate-600 text-center">{sale.category}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-600 text-right">{formatCurrency(sale.discount)}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-right">{formatCurrency(sale.cost)}</td>
+                    <td className="py-3 px-4 text-center whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleDelete(sale) }}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-red-600 hover:text-red-800 hover:underline font-display"
+                        title="Delete sale"
+                      >
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -419,6 +624,7 @@ export default function Sales() {
                     <td className="py-3 px-4 font-mono text-xs text-slate-600 text-center">PHP 0.00</td>
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">Category</td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">2020-01-01</td>
+                    <td className="py-3 px-4 text-center"><div className="invisible">Actions</div></td>
                   </tr>
                 ))
               )}
@@ -430,92 +636,260 @@ export default function Sales() {
               <div className="p-4 text-sm text-slate-400">No sales records found.</div>
         ) : (
             paginatedSales.map(sale => (
-              <button key={sale.id} type="button" onClick={() => setSelectedSale(sale)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+              <button key={sale.id} type="button" onClick={() => setSelectedSale(sale)} className="text-left p-3 border-b border-slate-200 hover:bg-slate-50 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-slate-700 font-display">{sale.item}</div>
-                  <div className="text-xs text-slate-400">{sale.category}</div>
+                  <div className="text-xs text-slate-400">{sale.restaurant}</div>
                 </div>
-                <div className="text-sm font-mono text-slate-700">{formatCurrency(sale.cost * sale.numberOfSales)}</div>
-              </button>
-            ))
-          )}
-          {salesEmptyCount > 0 && (
-            Array.from({ length: salesEmptyCount }).map((_, ei) => (
-              <button key={`empty-mobile-${ei}`} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 invisible">
-                <div>
-                  <div className="text-sm font-semibold text-slate-700 font-display">Placeholder</div>
-                  <div className="text-xs text-slate-400">Category</div>
+                <div className="text-sm font-mono text-slate-700">
+                  <div>{formatCurrency(sale.cost * sale.numberOfSales)}</div>
+                  <div className="text-xs text-slate-400 text-right">Qty: {sale.numberOfSales}</div>
                 </div>
-                <div className="text-sm font-mono text-slate-700">PHP 0.00</div>
               </button>
             ))
           )}
           </div>
         )}
       </div>
-      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-        <span>Showing {filteredSales.length === 0 ? 0 : (salesPage - 1) * salesPageSize + 1}-{Math.min(salesPage * salesPageSize, filteredSales.length)} of {filteredSales.length}</span>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setSalesPage((prev) => Math.max(1, prev - 1))} disabled={salesPage === 1} className="rounded border border-slate-200 bg-white px-2 py-1 disabled:opacity-40">Prev</button>
-          <span>{salesPage}/{salesPageTotal}</span>
-          <button type="button" onClick={() => setSalesPage((prev) => Math.min(salesPageTotal, prev + 1))} disabled={salesPage >= salesPageTotal} className="rounded border border-slate-200 bg-white px-2 py-1 disabled:opacity-40">Next</button>
-        </div>
-      </div>
+      {!loading && (
+        <PaginationFooter items={filteredSales} page={salesPage} setPage={setSalesPage} pageSize={salesPageSize} noun="sales" />
+      )}
     </div>
   )
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between gap-3 mb-6">
+      {isMobile ? (
         <div>
-          <h2 className="text-xl font-bold text-slate-800 font-display">Sales</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Track and manage sales activity</p>
-        </div>
-        <button type="button" onClick={openAddSale} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
-          <Plus size={16} /> Add Sale
-        </button>
-      </div>
-
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 shadow-sm flex flex-wrap gap-3">
-        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
-          <Search size={14} className="text-slate-400 shrink-0" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search sale item..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
-        </div>
-
-        <select value={selectedItemFilter} onChange={e => setSelectedItemFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
-          {itemFilterOptions.map(item => (
-            <option key={item} value={item}>{item === 'All Items' ? 'All Items' : item}</option>
-          ))}
-        </select>
-
-        <select value={selectedCategoryFilter} onChange={e => setSelectedCategoryFilter(e.target.value as 'All' | InventoryCategory)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
-<option value="All">All Categories</option>
-  <option value="Menu Item">Menu Item</option>
-  <option value="Menu Bundle">Menu Bundle</option>
-  <option value="Others">Others</option>
-</select>
-
-        <DateFilter value={dateFilter} onChange={setDateFilter} allLabel="All Sales" />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        {[
-          { label: 'Grand Total Sales', value: formatCurrency(grandTotalSales) },
-          { label: 'Net Sales', value: formatCurrency(netSales) },
-          { label: 'Order Discount', value: formatCurrency(orderDiscount) },
-        ].map(card => (
-          <div key={card.label} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">{card.label}</p>
-            <p className="mt-3 text-2xl font-bold text-slate-800 font-display">{card.value}</p>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-slate-800 font-display">Sales</h2>
+              <p className="text-sm text-slate-500 mt-0.5">Track and manage sales activity</p>
+            </div>
           </div>
-        ))}
-      </div>
+          <div className="flex items-center gap-2 mb-3">
+              <button type="button" onClick={openAddSale} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
+                <Plus size={16} /> Add Sale
+              </button>
+              <button type="button" onClick={openBulkSaleModal} className="flex items-center gap-2 border border-slate-200 bg-indigo-600 text-white hover:bg-indigo-700  text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
+                <Plus size={16} /> Add Bulk Sale
+              </button>
+            </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 font-display">Sales</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Track and manage sales activity</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={openAddSale} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
+              <Plus size={16} /> Add Sale
+            </button>
+            <button type="button" onClick={openBulkSaleModal} className="flex items-center gap-2 border border-slate-200 bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
+              <Plus size={16} /> Add Bulk Sale
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {isMobile ? (
+        <div className="flex flex-col bg-white rounded-xl border border-slate-200 p-2 mb-2 shadow-sm gap-3">
+          <div className="flex items-center  border border-slate-200 rounded-lg px-3 py-2 flex-1 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search sale item..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          </div>
+          <div className="grid grid-cols-2 gap-1">    
+            <div className="w-full">
+              <select
+                value={selectedRestaurantFilter}
+                onChange={e => setSelectedRestaurantFilter(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none font-display text-slate-600"
+              >
+                <option value="All Restaurants">All Restaurant</option>
+                {restaurantOptions.map(restaurant => (
+                  <option key={restaurant} value={restaurant}>{restaurant}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="w-full">
+              <select value={selectedCategoryFilter} onChange={e => setSelectedCategoryFilter(e.target.value as 'All' | InventoryCategory)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none  font-display text-slate-600">
+                <option value="All">All Categories</option>
+                <option value="Menu Item">Menu Item</option>
+                <option value="Food Bundle">Food Bundle</option>
+                <option value="Others">Others</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <DateFilter value={dateFilter} onChange={setDateFilter} allLabel="All Sales" className="w-full justify-end" />
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 shadow-sm flex flex-wrap gap-3">
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-48 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+            <Search size={14} className="text-slate-400 shrink-0" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search sale item..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+          </div>
 
+          <select value={selectedItemFilter} onChange={e => setSelectedItemFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none  font-display text-slate-600">
+            {itemFilterOptions.map(item => (
+              <option key={item} value={item}>{item === 'All Items' ? 'All Items' : item}</option>
+            ))}
+          </select>
+
+          <select value={selectedCategoryFilter} onChange={e => setSelectedCategoryFilter(e.target.value as 'All' | InventoryCategory)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none  font-display text-slate-600">
+            <option value="All">All Categories</option>
+            <option value="Menu Item">Menu Item</option>
+            <option value="Food Bundle">Food Bundle</option>
+            <option value="Others">Others</option>
+          </select>
+
+          <DateFilter value={dateFilter} onChange={setDateFilter} allLabel="All Sales" />
+
+          <select
+            value={selectedRestaurantFilter}
+            onChange={e => setSelectedRestaurantFilter(e.target.value)}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none  font-display text-slate-600"
+          >
+            <option value="All Restaurants">All Restaurants</option>
+            {restaurantOptions.map(restaurant => (
+              <option key={restaurant} value={restaurant}>{restaurant}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {isMobile ? (
+        <div className="grid grid-cols-2 gap-2 mb-6">
+          {[
+            { label: 'Total Sales', value: formatCurrency(grandTotalSales), background: 'text-green-500' },
+            { label: 'Net Sales', value: formatCurrency(netSales), background: 'text-yellow-500'},
+            { label: 'Order Discount', value: formatCurrency(orderDiscount), background: 'text-red-500' },
+            { label: 'Sales Count', value: salesNumber.toLocaleString(), background: 'text-indigo-500' },
+          ].map(card => (
+            <div key={card.label} className={` bg-white rounded-xl border border-slate-200 shadow-sm p-4`}>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{card.label}</p>
+              <p className={`mt-3 text-sm font-bold ${card.background} font-display`}>{card.value}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          {[
+            { label: 'Grand Total Sales', value: formatCurrency(grandTotalSales), background: 'text-green-500' },
+            { label: 'Net Sales', value: formatCurrency(netSales), background: 'text-yellow-500' },
+            { label: 'Order Discount', value: formatCurrency(orderDiscount), background: 'text-red-500' },
+            { label: 'Sales Count', value: salesNumber.toLocaleString(), background: 'text-indigo-500' },
+          ].map(card => (
+            <div key={card.label} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">{card.label}</p>
+              <p className={`mt-3 text-2xl font-bold ${card.background} font-display`}>{card.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
       {renderTable()}
+
+      <Modal open={isBulkSaleModalOpen} title="Add Bulk Sale" onClose={() => { setIsBulkSaleModalOpen(false); resetBulkSaleForm(); }}>
+        <div className="w-xl max-w-2xl max-h-[60vh]  overflow-y-auto space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Restaurant</label>
+            <select
+              value={bulkSaleRestaurant}
+              onChange={e => {
+                const restaurant = e.target.value as Restaurant | ''
+                setBulkSaleRestaurant(restaurant)
+                if (restaurant) {
+                  loadInventory(restaurant)
+                }
+              }}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="">Select restaurant</option>
+              <option value="Lakay Ago">Lakay Ago</option>
+              <option value="Aroo">Aroo</option>
+            </select>
+          </div>
+
+          <div className="space-y-3">
+            {bulkSaleRows.map((row, index) => {
+              const rowItems = inventoryItems.filter(item => (!bulkSaleRestaurant || item.restaurant === bulkSaleRestaurant) && item.category === 'Menu Item')
+              return (
+                <div key={row.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Item {index + 1}</p>
+                    {bulkSaleRows.length > 1 && (
+                      <button type="button" onClick={() => setBulkSaleRows(prev => prev.filter(item => item.id !== row.id))} className="text-xs text-red-600 hover:text-red-700 font-medium">Remove</button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.8fr_1fr_1fr_1fr]">
+                    <div>
+                      <SearchableSelect
+                        value={row.itemId}
+                        options={rowItems.map(item => ({ value: item.id, label: item.item }))}
+                        onChange={(itemId) => handleBulkSaleItemSelect(row.id, itemId)}
+                        placeholder="Select item"
+                        disabled={!bulkSaleRestaurant}
+                        emptyMessage="No menu items found"
+                        className="w-full"
+                        inputClassName={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!bulkSaleRestaurant ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
+                      />
+                    </div>
+
+                    <input
+                      value={row.cost}
+                      onChange={e => updateBulkSaleRow(row.id, { cost: e.target.value })}
+                      placeholder="Price"
+                      inputMode="decimal"
+                      disabled={!bulkSaleRestaurant}
+                      className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm ${!bulkSaleRestaurant ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'} outline-none`}
+                    />
+
+                    <input
+                      type="number"
+                      min="1"
+                      value={row.quantity}
+                      onChange={e => updateBulkSaleRow(row.id, { quantity: e.target.value })}
+                      placeholder="Qty"
+                      disabled={!bulkSaleRestaurant}
+                      className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm ${!bulkSaleRestaurant ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'} outline-none`}
+                    />
+
+                    <input
+                      value={row.discount}
+                      onChange={e => updateBulkSaleRow(row.id, { discount: e.target.value })}
+                      placeholder="Discount"
+                      inputMode="decimal"
+                      disabled={!bulkSaleRestaurant}
+                      className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm ${!bulkSaleRestaurant ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'} outline-none`}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setBulkSaleRows(prev => [...prev, createBulkSaleRow()])}
+            className="flex items-center gap-2 border border-dashed border-slate-300 text-slate-600 hover:bg-slate-50 rounded-lg px-3 py-2 text-sm font-medium"
+          >
+            <Plus size={14} /> Add Item
+          </button>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <button type="button" onClick={() => { setIsBulkSaleModalOpen(false); resetBulkSaleForm(); }} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+            <button type="button" onClick={handleBulkSaleSave} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Bulk Sale</button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={isModalOpen} title={editingSale ? 'Edit Sale' : 'Add Sale'} onClose={() => { setIsModalOpen(false); resetForm(); }}>
         {!previewSale ? (
-          <div className="space-y-4 w-full">
+          <div className="space-y-4 w-full max-h-[60vh] overflow-y-auto">
             <div className="w-md">
               <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Restaurant</label>
               <select
@@ -547,36 +921,32 @@ export default function Sales() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setActiveItemTab('food_bundles'); setForm(prev => ({ ...prev, itemId: '', item: '', foodCost: '', category: 'Menu Item' })) }}
+                    onClick={() => { setActiveItemTab('food_bundles'); setForm(prev => ({ ...prev, itemId: '', item: '', foodCost: '', category: 'Food Bundle' })) }}
                     className={`flex-1 px-3 py-2 text-sm font-medium font-display transition-colors ${activeItemTab === 'food_bundles' ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
                   >
                     Food Bundles
                   </button>
                 </div>
                 {activeItemTab === 'menu_items' ? (
-                  <select
+                  <SearchableSelect
                     value={form.itemId}
-                    onChange={e => handleItemSelect(e.target.value, 'menu_items')}
+                    options={inventoryItems.filter(item => !form.restaurant || item.restaurant === form.restaurant).map(item => ({ value: item.id, label: item.item }))}
+                    onChange={itemId => handleItemSelect(itemId, 'menu_items')}
+                    placeholder="Select menu item"
                     disabled={!form.restaurant}
-                    className={`w-full border-0 px-3 py-2 text-sm outline-none ${!form.restaurant ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'} focus:ring-2 focus:ring-indigo-100`}
-                  >
-                    <option value="">Select menu item</option>
-                    {inventoryItems.filter(item => !form.restaurant || item.restaurant === form.restaurant).map(item => (
-                      <option key={item.id} value={item.id}>{item.item}</option>
-                    ))}
-                  </select>
+                    emptyMessage="No menu items found"
+                    inputClassName={`w-full border-0 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100 ${!form.restaurant ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
+                  />
                 ) : (
-                  <select
+                  <SearchableSelect
                     value={form.itemId}
-                    onChange={e => handleItemSelect(e.target.value, 'food_bundles')}
+                    options={foodBundles.filter(b => !form.restaurant || b.restaurant === form.restaurant || b.restaurant === 'Both').map(bundle => ({ value: String(bundle.food_package_id), label: bundle.name }))}
+                    onChange={itemId => handleItemSelect(itemId, 'food_bundles')}
+                    placeholder="Select food bundle"
                     disabled={!form.restaurant}
-                    className={`w-full border-0 px-3 py-2 text-sm outline-none ${!form.restaurant ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'} focus:ring-2 focus:ring-indigo-100`}
-                  >
-                    <option value="">Select food bundle</option>
-                    {foodBundles.filter(b => !form.restaurant || b.restaurant === form.restaurant || b.restaurant === 'Both').map(bundle => (
-                      <option key={bundle.food_package_id} value={bundle.food_package_id}>{bundle.name}</option>
-                    ))}
-                  </select>
+                    emptyMessage="No food bundles found"
+                    inputClassName={`w-full border-0 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100 ${!form.restaurant ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
+                  />
                 )}
               </div>
               {activeItemTab === 'food_bundles' && form.itemId && (() => {
@@ -735,9 +1105,9 @@ export default function Sales() {
               <button
                 type="button"
                 onClick={handleDeleteSale}
-                className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display"
               >
-                Delete
+                <Trash2 size={14} /> Delete
               </button>
             </div>
           </div>
@@ -769,25 +1139,12 @@ export default function Sales() {
                 <p className="text-sm font-medium">
                     {new Date(selectedSale.createdAt).toLocaleDateString()}
                 </p>
-                </div>
-
-                <div>
-                <p className="text-xs text-slate-400">Updated</p>
-                <p className="text-sm font-medium">
-                    {new Date(selectedSale.updatedAt).toLocaleDateString()}
-                </p>
               </div>
-              <div>
-                <p className="text-xs text-slate-400">Created By</p>
-                <p className="text-sm font-medium">{selectedSale.createdBy}</p>
               </div>
-              <div>
-                <p className="text-xs text-slate-400">Updated By</p>
-                <p className="text-sm font-medium">{selectedSale.updatedBy}</p>
-              </div>
-            </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button type="button" onClick={() => handleDelete(selectedSale)} className="px-3 py-2 text-sm text-white bg-red-700 hover:bg-red-600 rounded-lg">Delete</button>
+              <button type="button" onClick={() => handleDelete(selectedSale)} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-red-700 hover:bg-red-600 rounded-lg">
+                <Trash2 size={14} /> Delete
+              </button>
             </div>
           </div>
         </Modal>

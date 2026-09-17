@@ -1,6 +1,6 @@
 "use client"
 import { useCallback, useRef, useState, useEffect } from "react"
-import { Search, Plus, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from "lucide-react"
+import { Search, Plus, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Archive, ArchiveRestore, Trash2 } from "lucide-react"
 import useIsMobile from "../hooks/isMobile"
 import Modal from "../components/Modal"
 import { useApp } from "../App"
@@ -23,7 +23,23 @@ function SkeletonBar({ width = "100%", height = "1rem", rounded = "rounded-md", 
   )
 }
 
-function SkeletonTableRows({ columns, rows = 10, columnConfig }: { columns: number; rows?: number; columnConfig?: { width?: string; pill?: boolean }[] }) {
+function SkeletonTableRows({ columns, rows = 10, columnConfig, mobile = false }: { columns: number; rows?: number; columnConfig?: { width?: string; pill?: boolean }[]; mobile?: boolean }) {
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }, (_, rowIdx) => (
+          <div key={rowIdx} className="border-b border-slate-50 p-3 flex items-center justify-between gap-3">
+            <div className="flex-1 space-y-2">
+              <SkeletonBar width={columnConfig?.[0]?.width ?? "60%"} height="0.85rem" rounded="rounded-md" />
+              <SkeletonBar width={columnConfig?.[1]?.width ?? "30%"} height="0.7rem" rounded="rounded-md" />
+            </div>
+            <SkeletonBar width={columnConfig?.[2]?.width ?? "24%"} height="0.85rem" rounded="rounded-md" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {Array.from({ length: rows }, (_, rowIdx) => (
@@ -46,16 +62,16 @@ function SkeletonTableRows({ columns, rows = 10, columnConfig }: { columns: numb
   )
 }
 
-function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingEmployees }: { employee: Employee; onClose: () => void; onUpdate?: (u: Employee) => void; onArchive?: (e: Employee) => void; existingEmployees: Employee[] }) {
+function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, onDelete, existingEmployees, startEditing = false }: { employee: Employee; onClose: () => void; onUpdate?: (u: Employee) => void; onArchive?: (e: Employee) => void; onDelete?: (e: Employee) => void; existingEmployees: Employee[]; startEditing?: boolean }) {
   const { showToast } = useApp()
   const isMobile = useIsMobile()
   const [tab, setTab] = useState<"overview" | "attendance" | "leave" | "payroll-history">("overview")
-  const [isEditing, setIsEditing] = useState(false)
+  const [isEditing, setIsEditing] = useState(startEditing)
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
   const [formData, setFormData] = useState({
     name: employee.name,
     source_employee_id: employee.source_employee_id,
-    email: employee.email,
+    address: employee.address,
     contactNumber: employee.contactNumber,
     restaurant: employee.restaurant,
     department: employee.department,
@@ -82,7 +98,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
     return JSON.stringify(formData) !== JSON.stringify({
       name: employee.name,
       source_employee_id: employee.source_employee_id,
-      email: employee.email,
+      address: employee.address,
       contactNumber: employee.contactNumber,
       restaurant: employee.restaurant,
       department: employee.department,
@@ -302,7 +318,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
                         { label: "Department", value: employee.department },
                         { label: "Restaurant", value: employee.restaurant },
                         { label: "Name", value: employee.name },
-                        { label: "Email", value: employee.email || "N/A" },
+                        { label: "Address", value: employee.address || "N/A" },
                         { label: "Contact Number", value: employee.contactNumber || "N/A" },
                       ].map(f => (
                         <div key={f.label} className="flex flex-col gap-0.5"><span className="text-xs text-slate-400 font-display">{f.label}</span><span className="text-sm font-medium text-slate-700">{f.value}</span></div>
@@ -339,16 +355,18 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
                   <input value={formData.source_employee_id} onChange={(e) => setFormData({ ...formData, source_employee_id: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1 font-display">Email</label>
-                  <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                  <label className="block text-xs text-slate-500 mb-1 font-display">Address</label>
+                  <input value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
                 </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-xs text-slate-500 mb-1 font-display">Contact Number</label>
                   <input value={formData.contactNumber} onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
                 </div>
-              </div>
+              </div>  
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs text-slate-500 mb-1 font-display">Department</label>
@@ -415,17 +433,19 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
               {tabLoading.attendance ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50">
-                        {['Date', 'Day', 'Time In', 'Time Out', 'Status'].map(h => (
-                          <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      <SkeletonTableRows columns={5} columnConfig={[{ width: "70%" }, { width: "40%" }, { width: "55%" }, { width: "55%" }, { width: "50%", pill: true }]} />
-                    </tbody>
-                  </table>
+                    {!isMobile && (
+                      <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50">
+                          {['Date', 'Day', 'Time In', 'Time Out', 'Status'].map(h => (
+                            <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                    )}
+                      <tbody className="divide-y divide-slate-50">
+                        <SkeletonTableRows columns={5} columnConfig={[{ width: "70%" }, { width: "40%" }, { width: "55%" }, { width: "55%" }, { width: "50%", pill: true }]} />
+                      </tbody>
+                    </table>
                 </div>
               ) : attendanceRows.length === 0 ? (
                 <p className="text-sm text-slate-500 text-center py-8">No attendance records found for this employee.</p>
@@ -435,28 +455,73 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
                     <table className="w-full text-left">
                       <thead>
                         <tr className="border-b border-slate-100 bg-slate-50">
-                          {['Date', 'Day', 'Time In', 'Time Out', 'Status'].map(h => (
-                            <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
-                          ))}
+                          {!isMobile && (
+                            <>
+                              {['Date', 'Day', 'Time In', 'Time Out', 'Status'].map(h => (
+                              <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                              ))}
+                            </>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
-                        {attendanceRows.slice((attendancePage - 1) * PER_PAGE, attendancePage * PER_PAGE).map((row: any) => {
-                          const status = getAttendanceStatus(row)
-                          return (
-                            <tr key={row.attendance_id ?? row.id} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 text-sm text-slate-600">{formatDateForDisplay(row.work_date)}</td>
-                              <td className="py-2 px-3 text-sm text-slate-600">{new Date(`${row.work_date}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }).toUpperCase()}</td>
-                              <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatTabTime(row.first_on_duty)}</td>
-                              <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatTabTime(row.first_off_duty)}</td>
-                              <td className="py-2 px-3">
-                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${status === 'Present' ? 'bg-emerald-100 text-emerald-700' : status === 'Absent' ? 'bg-red-100 text-red-700' : status === 'On Leave' ? 'bg-yellow-100 text-yellow-700' : status === 'Rest Day' ? 'bg-slate-100 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>
-                                  {status}
-                                </span>
-                              </td>
-                            </tr>
-                          )
-                        })}
+                        {isMobile ? (
+                          <>
+                            {attendanceRows.slice((attendancePage - 1) * PER_PAGE, attendancePage * PER_PAGE).map((row: any) => {
+                              const status = getAttendanceStatus(row)
+                              return (
+                                <tr key={row.attendance_id ?? row.id}>
+                                  <td colSpan={5} className="p-0">
+                                    <div className="border-b border-slate-50 p-3 flex items-center justify-between gap-3 hover:bg-slate-50">
+                                      <div>
+                                        <div className="text-sm font-medium text-slate-700">
+                                          {formatDateForDisplay(row.work_date)}
+                                        </div>
+                                        <div className="text-xs text-slate-400 font-mono">
+                                          {formatTabTime(row.first_on_duty)} – {formatTabTime(row.first_off_duty)}
+                                        </div>
+                                      </div>
+                                      <span
+                                        className={`text-xs px-2 py-0.5 rounded-full font-medium font-display shrink-0 ${
+                                          status === 'Present'
+                                            ? 'bg-emerald-100 text-emerald-700'
+                                            : status === 'Absent'
+                                            ? 'bg-red-100 text-red-700'
+                                            : status === 'On Leave'
+                                            ? 'bg-yellow-100 text-yellow-700'
+                                            : status === 'Rest Day'
+                                            ? 'bg-slate-100 text-slate-500'
+                                            : 'bg-amber-100 text-amber-700'
+                                        }`}
+                                      >
+                                        {status}
+                                      </span>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </>
+                        ) : (
+                          <>
+                            {attendanceRows.slice((attendancePage - 1) * PER_PAGE, attendancePage * PER_PAGE).map((row: any) => {
+                                const status = getAttendanceStatus(row)
+                                return (
+                                  <tr key={row.attendance_id ?? row.id} className="hover:bg-slate-50">
+                                    <td className="py-2 px-3 text-sm text-slate-600">{formatDateForDisplay(row.work_date)}</td>
+                                    <td className="py-2 px-3 text-sm text-slate-600">{new Date(`${row.work_date}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }).toUpperCase()}</td>
+                                    <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatTabTime(row.first_on_duty)}</td>
+                                    <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatTabTime(row.first_off_duty)}</td>
+                                    <td className="py-2 px-3">
+                                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${status === 'Present' ? 'bg-emerald-100 text-emerald-700' : status === 'Absent' ? 'bg-red-100 text-red-700' : status === 'On Leave' ? 'bg-yellow-100 text-yellow-700' : status === 'Rest Day' ? 'bg-slate-100 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>
+                                        {status}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                          </>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -501,13 +566,17 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
               {tabLoading.leave ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50">
-                        {['Type', 'Start', 'End', 'Days', 'Status'].map(h => (
-                          <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
+                    {!isMobile && (
+                      <>
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50">
+                            {['Type', 'Start', 'End', 'Days', 'Status'].map(h => (
+                              <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                      </>
+                    )}
                     <tbody className="divide-y divide-slate-50">
                       <SkeletonTableRows columns={5} columnConfig={[{ width: "60%" }, { width: "55%" }, { width: "55%" }, { width: "30%" }, { width: "50%", pill: true }]} />
                     </tbody>
@@ -517,32 +586,55 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
                 <p className="text-sm text-slate-500 text-center py-8">No leave records found for this employee.</p>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50">
-                          {['Type', 'Start', 'End', 'Days', 'Status'].map(h => (
-                            <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {leaveRows.slice((leavePage - 1) * PER_PAGE, leavePage * PER_PAGE).map((row: any) => (
-                          <tr key={row.id ?? row.leave_request_id} className="hover:bg-slate-50">
-                            <td className="py-2 px-3 text-sm text-slate-600">{row.leaveType || row.leave_type_name || '—'}</td>
-                            <td className="py-2 px-3 text-sm text-slate-600">{formatDateForDisplay(row.startDate || row.start_date)}</td>
-                            <td className="py-2 px-3 text-sm text-slate-600">{formatDateForDisplay(row.endDate || row.end_date)}</td>
-                            <td className="py-2 px-3 text-sm font-mono text-slate-600">{row.days ?? 0}</td>
-                            <td className="py-2 px-3">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${row.status === 'Approved' ? 'bg-emerald-100 text-emerald-700' : row.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                                {row.status || 'Pending'}
-                              </span>
-                            </td>
+                  {!isMobile ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50">
+                            {['Type', 'Start', 'End', 'Days', 'Status'].map(h => (
+                              <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                            ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {leaveRows.slice((leavePage - 1) * PER_PAGE, leavePage * PER_PAGE).map((row: any) => (
+                            <tr key={row.id ?? row.leave_request_id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 text-sm text-slate-600">{row.leaveType || row.leave_type_name || '—'}</td>
+                              <td className="py-2 px-3 text-sm text-slate-600">{formatDateForDisplay(row.startDate || row.start_date)}</td>
+                              <td className="py-2 px-3 text-sm text-slate-600">{formatDateForDisplay(row.endDate || row.end_date)}</td>
+                              <td className="py-2 px-3 text-sm font-mono text-slate-600">{row.days ?? 0}</td>
+                              <td className="py-2 px-3">
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${row.status === 'Approved' ? 'bg-emerald-100 text-emerald-700' : row.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {row.status || 'Pending'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col">
+                      {leaveRows.slice((leavePage - 1) * PER_PAGE, leavePage * PER_PAGE).map((row: any) => (
+                        <div key={row.id ?? row.leave_request_id} className="border-b border-slate-50 p-3 flex items-center justify-between gap-3 hover:bg-slate-50">
+                          <div>
+                            <div className="text-sm font-medium text-slate-700">
+                              {row.leaveType || row.leave_type_name || '—'}
+                            </div>
+                            <div className="text-xs text-slate-400">
+                              {formatDateForDisplay(row.startDate || row.start_date)} – {formatDateForDisplay(row.endDate || row.end_date)}
+                              {' · '}
+                              <span className="font-mono">{row.days ?? 0}d</span>
+                            </div>
+                          </div>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display shrink-0 ${row.status === 'Approved' ? 'bg-emerald-100 text-emerald-700' : row.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {row.status || 'Pending'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between px-2 py-3 border-t border-slate-100 bg-white">
                     <p className="text-xs text-slate-500">
                       Showing {leaveRows.length === 0 ? 0 : (leavePage - 1) * PER_PAGE + 1}–{Math.min(leavePage * PER_PAGE, leaveRows.length)} of {leaveRows.length} records
@@ -584,13 +676,17 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
               {tabLoading.payroll ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50">
-                        {['Gross Pay', 'Deductions', 'Net Pay'].map(h => (
-                          <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
+                    {!isMobile  && (
+                      <>
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50">
+                            {['Gross Pay', 'Deductions', 'Net Pay'].map(h => (
+                              <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                      </>
+                    )}
                     <tbody className="divide-y divide-slate-50">
                       <SkeletonTableRows columns={3} columnConfig={[{ width: "60%" }, { width: "60%" }, { width: "60%" }]} />
                     </tbody>
@@ -600,26 +696,50 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
                 <p className="text-sm text-slate-500 text-center py-8">No payroll history found for this employee.</p>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50">
-                          {['Gross Pay', 'Deductions', 'Net Pay'].map(h => (
-                            <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {payrollRows.slice((payrollPage - 1) * PER_PAGE, payrollPage * PER_PAGE).map((row: any) => (
-                          <tr key={row.payslip_id ?? row.id} className="hover:bg-slate-50">
-                            <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatCurrency(Number(row.gross_pay ?? 0))}</td>
-                            <td className="py-2 px-3 text-sm font-mono text-red-600">{formatCurrency(Number(row.total_deduction ?? 0))}</td>
-                            <td className="py-2 px-3 text-sm font-mono text-slate-700">{formatCurrency(Number(row.net_pay ?? 0))}</td>
+                  {!isMobile ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50">
+                            {['Gross Pay', 'Deductions', 'Net Pay'].map(h => (
+                              <th key={h} className="py-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                            ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {payrollRows.slice((payrollPage - 1) * PER_PAGE, payrollPage * PER_PAGE).map((row: any) => (
+                            <tr key={row.payslip_id ?? row.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 text-sm font-mono text-slate-600">{formatCurrency(Number(row.gross_pay ?? 0))}</td>
+                              <td className="py-2 px-3 text-sm font-mono text-red-600">{formatCurrency(Number(row.total_deduction ?? 0))}</td>
+                              <td className="py-2 px-3 text-sm font-mono text-slate-700">{formatCurrency(Number(row.net_pay ?? 0))}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col">
+                      {payrollRows.slice((payrollPage - 1) * PER_PAGE, payrollPage * PER_PAGE).map((row: any) => (
+                        <div key={row.payslip_id ?? row.id} className="border-b border-slate-50 p-3 hover:bg-slate-50">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-xs text-slate-400">Gross Pay</div>
+                              <div className="text-sm font-mono text-slate-600">{formatCurrency(Number(row.gross_pay ?? 0))}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs text-slate-400">Deductions</div>
+                              <div className="text-sm font-mono text-red-600">{formatCurrency(Number(row.total_deduction ?? 0))}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 mt-1.5 pt-1.5 border-t border-slate-50">
+                            <div className="text-xs font-medium text-slate-500 uppercase tracking-wide font-display">Net Pay</div>
+                            <div className="text-sm font-mono font-semibold text-slate-700">{formatCurrency(Number(row.net_pay ?? 0))}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between px-2 py-3 border-t border-slate-100 bg-white">
                     <p className="text-xs text-slate-500">
                       Showing {payrollRows.length === 0 ? 0 : (payrollPage - 1) * PER_PAGE + 1}–{Math.min(payrollPage * PER_PAGE, payrollRows.length)} of {payrollRows.length} records
@@ -659,9 +779,28 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, existingE
 
         {tab === "overview" && !isEditing && (
           <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
-            <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Close</button>
-            <button onClick={() => setIsEditing(true)} className="px-4 py-2 text-sm font-medium border border-slate-200 text-white bg-green-700 rounded-lg hover:bg-green-600 font-display">Edit</button>
-            <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display">Archive</button>
+            {isMobile ? (
+              <>
+                <button onClick={() => onDelete?.(employee)} className="px-4 py-2 text-sm font-medium bg-red-700 hover:bg-red-800 text-white rounded-lg font-display flex items-center gap-1.5">Delete</button>
+              {normalizeEmployeeStatus(employee.status) === "active" ? (
+                <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-display flex items-center gap-1.5">Archive</button>
+              ) : (
+                <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-display flex items-center gap-1.5">Restore</button>
+              )}
+              <button onClick={() => setIsEditing(true)} className="px-4 py-2 text-sm font-medium border border-slate-200 text-white bg-green-700 rounded-lg hover:bg-green-600 font-display flex items-center gap-1.5">Edit</button>
+              </>
+            ) :(
+              <>
+                <button onClick={() => onDelete?.(employee)} className="px-4 py-2 text-sm font-medium bg-red-700 hover:bg-red-800 text-white rounded-lg font-display flex items-center gap-1.5"><Trash2 size={14} /> Delete</button>
+              {normalizeEmployeeStatus(employee.status) === "active" ? (
+                <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-display flex items-center gap-1.5"><Archive size={14} /> Archive</button>
+              ) : (
+                <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-display flex items-center gap-1.5"><ArchiveRestore size={14} /> Restore</button>
+              )}
+              <button onClick={() => setIsEditing(true)} className="px-4 py-2 text-sm font-medium border border-slate-200 text-white bg-green-700 rounded-lg hover:bg-green-600 font-display flex items-center gap-1.5"><Pencil size={14} /> Edit</button>
+              </>
+            )}
+            
           </div>
         )}
         {showDiscardConfirm && (
@@ -719,7 +858,7 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
     restaurant: "Lakay Ago",
     pay_per_day: 0,
     status: "Active" as Employee["status"],
-    email: "",
+    address: "",
     contactNumber: "",
     sss: 0,
     philHealth: 0,
@@ -731,7 +870,7 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.source_employee_id || !formData.name || !formData.department || !formData.restaurant || !formData.status || formData.pay_per_day <= 0 || formData.sss <= 0 || formData.philHealth <= 0 || formData.pagibig <= 0) {
-      showToast({ type: "error", message: "Missing required fields", description: "All fields except Email and Contact Number are required." })
+      showToast({ type: "error", message: "Missing required fields", description: "All fields except Address and Contact Number are required." })
       return
     }
 
@@ -756,7 +895,7 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
         pay_per_day: formData.pay_per_day || null,
         restaurant: formData.restaurant,
         status: formData.status,
-        email: formData.email || null,
+        address: formData.address || null,
         contactNumber: formData.contactNumber || null,
         sss: formData.sss || null,
         philhealth: formData.philHealth || null,
@@ -779,7 +918,7 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
         department: formData.department,
         pay_per_day: created.pay_per_day ? Number(created.pay_per_day) : formData.pay_per_day,
         status: (created.status || formData.status) as Employee["status"],
-        email: formData.email,
+        address: formData.address,
         contactNumber: formData.contactNumber,
         sss: formData.sss,
         philhealth: formData.philHealth,
@@ -805,7 +944,7 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
             <h4 className="text-sm font-semibold text-slate-700 font-display mb-3 pb-2 border-b border-slate-100">Personal Info</h4>
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-slate-500 mb-1 font-display">Name *</label>
+                <label className="block text-xs text-slate-500 mb-1 font-display">Name</label>
                 <input
                   value={formData.name}
                   onChange={(e) => {
@@ -823,11 +962,13 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
                   required
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1 font-display">Email</label>
-                  <input value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                  <label className="block text-xs text-slate-500 mb-1 font-display">Address</label>
+                  <input value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
                 </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-xs text-slate-500 mb-1 font-display">Contact Number</label>
                   <input value={formData.contactNumber} onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
@@ -842,11 +983,11 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1 font-display">Employee ID *</label>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">Employee ID </label>
                   <input value={formData.source_employee_id} onChange={(e) => setFormData({ ...formData, source_employee_id: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
                 </div>
                 <div>
-                 <label className="block text-xs text-slate-500 mb-1 font-display">Department *</label>
+                 <label className="block text-xs text-slate-500 mb-1 font-display">Department</label>
                  <select
                    value={formData.department}
                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
@@ -861,7 +1002,7 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
                </div>
               </div>
               <div>
-                <label className="block text-xs text-slate-500 mb-1 font-display">Restaurant *</label>
+                <label className="block text-xs text-slate-500 mb-1 font-display">Restaurant</label>
                 <select
                   value={formData.restaurant}
                   onChange={(e) => setFormData({ ...formData, restaurant: e.target.value })}
@@ -874,7 +1015,7 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-slate-500 mb-1 font-display">Status *</label>
+                <label className="block text-xs text-slate-500 mb-1 font-display">Status</label>
                 <select
                   value={formData.status}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value as Employee["status"] })}
@@ -896,25 +1037,25 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1 font-display">Pay Per Day</label>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">Pay Per Day (PHP)</label>
                   <input type="number" step="0.01" inputMode="decimal" value={formData.pay_per_day === 0 ? "" : formData.pay_per_day} placeholder="0.00" onChange={(e) => setFormData({ ...formData, pay_per_day: e.target.value === "" ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1 font-display">SSS (PHP) *</label>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">SSS (PHP)</label>
                   <input type="number" step="0.01" inputMode="decimal" value={formData.sss === 0 ? "" : formData.sss} placeholder="0.00" onChange={(e) => setFormData({ ...formData, sss: e.target.value === "" ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1 font-display">PhilHealth (PHP) *</label>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">PhilHealth (PHP)</label>
                   <input type="number" step="0.01" inputMode="decimal" value={formData.philHealth === 0 ? "" : formData.philHealth} placeholder="0.00" onChange={(e) => setFormData({ ...formData, philHealth: e.target.value === "" ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1 font-display">Pag-IBIG (PHP) *</label>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">Pag-IBIG (PHP)</label>
                   <input type="number" step="0.01" inputMode="decimal" value={formData.pagibig === 0 ? "" : formData.pagibig} placeholder="0.00" onChange={(e) => setFormData({ ...formData, pagibig: e.target.value === "" ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1 font-display">13th Month Pay (PHP) *</label>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">13th Month Pay (PHP)</label>
                   <input type="number" step="0.01" inputMode="decimal" value={formData.month_pay_13th === 0 ? "" : formData.month_pay_13th} placeholder="0.00" onChange={(e) => setFormData({ ...formData, month_pay_13th: e.target.value === "" ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
                 </div>
               </div>
@@ -958,7 +1099,7 @@ export default function Employees() {
       pagibig: value.pagibig ?? 0,
       month_pay_13th: value.month_pay_13th ?? value.monthPay13th ?? 0,
       restaurant: value.restaurant ?? 'Both',
-      email: value.email ?? '',
+      address: value.address ?? value.email ?? '',
     }
 
     return mapEmployee(row)
@@ -1002,6 +1143,9 @@ export default function Employees() {
 
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [archiveConfirm, setArchiveConfirm] = useState<Employee | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<Employee | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editOnOpen, setEditOnOpen] = useState(false)
   const [search, setSearch] = useState("")
   const [restaurantFilter, setRestaurantFilter] = useState("All")
   const [view, setView] = useState<"active" | "archived">("active")
@@ -1048,18 +1192,19 @@ export default function Employees() {
     setToggleConfirm({ emp, nextStatus })
   }
 
-  const confirmToggle = async () => {
-    if (!toggleConfirm) return
-    const { emp, nextStatus } = toggleConfirm
+  const updateEmployeeStatus = async (emp: Employee, nextStatus: Employee["status"]) => {
+    if (togglingId) return
     setTogglingId(emp.id)
-    setToggleConfirm(null)
     try {
       const res = await fetch(`/api/employees/${emp.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus }),
       })
-      if (!res.ok) throw new Error("Failed to update status")
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error || "Failed to update status")
+      }
       setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: nextStatus } : e))
       showToast({
         type: "info",
@@ -1070,6 +1215,56 @@ export default function Employees() {
       showToast({ type: "error", message: "Update failed", description: (err as Error).message })
     } finally {
       setTogglingId(null)
+    }
+  }
+
+  const confirmToggle = async () => {
+    if (!toggleConfirm) return
+    const { emp, nextStatus } = toggleConfirm
+    setToggleConfirm(null)
+    await updateEmployeeStatus(emp, nextStatus)
+  }
+
+  // Archive button in the table's Actions column: confirm first, then set the
+  // employee to inactive so it moves to the Archived Employees view.
+  const requestArchive = (emp: Employee) => {
+    if (togglingId) return
+    setArchiveConfirm(emp)
+  }
+
+  const confirmArchive = async (emp: Employee) => {
+    setArchiveConfirm(null)
+    await updateEmployeeStatus(emp, "Inactive")
+    setView("archived")
+    setPage(1)
+  }
+
+  // Restore is non-destructive, so it runs without a confirmation step.
+  const restoreEmployee = async (emp: Employee) => {
+    await updateEmployeeStatus(emp, "Active")
+  }
+
+  // Permanent delete. Related rows (attendance, leave, cash advances,
+  // deductions, leave balances, payslips) cascade on the database side.
+  const confirmDelete = async () => {
+    if (!deleteConfirm || deletingId) return
+    const emp = deleteConfirm
+    setDeletingId(emp.id)
+    try {
+      const res = await fetch(`/api/employees/${encodeURIComponent(emp.id)}`, { method: "DELETE" })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error || "Failed to delete employee")
+      }
+      setEmployees(prev => prev.filter(e => e.id !== emp.id))
+      setSelectedEmployee(prev => (prev && prev.id === emp.id ? null : prev))
+      setArchiveConfirm(null)
+      setDeleteConfirm(null)
+      showToast({ type: "success", message: "Employee deleted", description: `${emp.name} has been permanently deleted.` })
+    } catch (err) {
+      showToast({ type: "error", message: "Delete failed", description: (err as Error).message })
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -1124,20 +1319,41 @@ export default function Employees() {
 
       {/* Active / Archived view toggle */}
       <div className="flex items-center gap-2 mb-5 border-b border-slate-200">
-        <button
-          onClick={() => { setView("active"); setPage(1) }}
-          className={`px-4 py-2.5 text-sm font-medium font-display border-b-2 -mb-px transition-colors ${view === "active" ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-        >
-          Active Employees
-          <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${view === "active" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"}`}>{activeCount}</span>
-        </button>
-        <button
-          onClick={() => { setView("archived"); setPage(1) }}
-          className={`px-4 py-2.5 text-sm font-medium font-display border-b-2 -mb-px transition-colors ${view === "archived" ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-        >
-          Archived Employees
-          <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${view === "archived" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"}`}>{archivedCount}</span>
-        </button>
+        {isMobile ? (
+          <>
+            <button
+              onClick={() => { setView("active"); setPage(1) }}
+              className={`px-4 py-2.5 text-sm font-medium font-display border-b-2 -mb-px transition-colors ${view === "active" ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+            >
+              Active List
+              <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${view === "active" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"}`}>{activeCount}</span>
+            </button>
+            <button
+              onClick={() => { setView("archived"); setPage(1) }}
+              className={`px-4 py-2.5 text-sm font-medium font-display border-b-2 -mb-px transition-colors ${view === "archived" ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+            >
+              Archived List
+              <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${view === "archived" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"}`}>{archivedCount}</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => { setView("active"); setPage(1) }}
+              className={`px-4 py-2.5 text-sm font-medium font-display border-b-2 -mb-px transition-colors ${view === "active" ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+            >
+              Active Employees
+              <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${view === "active" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"}`}>{activeCount}</span>
+            </button>
+            <button
+              onClick={() => { setView("archived"); setPage(1) }}
+              className={`px-4 py-2.5 text-sm font-medium font-display border-b-2 -mb-px transition-colors ${view === "archived" ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+            >
+              Archived Employees
+              <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${view === "archived" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"}`}>{archivedCount}</span>
+            </button>
+          </>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-3 shadow-sm">
@@ -1160,15 +1376,24 @@ export default function Employees() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           {!isMobile ? (
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Employee', 'Restaurant', 'Status','ID','13th Month', 'Salary',].map((h) => (
-                    <th 
-                    key={h} 
-                    className={`${h === 'ID' ? 'text-right' : h === '13th Month' ? 'text-right' : h === 'Salary' ? 'text-right' : 'text-left'} py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap`}
+            <table className="w-full min-w-[1080px] table-fixed border-separate border-spacing-0">
+              <thead className="bg-indigo-600 text-white">
+                <tr className="border-b border-slate-100">
+                  {[
+                    { label: 'Employee', width: '24%' },
+                    { label: 'Restaurant', width: '13%' },
+                    { label: 'Status', width: '15%' },
+                    { label: 'ID', width: '9%', align: 'right' },
+                    { label: '13th Month', width: '10%', align: 'right' },
+                    { label: 'Salary', width: '9%', align: 'right' },
+                    { label: '', width: '20%', align: 'right' },
+                  ].map(({ label, width, align }) => (
+                    <th
+                      key={label}
+                      style={{ width }}
+                      className={`${align === 'right' ? 'text-right' : 'text-left'} bg-indigo-600 py-3 px-4 text-xs font-semibold uppercase tracking-wide font-display whitespace-nowrap`}
                     >
-                    {h}
+                      {label}
                     </th>
                   ))}
                 </tr>
@@ -1176,13 +1401,14 @@ export default function Employees() {
               <tbody className="divide-y divide-slate-50">
                 {employeesLoading ? (
                   <SkeletonTableRows columns={7} columnConfig={[
-                    { width: "20%" }, { width: "25%" }, { width: "25%" },
-                    { width: "20%", pill: true }, { width: "30%" }, { width: "30%" }, { width: "10%" }
+                    { width: "24%" }, { width: "13%" }, { width: "15%" },
+                    { width: "9%", pill: true }, { width: "10%" }, { width: "9%" },
+                    { width: "20%" }
                   ]} />
                 ) : (
                   <>
                     {pageData.map((emp) => (
-                      <tr key={emp.id} className="hover:bg-slate-50 group cursor-pointer" onClick={() => setSelectedEmployee(emp)}>
+                      <tr key={emp.id} className="hover:bg-slate-50 group cursor-pointer" onClick={() => { setEditOnOpen(false); setSelectedEmployee(emp) }}>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2.5">
                             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
@@ -1190,7 +1416,7 @@ export default function Employees() {
                             </div>
                             <div>
                               <p className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">{emp.name}</p>
-                              <p className="text-xs text-slate-400">{emp.email || ''}</p>
+                              <p className="text-xs text-slate-400">{emp.address || ''}</p>
                             </div>
                           </div>
                         </td>
@@ -1204,7 +1430,48 @@ export default function Employees() {
                         <td className="py-3 px-4 font-mono text-xs text-slate-600 text-right">{emp.source_employee_id}</td>
                         <td className="py-3 px-4 font-mono text-sm text-slate-700 text-right">{emp.month_pay_13th ? formatCurrency(emp.month_pay_13th) : '—'}</td>
                         <td className="py-3 px-4 font-mono text-sm text-slate-700 text-right">{formatCurrency(Number(emp.pay_per_day || 0))}</td>
-                        <td className="py-3 px-4" />
+                        <td className="py-3 px-4">
+                          <div className="flex items-center justify-end gap-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => { setEditOnOpen(true); setSelectedEmployee(emp) }}
+                              title={`Edit ${emp.name}`}
+                              className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                            >
+                              <Pencil size={14} /> Edit
+                            </button>
+                            {normalizeEmployeeStatus(emp.status) === "active" ? (
+                              <button
+                                type="button"
+                                onClick={() => requestArchive(emp)}
+                                disabled={togglingId === emp.id}
+                                title={`Archive ${emp.name}`}
+                                className="text-xs font-medium text-violet-600 hover:text-violet-800 flex items-center gap-1 disabled:opacity-50"
+                              >
+                                <Archive size={14} /> Archive
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => restoreEmployee(emp)}
+                                disabled={togglingId === emp.id}
+                                title={`Restore ${emp.name}`}
+                                className="text-xs font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1 disabled:opacity-50"
+                              >
+                                <ArchiveRestore size={14} /> Restore
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirm(emp)}
+                              disabled={deletingId === emp.id}
+                              title={`Delete ${emp.name}`}
+                              className="text-xs font-medium text-red-600 hover:text-red-800 flex items-center gap-1 disabled:opacity-50"
+                            >
+                              <Trash2 size={14} /> Delete
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                     {Array.from({ length: emptyRowsCount }).map((_, i) => (
@@ -1229,18 +1496,19 @@ export default function Employees() {
           ) : (
             <>
               {employeesLoading ? (
-                <SkeletonTableRows columns={2} columnConfig={[{ width: "60%" }, { width: "30%" }]} rows={10} />
+                <SkeletonTableRows columns={2} columnConfig={[{ width: "60%" }, { width: "30%" }]} rows={10} mobile />
               ) : (
                 <div className="flex flex-col">
                   {pageData.map((emp) => (
-                    <div key={emp.id} role="button" onClick={() => setSelectedEmployee(emp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 cursor-pointer">
-                      <div>
-                        <div className="text-sm font-medium text-slate-700">{emp.name}</div>
-                        <div className="text-xs text-slate-400">{emp.department}</div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-sm font-mono text-slate-700">{formatCurrency(Number(emp.pay_per_day || 0))}</div>
-                        <StatusSwitch emp={emp} />
+                    <div key={emp.id} className="border-b border-slate-50">
+                      <div role="button" onClick={() => { setEditOnOpen(false); setSelectedEmployee(emp) }} className="text-left p-3 hover:bg-slate-50 flex items-center justify-between gap-3 cursor-pointer">
+                        <div>
+                          <div className="text-sm font-medium text-slate-700">{emp.name}</div>
+                          <div className="text-xs text-slate-400">{emp.restaurant}</div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-sm font-mono text-slate-700">{formatCurrency(Number(emp.pay_per_day || 0))}</div>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1248,7 +1516,7 @@ export default function Employees() {
                     <div key={`empty-mobile-${i}`} className="invisible p-3 border-b border-slate-50 flex items-center justify-between gap-3">
                       <div>
                         <div className="text-sm font-medium">placeholder</div>
-                        <div className="text-xs text-slate-400">Department</div>
+                        <div className="text-xs text-slate-400">Restaurant</div>
                       </div>
                       <div className="text-sm font-mono text-slate-700">$0.00</div>
                     </div>
@@ -1293,10 +1561,19 @@ export default function Employees() {
 
       {selectedEmployee && (
         <EmployeeDetailModal
+          key={`${selectedEmployee.id}-${editOnOpen ? 'edit' : 'view'}`}
           employee={selectedEmployee}
           existingEmployees={employees}
+          startEditing={editOnOpen}
           onClose={() => setSelectedEmployee(null)}
-          onArchive={e => { setSelectedEmployee(null); setArchiveConfirm(e) }}
+          onArchive={e => {
+            setSelectedEmployee(null)
+            // Already-archived employees are restored directly (non-destructive);
+            // active ones go through the archive confirmation modal.
+            if (normalizeEmployeeStatus(e.status) === "active") setArchiveConfirm(e)
+            else void restoreEmployee(e)
+          }}
+          onDelete={e => { setSelectedEmployee(null); setDeleteConfirm(e) }}
           onUpdate={(updated) => {
             setEmployees(prev => {
               const idx = prev.findIndex(e => e.id === updated.id)
@@ -1319,31 +1596,39 @@ export default function Employees() {
 
       {archiveConfirm && (
         <Modal open={!!archiveConfirm} title="Archive Employee" onClose={() => setArchiveConfirm(null)}>
-          <div className="bg-white w-full p-4">
-            <p className="text-sm text-slate-600 mb-6">Are you sure you want to archive <span className="font-semibold text-slate-800">{archiveConfirm.name}</span>? This action cannot be undone.</p>
+          <div className="bg-white w-md p-4">
+            <p className="text-sm text-slate-600 mb-6">Are you sure you want to archive <span className="font-semibold text-slate-800">{archiveConfirm.name}</span>?</p>
+            <label className="block text-xs text-slate-500 font-display mb-5">This action cannot be undone.</label>
             <div className="flex gap-3 justify-end">
               <button onClick={() => setArchiveConfirm(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-              <button onClick={async () => {
-                const emp = archiveConfirm
-                setArchiveConfirm(null)
-                // Archiving sets the employee to inactive (if still active); if already
-                // inactive it is simply already in the archive table.
-                if (emp.status === "Active") {
-                  try {
-                    const res = await fetch(`/api/employees/${emp.id}`, {
-                      method: "PUT",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ status: "Inactive" }),
-                    })
-                    if (!res.ok) throw new Error("Failed to update status")
-                    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "Inactive" } : e))
-                  } catch (err) {
-                    showToast({ type: "error", message: "Archive failed", description: (err as Error).message })
-                  }
-                }
-                showToast({ type: "info", message: "Employee archived", description: `${emp.name} was archived.` })
-                setView("archived")
-              }} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">Archive</button>
+              <button
+                onClick={() => confirmArchive(archiveConfirm)}
+                disabled={togglingId === archiveConfirm.id}
+                className="px-4 py-2 text-sm font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Archive size={14} /> {togglingId === archiveConfirm.id ? "Archiving..." : "Archive"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {deleteConfirm && (
+        <Modal open={!!deleteConfirm} title="Delete Employee" onClose={() => setDeleteConfirm(null)}>
+          <div className="bg-white w-full p-4">
+            <p className="text-sm text-slate-600 mb-1">
+              Are you sure you want to permanently delete <span className="font-semibold text-slate-800">{deleteConfirm.name}</span>?
+            </p>
+            <p className="text-xs text-red-600 mb-6">This action cannot be undone.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setDeleteConfirm(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+              <button
+                onClick={confirmDelete}
+                disabled={deletingId === deleteConfirm.id}
+                className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Trash2 size={14} /> {deletingId === deleteConfirm.id ? "Deleting..." : "Delete"}
+              </button>
             </div>
           </div>
         </Modal>

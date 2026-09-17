@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Search, Plus, Pencil, Trash2, Eye, Archive } from 'lucide-react'
+import { Search, Plus, Pencil, Trash2, Eye, Archive, ArchiveRestore } from 'lucide-react'
 import Modal from '../components/Modal'
 import PaginationFooter from '../components/PaginationFooter'
 import useIsMobile from '../hooks/isMobile'
@@ -49,9 +49,28 @@ interface SkeletonTableRowsProps {
   columns: number
   rows?: number
   columnConfig?: { width?: string; pill?: boolean }[]
+  mobile?: boolean
 }
 
-function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+export function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = false }: SkeletonTableRowsProps) {
+  // The mobile card list renders outside a <table>, so rows must be divs here —
+  // a <tr> inside a <div> is invalid HTML and breaks hydration.
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }, (_, rowIdx) => (
+          <div key={rowIdx} className="border-b border-slate-100 p-3 flex items-center justify-between gap-3">
+            <div className="flex-1 space-y-2">
+              <SkeletonBar width={columnConfig?.[0]?.width ?? "60%"} height="0.85rem" rounded="rounded-md" />
+              <SkeletonBar width={columnConfig?.[1]?.width ?? "30%"} height="0.7rem" rounded="rounded-md" />
+            </div>
+            <SkeletonBar width={columnConfig?.[2]?.width ?? "24%"} height="0.85rem" rounded="rounded-md" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {Array.from({ length: rows }, (_, rowIdx) => (
@@ -91,6 +110,10 @@ export default function AssetsCatalog() {
   const [addQuantityValue, setAddQuantityValue] = useState('')
   const [addQuantityLoading, setAddQuantityLoading] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  // single busy-flag for archive/restore/delete, same pattern as FoodAndBeverageCatalog/FoodPackages
+  const [savingAction, setSavingAction] = useState<string | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<{ item: any; action: 'archive' | 'restore' } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null)
 
   const filtered = useMemo(() => {
     const base = showArchived ? items.filter(i => i.is_archived) : items.filter(i => !i.is_archived)
@@ -113,21 +136,61 @@ export default function AssetsCatalog() {
   }
 
   const archiveItem = async (id: string) => {
+    if (savingAction) return
+    setSavingAction('archive')
     try {
       const res = await fetch(`/api/assets_inventory/${id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Archive failed')
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || 'Archive failed')
       setItems(prev => prev.map(p => p.asset_id === id ? { ...p, is_archived: true } : p))
       showToast({ type: 'success', message: 'Asset archived' })
-    } catch (err) { showToast({ type: 'error', message: 'Failed to archive asset' }) }
+    } catch (err: any) { showToast({ type: 'error', message: 'Failed to archive asset', description: err?.message || undefined }) }
+    finally { setSavingAction(null) }
+  }
+
+  const restoreItem = async (id: string) => {
+    if (savingAction) return
+    setSavingAction('restore')
+    try {
+      const res = await fetch(`/api/assets_inventory/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_archived: false }) })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || 'Restore failed')
+      const restored = body.asset
+      setItems(prev => prev.map(p => p.asset_id === id ? (restored || { ...p, is_archived: false }) : p))
+      showToast({ type: 'success', message: 'Asset restored' })
+    } catch (err: any) { showToast({ type: 'error', message: 'Failed to restore asset', description: err?.message || undefined }) }
+    finally { setSavingAction(null) }
   }
 
   const deleteItem = async (id: string) => {
+    if (savingAction) return
+    setSavingAction('delete')
     try {
       const res = await fetch(`/api/assets_inventory/${id}?hard_delete=true`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Delete failed')
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || 'Delete failed')
       setItems(prev => prev.filter(p => p.asset_id !== id))
       showToast({ type: 'success', message: 'Asset permanently deleted' })
-    } catch (err) { showToast({ type: 'error', message: 'Failed to delete asset' }) }
+    } catch (err: any) { showToast({ type: 'error', message: 'Failed to delete asset', description: err?.message || undefined }) }
+    finally { setSavingAction(null) }
+  }
+
+  const confirmArchiveAction = async () => {
+    const target = archiveTarget
+    if (!target || savingAction) return
+    const id = target.item?.asset_id
+    const action = target.action
+    setArchiveTarget(null)
+    if (action === 'archive') await archiveItem(id)
+    else await restoreItem(id)
+  }
+
+  const confirmDelete = async () => {
+    const target = deleteTarget
+    if (!target || savingAction) return
+    const id = target.asset_id
+    setDeleteTarget(null)
+    await deleteItem(id)
   }
 
   const handleAddStock = async (item: any) => {
@@ -181,7 +244,9 @@ export default function AssetsCatalog() {
   // load assets
   const loadAssets = useCallback(async () => {
     try {
-      const res = await fetch('/api/assets_inventory')
+      // includeArchived=true: the API hides archived rows by default, and the
+      // "Archived Assets" dropdown filters them client-side from this full list.
+      const res = await fetch('/api/assets_inventory?includeArchived=true')
       if (!res.ok) return
       const j = await res.json()
       setItems(j.assets || j.inventory || [])
@@ -220,8 +285,8 @@ export default function AssetsCatalog() {
 
   const renderRestaurantTable = (title: string, displayItems: typeof filtered, totalItems: typeof filtered, currentPage: number, totalPages: number, setPage: (value: number | ((prev: number) => number)) => void, emptyCount: number) => (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6" style={{ display: loading || totalItems.length > 0 ? 'block' : 'none' }}>
-      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-        <h3 className="text-lg font-semibold text-slate-700 font-display">{title}</h3>
+      <div className={`px-4 py-3 border-b border-slate-100 ${isMobile ? 'bg-indigo-600' : 'bg-slate-50'}`}>
+        <h3 className={`text-lg font-semibold text-slate-700 font-display ${isMobile ? 'text-white' : ''}`}>{title}</h3>
       </div>
       {!isMobile ? (
         <div className="overflow-x-auto">
@@ -291,10 +356,14 @@ export default function AssetsCatalog() {
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 justify-center">
-                          <button type="button" onClick={() => { setAddQuantityId(item.asset_id); setAddQuantityValue('') }} className="text-xs font-medium text-green-600 hover:text-green-800">+ Add Qty</button>
-                          <button type="button" onClick={() => openEdit(item)} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><Pencil size={14} /> Edit</button>
-                          <button type="button" onClick={() => archiveItem(item.asset_id)} className="text-xs font-medium text-violet-600 hover:text-violet-800 flex items-center gap-1"><Archive size={14} /> Archive</button>
-                          <button type="button" onClick={() => deleteItem(item.asset_id)} className="text-xs font-medium text-red-600 hover:text-red-800 flex items-center gap-1"><Trash2 size={14} /> Delete</button>
+                          <button type="button" onClick={() => { setAddQuantityId(item.asset_id); setAddQuantityValue('') }} className="text-xs font-medium text-green-600 hover:text-green-800  hover:underline">+ Add Qty</button>
+                          <button type="button" onClick={() => openEdit(item)} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><Pencil size={14} /> Edit</button>
+                          {item.is_archived ? (
+                            <button type="button" onClick={() => setArchiveTarget({ item, action: 'restore' })} disabled={Boolean(savingAction)} className="text-xs font-medium text-emerald-600 hover:text-emerald-800 hover:underline flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"><ArchiveRestore size={14} /> Restore</button>
+                          ) : (
+                            <button type="button" onClick={() => setArchiveTarget({ item, action: 'archive' })} disabled={Boolean(savingAction)} className="text-xs font-medium text-violet-500 hover:text-violet-700 hover:underline flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"><Archive size={14} /> Archive</button>
+                          )}
+                          <button type="button" onClick={() => setDeleteTarget(item)} disabled={Boolean(savingAction)} className="text-xs font-medium text-red-600 hover:text-red-800 hover:underline flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"><Trash2 size={14} /> Delete</button>
                         </div>
                       )}
                     </td>
@@ -318,6 +387,7 @@ export default function AssetsCatalog() {
         <div className="p-4">
           {loading ? (
             <SkeletonTableRows
+              mobile
               columns={3}
               rows={6}
               columnConfig={[
@@ -330,16 +400,22 @@ export default function AssetsCatalog() {
             <div className="p-4 text-sm text-slate-400">No assets found.</div>
           ) : (
             displayItems.map(item => (
-              <button key={item.asset_id} type="button" onClick={() => setSelectedItem(item)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 w-full">
+              <div
+                key={item.asset_id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedItem(item)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedItem(item) } }}
+                className="cursor-pointer text-left p-2 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 w-full"
+              >
                 <div>
                   <div className="text-sm font-semibold text-slate-700 font-display">{item.name}</div>
-                  <div className="text-xs text-slate-400">{item.restaurant}</div>
+                  <div className="text-xs text-slate-400">{formatCurrency(Number(item.penalty_amount || 0))}</div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="text-sm font-mono text-slate-700">{item.quantity}</div>
-                  <button type="button" onClick={e => { e.stopPropagation(); deleteItem(item.asset_id) }} className="p-1 text-red-600 hover:text-red-800" title="Delete"><Trash2 size={14} /></button>
+                  <div className="text-sm font-mono text-slate-700">Qty: {item.quantity}</div>
                 </div>
-              </button>
+              </div>
             ))
           )}
         </div>
@@ -361,22 +437,41 @@ export default function AssetsCatalog() {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 flex-1">
-            <Search size={14} className="text-slate-400 shrink-0" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+        {isMobile ? (
+          <div>
+            <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 mb-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 flex-1">
+              <Search size={14} className="text-slate-400 shrink-0" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets..." className="w-full bg-transparent text-sm outline-none text-slate-700 placeholder:text-slate-400" />
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={showArchived ? 'archived' : 'active'}
+                onChange={e => setShowArchived(e.target.value === 'archived')}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600"
+              >
+                <option value="active">Active Assets</option>
+                <option value="archived">Archived Assets</option>
+              </select>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={showArchived ? 'archived' : 'active'}
-              onChange={e => setShowArchived(e.target.value === 'archived')}
-              className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600"
-            >
-              <option value="active">Active Assets</option>
-              <option value="archived">Archived Assets</option>
-            </select>
+        ) : (
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 flex-1">
+              <Search size={14} className="text-slate-400 shrink-0" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={showArchived ? 'archived' : 'active'}
+                onChange={e => setShowArchived(e.target.value === 'archived')}
+                className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600"
+              >
+                <option value="active">Active Assets</option>
+                <option value="archived">Archived Assets</option>
+              </select>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -446,12 +541,49 @@ export default function AssetsCatalog() {
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button type="button" onClick={() => { setSelectedItem(null); openEdit(selectedItem) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
-              <button type="button" onClick={() => { setSelectedItem(null); archiveItem(selectedItem.asset_id) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Archive</button>
+              <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); setDeleteTarget(t) }} disabled={Boolean(savingAction)} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"><Trash2 size={14} /> Delete</button>
+              {selectedItem.is_archived ? (
+                <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); setArchiveTarget({ item: t, action: 'restore' }) }} disabled={Boolean(savingAction)} className="px-3 py-2 text-sm text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"><ArchiveRestore size={14} /> Restore</button>
+              ) : (
+                <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); setArchiveTarget({ item: t, action: 'archive' }) }} disabled={Boolean(savingAction)} className="px-3 py-2 text-sm text-white bg-violet-600 hover:bg-violet-700 rounded-lg flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"><Archive size={14} /> Archive</button>
+              )}
+              <button type="button" onClick={() => { const t = selectedItem; setSelectedItem(null); openEdit(t) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1"><Pencil size={14} /> Edit</button>              
             </div>
           </div>
         </Modal>
       )}
+
+      <Modal open={!!archiveTarget} title={archiveTarget?.action === 'restore' ? 'Confirm restore' : 'Confirm archive'} onClose={() => { if (!savingAction) setArchiveTarget(null) }}>
+        <div className="w-md">
+          <p className="text-sm text-slate-700 mb-2">
+            Are you sure you want to {archiveTarget?.action === 'restore' ? 'restore' : 'archive'} <span className="font-semibold">{archiveTarget?.item?.name}</span>?
+          </p>
+          <p className="text-xs text-slate-500 mb-4">
+            {archiveTarget?.action === 'restore'
+              ? 'This asset will show up again in the Active Assets view.'
+              : 'Archived assets are hidden from the Active Assets view. You can list this asset again anytime using Restore.'}
+          </p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => { if (!savingAction) setArchiveTarget(null) }} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>Cancel</button>
+            {archiveTarget?.action === 'restore' ? (
+              <button type="button" onClick={confirmArchiveAction} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-display flex items-center gap-2 ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>{savingAction === 'restore' ? 'Restoring…' : <><ArchiveRestore size={14} /> Restore</>}</button>
+            ) : (
+              <button type="button" onClick={confirmArchiveAction} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display flex items-center gap-2 ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>{savingAction === 'archive' ? 'Archiving…' : <><Archive size={14} /> Archive</>}</button>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!deleteTarget} title="Confirm deletion" onClose={() => { if (!savingAction) setDeleteTarget(null) }}>
+        <div className="w-md">
+          <p className="text-sm text-slate-700 mb-2">Are you sure you want to permanently delete <span className="font-semibold">{deleteTarget?.name}</span>?</p>
+          <p className="text-xs text-red-600 mb-4">This action cannot be undone.</p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => { if (!savingAction) setDeleteTarget(null) }} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>Cancel</button>
+            <button type="button" onClick={confirmDelete} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display flex items-center gap-2 ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>{savingAction === 'delete' ? 'Deleting…' : <><Trash2 size={14} /> Delete</>}</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

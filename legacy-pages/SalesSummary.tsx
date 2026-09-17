@@ -1,11 +1,11 @@
 ﻿'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { CalendarRange } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import useIsMobile from '../hooks/isMobile'
 import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import { AnimatePresence, motion } from 'motion/react'
 import PaginationFooter from '../components/PaginationFooter'
+import DateFilter, { dateInRange, defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
 import {
   BarChart,
   Bar,
@@ -26,6 +26,18 @@ const formatCurrency = (value: number) =>
     currency: 'PHP',
     minimumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0)
+
+// Label/value pair for the stacked mobile cards. Mirrors the detail modals (small slate-400
+// label above a medium-weight value) so the mobile cards show the same columns as the desktop
+// tables instead of only the name and one amount.
+function CardField({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-slate-400">{label}</p>
+      <p className={`text-sm font-medium text-slate-700 ${mono ? 'font-mono' : ''}`}>{value}</p>
+    </div>
+  )
+}
 
 const CustomBarTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; dataKey: string; payload: any }>; label?: string }) => {
   if (!active || !payload || payload.length === 0) return null
@@ -77,98 +89,9 @@ const ServiceBarTooltip = ({ active, payload, label }: { active?: boolean; paylo
   )
 }
 
-type DatePreset = 'today' | 'week' | 'month' | 'year' | 'custom'
-type CustomMode = 'range' | 'single'
 type RestaurantFilterValue = 'All Restaurants' | 'Lakay Ago' | 'Aroo'
 
 const RESTAURANT_OPTIONS: RestaurantFilterValue[] = ['All Restaurants', 'Lakay Ago', 'Aroo']
-
-const toStartOfDay = (date: Date) => {
-  const next = new Date(date)
-  next.setHours(0, 0, 0, 0)
-  return next
-}
-
-const toEndOfDay = (date: Date) => {
-  const next = new Date(date)
-  next.setHours(23, 59, 59, 999)
-  return next
-}
-
-const startOfWeek = (date: Date) => {
-  const next = new Date(date)
-  const day = next.getDay()
-  const diff = (day + 6) % 7
-  next.setDate(next.getDate() - diff)
-  return toStartOfDay(next)
-}
-
-const endOfWeek = (date: Date) => {
-  const next = new Date(startOfWeek(date))
-  next.setDate(next.getDate() + 6)
-  return toEndOfDay(next)
-}
-
-const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1)
-const endOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() + 1, 0)
-const startOfYear = (date: Date) => new Date(date.getFullYear(), 0, 1)
-const endOfYear = (date: Date) => new Date(date.getFullYear(), 11, 31)
-
-const isWithinRange = (value: string | Date | null | undefined, start: Date, end: Date) => {
-  if (!value) return false
-  const parsed = value instanceof Date ? value : new Date(value)
-  return !Number.isNaN(parsed.getTime()) && parsed >= start && parsed <= end
-}
-
-const resolveDateWindow = (
-  filter: DatePreset,
-  customMode: CustomMode,
-  rangeStart: string,
-  rangeEnd: string,
-  singleDate: string,
-) => {
-  const now = new Date()
-
-  if (filter === 'today') {
-    return { start: toStartOfDay(now), end: toEndOfDay(now), error: '' }
-  }
-
-  if (filter === 'week') {
-    return { start: startOfWeek(now), end: endOfWeek(now), error: '' }
-  }
-
-  if (filter === 'month') {
-    return { start: startOfMonth(now), end: toEndOfDay(endOfMonth(now)), error: '' }
-  }
-
-  if (filter === 'year') {
-    return { start: startOfYear(now), end: toEndOfDay(endOfYear(now)), error: '' }
-  }
-
-  if (customMode === 'range') {
-    if (!rangeStart || !rangeEnd) {
-      return { start: null, end: null, error: 'Please choose both start and end dates.' }
-    }
-
-    const start = toStartOfDay(new Date(rangeStart))
-    const end = toEndOfDay(new Date(rangeEnd))
-
-    if (start > end) {
-      return { start: null, end: null, error: 'Start date cannot be later than end date.' }
-    }
-
-    return { start, end, error: '' }
-  }
-
-  if (!singleDate) {
-    return { start: null, end: null, error: 'Please select a date.' }
-  }
-
-  const start = toStartOfDay(new Date(singleDate))
-  const end = toEndOfDay(new Date(singleDate))
-
-  return { start, end, error: '' }
-}
 
 const matchesRestaurantScope = (restaurantValue: string | null | undefined, filter: RestaurantFilterValue) => {
   if (filter === 'All Restaurants') return true
@@ -238,7 +161,25 @@ function SummaryCardSkeleton({ label }: { label: string }) {
 }
 
 // Mirrors the report tables: styled header row (border-b, bg-slate-50) + rows of placeholder cells.
-function TableSkeleton({ rows = 6, columns = 3 }: { rows?: number; columns?: number }) {
+// On mobile the report renders stacked cards instead of a table, so `mobile` swaps to card-shaped
+// rows built from divs — a <tr> rendered outside a <table> is invalid HTML and breaks hydration.
+function TableSkeleton({ rows = 6, columns = 3, mobile = false }: { rows?: number; columns?: number; mobile?: boolean }) {
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }).map((_, rowIndex) => (
+          <div key={`skeleton-card-${rowIndex}`} className="flex items-center justify-between gap-3 border-b border-slate-50 p-3 last:border-b-0">
+            <div className="min-w-0 flex-1 space-y-2">
+              <SkeletonBar width="70%" height="0.875rem" />
+              <SkeletonBar width="45%" height="0.75rem" />
+            </div>
+            <SkeletonBar width="28%" height="0.875rem" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
@@ -301,11 +242,9 @@ export default function SalesSummary() {
   const [salesRecords, setSalesRecords] = useState<any[]>([])
   const [expenses, setExpenses] = useState<any[]>([])
   const [serviceTransactions, setServiceTransactions] = useState<any[]>([])
-  const [dateFilter, setDateFilter] = useState<DatePreset>('month')
-  const [customMode, setCustomMode] = useState<CustomMode>('range')
-  const [rangeStart, setRangeStart] = useState('2026-08-01')
-  const [rangeEnd, setRangeEnd] = useState('2026-08-30')
-  const [singleDate, setSingleDate] = useState('2026-08-21')
+  // Keep the report's original default of showing the current month; swap the spread
+  // for a plain `defaultDateFilterValue` to match the other pages ("All Sales").
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>(() => ({ ...defaultDateFilterValue(), mode: 'month' }))
   const [restaurantFilter, setRestaurantFilter] = useState<RestaurantFilterValue>('All Restaurants')
   const [realtimeRefreshTick, setRealtimeRefreshTick] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -408,33 +347,33 @@ export default function SalesSummary() {
     }
   }, [realtimeRefreshTick])
 
-  const dateWindow = useMemo(
-    () => resolveDateWindow(dateFilter, customMode, rangeStart, rangeEnd, singleDate),
-    [dateFilter, customMode, rangeStart, rangeEnd, singleDate],
+  const dateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
+
+  const filteredSales = useMemo(
+    () =>
+      salesRecords.filter(
+        (sale) => matchesRestaurantScope(sale.restaurant, restaurantFilter) && dateInRange(sale.createdAt, dateRange),
+      ),
+    [dateRange, restaurantFilter, salesRecords],
   )
 
-  const filteredSales = useMemo(() => {
-    if (!dateWindow.start || !dateWindow.end) return []
-    return salesRecords.filter(
-      (sale) => matchesRestaurantScope(sale.restaurant, restaurantFilter) && isWithinRange(sale.createdAt, dateWindow.start, dateWindow.end),
-    )
-  }, [dateWindow, restaurantFilter, salesRecords])
+  const filteredExpenses = useMemo(
+    () =>
+      expenses.filter(
+        (expense) => matchesRestaurantScope(expense.restaurant, restaurantFilter) && dateInRange(expense.createdAt, dateRange),
+      ),
+    [dateRange, expenses, restaurantFilter],
+  )
 
-  const filteredExpenses = useMemo(() => {
-    if (!dateWindow.start || !dateWindow.end) return []
-    return expenses.filter(
-      (expense) => matchesRestaurantScope(expense.restaurant, restaurantFilter) && isWithinRange(expense.createdAt, dateWindow.start, dateWindow.end),
-    )
-  }, [dateWindow, expenses, restaurantFilter])
-
-  const filteredServiceTransactions = useMemo(() => {
-    if (!dateWindow.start || !dateWindow.end) return []
-    return serviceTransactions.filter(
-      (transaction) =>
-        matchesRestaurantScope(transaction.restaurant, restaurantFilter) &&
-        isWithinRange(transaction.service_date, dateWindow.start, dateWindow.end),
-    )
-  }, [dateWindow, restaurantFilter, serviceTransactions])
+  const filteredServiceTransactions = useMemo(
+    () =>
+      serviceTransactions.filter(
+        (transaction) =>
+          matchesRestaurantScope(transaction.restaurant, restaurantFilter) &&
+          dateInRange(transaction.service_date, dateRange),
+      ),
+    [dateRange, restaurantFilter, serviceTransactions],
+  )
 
   const bundleIds = useMemo(() => {
     const ids = new Set<number>()
@@ -562,13 +501,18 @@ export default function SalesSummary() {
     [expenseBreakdown],
   )
 
-  const showReport = !dateWindow.error && !!dateWindow.start && !!dateWindow.end
-
   const [salesSummaryVisible, setSalesSummaryVisible] = useState(true)
   const PAGE_SIZE = 10
   const [salesPage, setSalesPage] = useState(1)
   const [bundlePage, setBundlePage] = useState(1)
   const [servicePage, setServicePage] = useState(1)
+
+  // Desktop-only table padding. Every page is topped up to PAGE_SIZE rows with invisible rows so
+  // the table height — and the pagination controls underneath it — never jump between pages.
+  // Mobile renders the stacked cards instead and gets no filler rows. An empty page is padded as
+  // well: the "No … found." message row takes the place of the first data row.
+  const desktopFillerCount = (rowCount: number) =>
+    Math.max(0, PAGE_SIZE - (rowCount === 0 ? 1 : rowCount))
 
   useEffect(() => setSalesPage(1), [itemSummary])
   useEffect(() => setBundlePage(1), [bundleSummary])
@@ -616,7 +560,29 @@ export default function SalesSummary() {
   ]
 
   const renderItemTable = () => {
-    const emptyRows = Array.from({ length: Math.max(0, PAGE_SIZE - itemPageData.length) })
+    // Mobile uses the stacked card list used by the other report pages instead of a table.
+    if (isMobile) {
+      return (
+        <div className="flex flex-col">
+          {itemPageData.length === 0 ? (
+            <div className="p-4 text-sm text-slate-400">No item sales found.</div>
+          ) : (
+            itemPageData.map((item) => (
+              <div key={item.name} className="border-b border-slate-200 p-3 last:border-b-0">
+                <p className="truncate text-sm font-semibold text-slate-700 font-display">{item.name}</p>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <CardField label="Total Sale" value={formatCurrency(item.totalSale)} mono />
+                  <CardField label="Order Discount" value={formatCurrency(item.totalDiscount)} mono />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )
+    }
+
+    // Desktop only filler rows — see desktopFillerCount().
+    const itemEmptyCount = desktopFillerCount(itemPageData.length)
 
     return (
       <div className="overflow-x-auto">
@@ -629,6 +595,11 @@ export default function SalesSummary() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
+            {itemPageData.length === 0 && (
+              <tr>
+                <td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">No item sales found.</td>
+              </tr>
+            )}
             {itemPageData.map((item) => (
               <tr key={item.name} className="hover:bg-slate-50">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.name}</td>
@@ -636,8 +607,8 @@ export default function SalesSummary() {
                 <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(item.totalDiscount)}</td>
               </tr>
             ))}
-            {emptyRows.map((_, index) => (
-              <tr key={`item-empty-${index}`} className="invisible">
+            {itemEmptyCount > 0 && Array.from({ length: itemEmptyCount }).map((_, index) => (
+              <tr key={`item-filler-${index}`} className="invisible">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
                 <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(0)}</td>
                 <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(0)}</td>
@@ -650,7 +621,28 @@ export default function SalesSummary() {
   }
 
   const renderBundleTable = () => {
-    const emptyRows = Array.from({ length: Math.max(0, PAGE_SIZE - bundlePageData.length) })
+    if (isMobile) {
+      return (
+        <div className="flex flex-col">
+          {bundlePageData.length === 0 ? (
+            <div className="p-4 text-sm text-slate-400">No bundle sales found.</div>
+          ) : (
+            bundlePageData.map((bundle) => (
+              <div key={bundle.name} className="border-b border-slate-200 p-3 last:border-b-0">
+                <p className="truncate text-sm font-semibold text-slate-700 font-display">{bundle.name}</p>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <CardField label="Total Sale" value={formatCurrency(bundle.totalSale)} mono />
+                  <CardField label="Order Discount" value={formatCurrency(bundle.totalDiscount)} mono />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )
+    }
+
+    // Desktop only filler rows — see desktopFillerCount().
+    const bundleEmptyCount = desktopFillerCount(bundlePageData.length)
 
     return (
       <div className="overflow-x-auto">
@@ -663,6 +655,11 @@ export default function SalesSummary() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
+            {bundlePageData.length === 0 && (
+              <tr>
+                <td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">No bundle sales found.</td>
+              </tr>
+            )}
             {bundlePageData.map((bundle) => (
               <tr key={bundle.name} className="hover:bg-slate-50">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{bundle.name}</td>
@@ -670,8 +667,8 @@ export default function SalesSummary() {
                 <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(bundle.totalDiscount)}</td>
               </tr>
             ))}
-            {emptyRows.map((_, index) => (
-              <tr key={`bundle-empty-${index}`} className="invisible">
+            {bundleEmptyCount > 0 && Array.from({ length: bundleEmptyCount }).map((_, index) => (
+              <tr key={`bundle-filler-${index}`} className="invisible">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
                 <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(0)}</td>
                 <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(0)}</td>
@@ -684,7 +681,33 @@ export default function SalesSummary() {
   }
 
   const renderServiceTable = () => {
-    const emptyRows = Array.from({ length: Math.max(0, PAGE_SIZE - servicePageData.length) })
+    // Mobile uses the stacked card list used by the other report pages instead of a table.
+    if (isMobile) {
+      return (
+        <div className="flex flex-col">
+          {servicePageData.length === 0 ? (
+            <div className="p-4 text-sm text-slate-400">No service sales found.</div>
+          ) : (
+            servicePageData.map((transaction) => {
+              const downpaymentPlusBalance = Number(transaction.downpayment || 0) + Number(transaction.balance || 0)
+
+              return (
+                <div key={transaction.service_transaction_id} className="border-b border-slate-200 p-3 last:border-b-0">
+                  <p className="truncate text-sm font-semibold text-slate-700 font-display">{transaction.serviceType || 'Service'}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    <CardField label="Total Sale" value={formatCurrency(downpaymentPlusBalance)} mono />
+                    <CardField label="Order Discount" value={formatCurrency(Number(transaction.discount || 0))} mono />
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      )
+    }
+
+    // Desktop only filler rows — see desktopFillerCount().
+    const serviceEmptyCount = desktopFillerCount(servicePageData.length)
 
     return (
       <div className="overflow-x-auto">
@@ -698,6 +721,11 @@ export default function SalesSummary() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
+            {servicePageData.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-400">No service sales found.</td>
+              </tr>
+            )}
             {servicePageData.map((transaction) => {
               const downpaymentPlusBalance = Number(transaction.downpayment || 0) + Number(transaction.balance || 0)
 
@@ -712,8 +740,8 @@ export default function SalesSummary() {
                 </tr>
               )
             })}
-            {emptyRows.map((_, index) => (
-              <tr key={`service-empty-${index}`} className="invisible">
+            {serviceEmptyCount > 0 && Array.from({ length: serviceEmptyCount }).map((_, index) => (
+              <tr key={`service-filler-${index}`} className="invisible">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
                 <td className="py-3 px-4 text-sm text-slate-700">—</td>
                 <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(0)}</td>
@@ -726,28 +754,56 @@ export default function SalesSummary() {
     )
   }
 
-  const renderExpenseTable = () => (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr className="border-b border-slate-100 bg-slate-50">
-            <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Expense Category</th>
-            <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Restaurant</th>
-            <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Total Amount</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {expenseBreakdown.map((expense) => (
-            <tr key={`${expense.name}-${expense.restaurant}`} className="hover:bg-slate-50">
-              <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{expense.name}</td>
-              <td className="py-3 px-4 text-sm text-slate-600">{expense.restaurant}</td>
-              <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(expense.amount)}</td>
+  const renderExpenseTable = () => {
+    // Mobile uses the stacked card list used by the other report pages instead of a table.
+    if (isMobile) {
+      return (
+        <div className="flex flex-col">
+          {expenseBreakdown.length === 0 ? (
+            <div className="p-4 text-sm text-slate-400">No expenses found.</div>
+          ) : (
+            expenseBreakdown.map((expense) => (
+              <div key={`${expense.name}-${expense.restaurant}`} className="border-b border-slate-200 p-3 last:border-b-0">
+                <p className="truncate text-sm font-semibold text-slate-700 font-display">{expense.name}</p>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <CardField label="Restaurant" value={expense.restaurant} />
+                  <CardField label="Total Amount" value={formatCurrency(expense.amount)} mono />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )
+    }
+
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50">
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Expense Category</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Restaurant</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">Total Amount</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {expenseBreakdown.length === 0 && (
+              <tr>
+                <td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">No expenses found.</td>
+              </tr>
+            )}
+            {expenseBreakdown.map((expense) => (
+              <tr key={`${expense.name}-${expense.restaurant}`} className="hover:bg-slate-50">
+                <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{expense.name}</td>
+                <td className="py-3 px-4 text-sm text-slate-600">{expense.restaurant}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(expense.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
 
   return (
     <div className="p-4 md:p-6">
@@ -758,107 +814,24 @@ export default function SalesSummary() {
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm">
-            <CalendarRange size={14} className="text-slate-400" />
-            <select
-              value={dateFilter}
-              onChange={(event) => setDateFilter(event.target.value as DatePreset)}
-              className="bg-transparent outline-none text-sm font-medium text-slate-700 font-display"
-            >
-              <option value="today">Today</option>
-              <option value="week">Week</option>
-              <option value="month">Month</option>
-              <option value="year">Year</option>
-              <option value="custom">Custom Date</option>
-            </select>
-          </label>
-
-          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm">
-            <span className="text-slate-400 text-xs font-medium uppercase tracking-wide">Restaurant</span>
-            <select
+          <select
               value={restaurantFilter}
               onChange={(event) => setRestaurantFilter(event.target.value as RestaurantFilterValue)}
-              className="bg-transparent outline-none text-sm font-medium text-slate-700 font-display"
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none font-display text-slate-600"
             >
               {RESTAURANT_OPTIONS.map((option) => (
                 <option key={option} value={option}>{option}</option>
               ))}
             </select>
-          </label>
+          <div>
+          <div>
+            <DateFilter value={dateFilter} onChange={setDateFilter} allLabel="All Sales" className="justify-end"/>
+          </div>
+            
+          </div>
         </div>
       </div>
 
-      {dateFilter === 'custom' && (
-        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input
-                type="radio"
-                name="customMode"
-                checked={customMode === 'range'}
-                onChange={() => setCustomMode('range')}
-              />
-              Date Range
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input
-                type="radio"
-                name="customMode"
-                checked={customMode === 'single'}
-                onChange={() => setCustomMode('single')}
-              />
-              Single Date
-            </label>
-          </div>
-
-          {customMode === 'range' ? (
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <label className="flex flex-col text-sm text-slate-600">
-                <span className="mb-1 font-medium">Start Date</span>
-                <input
-                  type="date"
-                  value={rangeStart}
-                  onChange={(event) => setRangeStart(event.target.value)}
-                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 text-slate-600"
-                />
-              </label>
-              <label className="flex flex-col text-sm text-slate-600">
-                <span className="mb-1 font-medium">End Date</span>
-                <input
-                  type="date"
-                  value={rangeEnd}
-                  onChange={(event) => setRangeEnd(event.target.value)}
-                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 text-slate-600"
-                />
-              </label>
-            </div>
-          ) : (
-            <div className="mt-4 max-w-sm">
-              <label className="flex flex-col text-sm text-slate-600">
-                <span className="mb-1 font-medium">Select Date</span>
-                <input
-                  type="date"
-                  value={singleDate}
-                  onChange={(event) => setSingleDate(event.target.value)}
-                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 text-slate-600"
-                />
-              </label>
-            </div>
-          )}
-        </div>
-      )}
-
-      {!showReport && dateWindow.error ? (
-        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {dateWindow.error}
-        </div>
-      ) : null}
-
-      {!showReport ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-400 shadow-sm">
-          Select a valid date filter to view the report.
-        </div>
-      ) : (
         <div className="space-y-6">
           <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -887,7 +860,7 @@ export default function SalesSummary() {
                       : summaryCards.map((card) => (
                           <div key={card.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">{card.label}</p>
-                            <p className="mt-3 text-2xl font-bold text-slate-800 font-display">{card.value}</p>
+                            <p className={`mt-3 text-2xl ${card.label === 'Gross Sale' ? 'text-green-700' : card.label === 'Net Sale' ? 'text-green-600' : 'text-red-600'} font-bold font-display`}>{card.value}</p>
                           </div>
                         ))}
                   </div>
@@ -901,7 +874,7 @@ export default function SalesSummary() {
                       ].map((table) => (
                         <div key={table.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                           <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 font-display">{table.label}</h4>
-                          <TableSkeleton rows={6} columns={table.columns} />
+                          <TableSkeleton rows={6} columns={table.columns} mobile={isMobile} />
                         </div>
                       ))
                     ) : (
@@ -1009,7 +982,7 @@ export default function SalesSummary() {
                 : expenseCards.map((card) => (
                     <div key={card.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">{card.label}</p>
-                      <p className="mt-3 text-2xl font-bold text-slate-800 font-display">{card.value}</p>
+                      <p className={`mt-3 text-2xl ${card.label === 'Expense Total' ? 'text-red-800' : card.label === 'Daily Expenses' ? 'text-red-700' : 'text-red-600'} font-bold font-display`}>{card.value}</p>
                     </div>
                   ))}
             </div>
@@ -1018,7 +991,7 @@ export default function SalesSummary() {
               {loading ? (
                 <>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <TableSkeleton rows={6} columns={3} />
+                    <TableSkeleton rows={6} columns={3} mobile={isMobile} />
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
                     <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Expense Distribution</p>
@@ -1063,7 +1036,6 @@ export default function SalesSummary() {
   </div>
           </section>
         </div>
-      )}
     </div>
   )
 }

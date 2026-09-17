@@ -53,9 +53,28 @@ interface SkeletonTableRowsProps {
   columns: number
   rows?: number
   columnConfig?: { width?: string; pill?: boolean }[]
+  mobile?: boolean
 }
 
-function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+export function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = false }: SkeletonTableRowsProps) {
+  // The mobile card list renders outside a <table>, so rows must be divs here —
+  // a <tr> inside a <div> is invalid HTML and breaks hydration.
+  if (mobile) {
+    return (
+      <div className="flex flex-col">
+        {Array.from({ length: rows }, (_, rowIdx) => (
+          <div key={rowIdx} className="border-b border-slate-100 p-3 flex items-center justify-between gap-3">
+            <div className="flex-1 space-y-2">
+              <SkeletonBar width={columnConfig?.[0]?.width ?? "60%"} height="0.85rem" rounded="rounded-md" />
+              <SkeletonBar width={columnConfig?.[1]?.width ?? "30%"} height="0.7rem" rounded="rounded-md" />
+            </div>
+            <SkeletonBar width={columnConfig?.[2]?.width ?? "24%"} height="0.85rem" rounded="rounded-md" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {Array.from({ length: rows }, (_, rowIdx) => (
@@ -87,6 +106,10 @@ export default function FoodPackages() {
   const [items, setItems] = useState<any[]>([])
   const [archiveConfirmTarget, setArchiveConfirmTarget] = useState<any | null>(null)
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<any | null>(null)
+  // Which action is currently writing to the DB ('save' | 'delete' | 'archive' | 'restore' | 'add') — disables the related buttons
+  const [savingAction, setSavingAction] = useState<string | null>(null)
+  // Selected Package/Bundle details modal — shows the name and its items
+  const [viewItem, setViewItem] = useState<any | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState<PackForm>(emptyForm('catering_package'))
@@ -200,13 +223,20 @@ export default function FoodPackages() {
 
   const renderRestaurantTable = (title: string, displayItems: typeof filtered, totalItems: typeof filtered, currentPage: number, totalPages: number, setPage: (value: number | ((prev: number) => number)) => void, emptyCount: number) => (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6" style={{ display: loading || totalItems.length > 0 ? 'block' : 'none' }}>
-      <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
-        <h3 className="text-sm font-semibold">{title} — {activeType === 'menu_bundle' ? 'Bundles' : 'Packages'}</h3>
-      </div>
+      {isMobile ? (
+        <div className="px-4 py-3 border-b border-slate-200 bg-indigo-600 text-white">
+          <h3 className="text-sm font-semibold">{title} {activeType === 'menu_bundle' ? 'Bundles' : 'Packages'}</h3>
+        </div>
+      ) : (
+        <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+          <h3 className="text-sm font-semibold">{title} {activeType === 'menu_bundle' ? 'Bundles' : 'Packages'}</h3>
+        </div>
+      )}
+      
       {!isMobile ? (
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="text-xs text-slate-500 uppercase">
+            <thead className="text-xs border-b border-slate-200 uppercase bg-indigo-600 text-white">
               <tr>
                 <th className="py-3 px-4 text-left">Name</th>
                 <th className="py-3 px-4 text-center">Price</th>
@@ -229,20 +259,32 @@ export default function FoodPackages() {
               ) : items.length === 0 ? (
                 <tr><td colSpan={4} className="p-6 text-center text-sm text-slate-400">No {activeType === 'menu_bundle' ? 'bundles' : 'packages'} found.</td></tr>
               ) : displayItems.map((pkg) => (
-                <tr key={pkg.food_package_id} className={pkg.is_archived ? 'bg-slate-50 opacity-75' : ''}>
+                <tr
+                  key={pkg.food_package_id}
+                  className={pkg.is_archived ? 'bg-slate-50 opacity-75 cursor-pointer hover:bg-slate-50' : 'cursor-pointer hover:bg-slate-50'}
+                  onClick={() => setViewItem(pkg)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      setViewItem(pkg)
+                    }
+                  }}
+                >
                   <td className="py-3 px-4 font-medium text-slate-800">{pkg.name}</td>
                   <td className="py-3 px-4 text-center font-mono text-sm text-slate-700">{new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(pkg.price || 0))}</td>
                   <td className="py-3 px-4 text-center text-sm text-slate-600">{pkg.item_count ?? (Array.isArray(pkg.items) ? pkg.items.length : 0)}</td>
-                  <td className="py-3 px-4 text-center text-sm">
+                  <td className="py-3 px-4 text-center text-sm" onClick={(event) => event.stopPropagation()}>
                     <div className="flex items-center justify-center gap-2">
-                      <button type="button" onClick={() => openEdit(pkg)} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><Pencil size={14} /> Edit</button>
-                      <button type="button" onClick={() => openPackageEditor(pkg)} className="text-xs font-medium text-slate-700 hover:text-slate-900 flex items-center gap-1"><List size={14} /> Items</button>
+                      <button type="button" onClick={() => openEdit(pkg)} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><Pencil size={14} /> Edit</button>
+                      <button type="button" onClick={() => openPackageEditor(pkg)} className="text-xs font-medium text-slate-700 hover:text-slate-900 hover:underline flex items-center gap-1"><List size={14} /> Items</button>
                       {pkg.is_archived ? (
-                        <button type="button" onClick={() => toggleArchivePackage(pkg)} className="text-xs font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1"><ArchiveRestore size={14} /> Restore</button>
+                        <button type="button" onClick={() => toggleArchivePackage(pkg)} className="text-xs font-medium text-emerald-600 hover:text-emerald-800 hover:underline flex items-center gap-1"><ArchiveRestore size={14} /> Restore</button>
                       ) : (
-                        <button type="button" onClick={() => setArchiveConfirmTarget(pkg)} className="text-xs font-medium text-violet-600 hover:text-violet-800 flex items-center gap-1"><Archive size={14} /> Archive</button>
+                        <button type="button" onClick={() => setArchiveConfirmTarget(pkg)} className="text-xs font-medium text-violet-500 hover:text-violet-600 hover:underline flex items-center gap-1"><Archive size={14} /> Archive</button>
                       )}
-                      <button type="button" onClick={() => setDeleteConfirmTarget(pkg)} className="text-xs font-medium text-red-600 hover:text-red-800 flex items-center gap-1"><Trash2 size={14} /> Delete</button>
+                      <button type="button" onClick={() => setDeleteConfirmTarget(pkg)} className="text-xs font-medium text-red-600 hover:text-red-800 hover:underline flex items-center gap-1"><Trash2 size={14} /> Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -271,6 +313,7 @@ export default function FoodPackages() {
         <div>
           {loading ? (
             <SkeletonTableRows
+              mobile
               columns={3}
               rows={6}
               columnConfig={[
@@ -282,37 +325,22 @@ export default function FoodPackages() {
           ) : totalItems.length === 0 ? (
             <div className="p-4 text-sm text-slate-400">No {activeType === 'menu_bundle' ? 'bundles' : 'packages'} found.</div>
           ) : displayItems.map((pkg) => (
-            <div key={pkg.food_package_id} className="p-3 border-b border-slate-200 flex items-center justify-between gap-3">
+            <button
+              key={pkg.food_package_id}
+              type="button"
+              onClick={() => setViewItem(pkg)}
+              className="w-full text-left p-3 border-b border-slate-200 hover:bg-slate-50 flex items-center justify-between gap-3"
+            >
               <div>
-                <div className="font-medium text-slate-800">{pkg.name}</div>
+                <div className="font-semibold text-slate-800">{pkg.name}</div>
                 <div className="text-xs text-slate-500">{pkg.item_count ?? (Array.isArray(pkg.items) ? pkg.items.length : 0)} items</div>
+                
               </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => openEdit(pkg)} className="text-indigo-600 text-sm flex items-center gap-1"><Pencil size={14} /> Edit</button>
-                <button type="button" onClick={() => openPackageEditor(pkg)} className="text-slate-700 text-sm flex items-center gap-1"><List size={14} /> Items</button>
-                {pkg.is_archived ? (
-                  <button type="button" onClick={() => toggleArchivePackage(pkg)} className="text-emerald-600 text-sm flex items-center gap-1"><ArchiveRestore size={14} /> Restore</button>
-                ) : (
-                  <button type="button" onClick={() => setArchiveConfirmTarget(pkg)} className="text-violet-600 text-sm flex items-center gap-1"><Archive size={14} /> Archive</button>
-                )}
-                <button type="button" onClick={() => setDeleteConfirmTarget(pkg)} className="text-red-600 text-sm flex items-center gap-1"><Trash2 size={14} /> Delete</button>
+              <div className="flex flex-col items-end gap-1 text-xs">
+                <div className="mt-1 text-xs font-mono text-slate-600">{new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(pkg.price || 0))}</div>
               </div>
-            </div>
+            </button>
           ))}
-          {emptyCount > 0 && (
-            Array.from({ length: emptyCount }).map((_, i) => (
-              <div key={`empty-mobile-${i}`} className="p-3 border-b border-slate-200 flex items-center justify-between gap-3 invisible">
-                <div>
-                  <div className="font-medium text-slate-800">Placeholder</div>
-                  <div className="text-xs text-slate-500">0 items</div>
-                </div>
-                <div className="flex gap-2">
-                  <button type="button" className="invisible">Edit</button>
-                  <button type="button" className="invisible">Archive</button>
-                </div>
-              </div>
-            ))
-          )}
         </div>
       )}
       <PaginationFooter items={totalItems} page={currentPage} setPage={setPage} pageSize={pageSize} noun="packages" />
@@ -366,6 +394,7 @@ export default function FoodPackages() {
   }
 
   const handleSave = () => {
+    if (savingAction) return
     const next = getErrors(form)
     if (Object.keys(next).length) { setErrors(next); return }
 
@@ -384,7 +413,7 @@ export default function FoodPackages() {
             quantity: Number(row.quantity),
           })),
     }
-    setLoading(true)
+    setSavingAction('save')
 
     if (editingId) {
       fetch('/api/food_packages', {
@@ -402,7 +431,7 @@ export default function FoodPackages() {
           setForm(emptyForm(activeType))
         })
         .catch((err) => showToast({ type: 'error', message: activeType === 'menu_bundle' ? 'Failed to update bundle' : 'Failed to update package', description: err.message }))
-        .finally(() => setLoading(false))
+        .finally(() => setSavingAction(null))
     } else {
       fetch('/api/food_packages', {
         method: 'POST',
@@ -418,7 +447,7 @@ export default function FoodPackages() {
           setForm(emptyForm(activeType))
         })
         .catch((err) => showToast({ type: 'error', message: activeType === 'menu_bundle' ? 'Failed to save bundle' : 'Failed to save package', description: err.message }))
-        .finally(() => setLoading(false))
+        .finally(() => setSavingAction(null))
     }
   }
 
@@ -459,7 +488,8 @@ export default function FoodPackages() {
 
   const addPackageItem = async (foodAndBeverageId: string, quantity: string) => {
     if (!activePkg || !foodAndBeverageId || !quantity) return
-
+    if (savingAction) return
+    setSavingAction('add')
     try {
       const res = await fetch('/api/food_package_items', {
         method: 'POST',
@@ -475,10 +505,14 @@ export default function FoodPackages() {
       showToast({ type: 'success', message: 'Package item added' })
     } catch (err: any) {
       showToast({ type: 'error', message: 'Failed to add package item', description: err.message })
+    } finally {
+      setSavingAction(null)
     }
   }
 
   const removePackageItem = async (id: number) => {
+    if (savingAction) return
+    setSavingAction('delete')
     try {
       const res = await fetch(`/api/food_package_items?id=${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Delete failed')
@@ -486,6 +520,8 @@ export default function FoodPackages() {
       showToast({ type: 'success', message: 'Package item removed' })
     } catch (err: any) {
       showToast({ type: 'error', message: 'Failed to remove package item', description: err.message })
+    } finally {
+      setSavingAction(null)
     }
   }
 
@@ -522,6 +558,7 @@ export default function FoodPackages() {
 
   const toggleArchivePackage = async (item: any) => {
     const nextArchived = !item.is_archived
+    setSavingAction(nextArchived ? 'archive' : 'restore')
     try {
       const res = await fetch('/api/food_packages', {
         method: 'PUT',
@@ -534,28 +571,33 @@ export default function FoodPackages() {
       showToast({ type: 'success', message: nextArchived ? (activeType === 'menu_bundle' ? 'Bundle archived' : 'Package archived') : (activeType === 'menu_bundle' ? 'Bundle restored' : 'Package restored') })
     } catch (err: any) {
       showToast({ type: 'error', message: activeType === 'menu_bundle' ? 'Failed to update bundle status' : 'Failed to update package status', description: err.message })
+    } finally {
+      setSavingAction(null)
     }
   }
 
   const confirmArchivePackage = async () => {
     const item = archiveConfirmTarget
-    if (!item) return
-    setArchiveConfirmTarget(null)
+    if (!item || savingAction) return
     await toggleArchivePackage(item)
+    setArchiveConfirmTarget(null)
   }
 
   const deletePackage = async () => {
     const item = deleteConfirmTarget
-    if (!item) return
-    setDeleteConfirmTarget(null)
+    if (!item || savingAction) return
+    setSavingAction('delete')
     try {
       const res = await fetch(`/api/food_packages?id=${item.food_package_id}&hard_delete=true`, { method: 'DELETE' })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || 'Delete failed')
       setItems((prev) => prev.filter((pkg) => pkg.food_package_id !== item.food_package_id))
       showToast({ type: 'success', message: activeType === 'menu_bundle' ? 'Bundle deleted' : 'Package deleted', description: item.name })
+      setDeleteConfirmTarget(null)
     } catch (err: any) {
       showToast({ type: 'error', message: activeType === 'menu_bundle' ? 'Failed to delete bundle' : 'Failed to delete package', description: err.message })
+    } finally {
+      setSavingAction(null)
     }
   }
 
@@ -563,6 +605,8 @@ export default function FoodPackages() {
   const [editingPkgItemQty, setEditingPkgItemQty] = useState<string>('')
 
   const savePkgItemEdit = async (id: number) => {
+    if (savingAction) return
+    setSavingAction('save')
     try {
       const res = await fetch('/api/food_package_items', {
         method: 'PUT',
@@ -577,6 +621,8 @@ export default function FoodPackages() {
       showToast({ type: 'success', message: 'Package item updated' })
     } catch (err: any) {
       showToast({ type: 'error', message: 'Failed to update package item', description: err.message })
+    } finally {
+      setSavingAction(null)
     }
   }
 
@@ -663,10 +709,10 @@ export default function FoodPackages() {
         onClose={() => { setShowModal(false); setEditingId(null); setForm(emptyForm(activeType)); setErrors({}); setBundleRowsModal([]); setMenuItemsRowsModal([]); setBundleOptionsModal([]); setMenuItemsOptionsModal([]); setBundleItemSelect(''); setBundleItemQty('1'); setMenuItemSelect(''); setMenuItemQty('1') }}
         className="max-w-3xl! w-full"
       >
-        <div className="w-full flex flex-col max-h-[60vh]">
+        <div className="w-full flex flex-col max-h-[60vh] px-2">
           {/* Scrollable body */}
           <div className="overflow-y-auto flex-1 min-h-0 pr-1">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 ml-2">
               {/* LEFT COLUMN — form fields */}
               <div className="space-y-4">
                 <div>
@@ -675,25 +721,26 @@ export default function FoodPackages() {
                   {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
                 </div>
 
-                <div>
-                  <label className="block text-xs text-slate-600 mb-1">Price</label>
-                  <input value={form.price} onChange={(e) => setForm((prev) => ({ ...prev, price: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
-                  {errors.price && <p className="mt-1 text-xs text-red-600">{errors.price}</p>}
-                </div>
+                <div className={`${isMobile ? 'grid grid-cols-2 gap-2' : ''}`}>
+                  <div>
+                    <label className="block text-xs text-slate-600 mb-1">Price</label>
+                    <input value={form.price} onChange={(e) => setForm((prev) => ({ ...prev, price: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                    {errors.price && <p className="mt-1 text-xs text-red-600">{errors.price}</p>}
+                  </div>
 
-                <div>
-                  <label className="block text-xs text-slate-600 mb-1">Restaurant</label>
-                  <select value={form.restaurant} onChange={(e) => {
-                    const nextRestaurant = e.target.value
-                    setForm((prev) => ({ ...prev, restaurant: nextRestaurant }))
-                    fetchBundleOptions(nextRestaurant)
-                    setBundleRowsModal([])
-                    setMenuItemsRowsModal([])
-                  }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
-                    <option value="Lakay Ago">Lakay Ago</option>
-                    <option value="Aroo">Aroo</option>
-                    <option value="Both">Both</option>
-                  </select>
+                  <div>
+                    <label className="block text-xs text-slate-600 mb-1">Restaurant</label>
+                    <select value={form.restaurant} onChange={(e) => {
+                      const nextRestaurant = e.target.value
+                      setForm((prev) => ({ ...prev, restaurant: nextRestaurant }))
+                      fetchBundleOptions(nextRestaurant)
+                      setBundleRowsModal([])
+                      setMenuItemsRowsModal([])
+                    }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+                      <option value="Lakay Ago">Lakay Ago</option>
+                      <option value="Aroo">Aroo</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -706,6 +753,22 @@ export default function FoodPackages() {
                       <span className="text-[10px] uppercase tracking-wide text-slate-500">{bundleRowsModal.length} selected</span>
                     </div>
 
+                  {isMobile ? (
+                    <div>
+                      <div>
+                        <select value={bundleItemSelect} onChange={(e) => setBundleItemSelect(e.target.value)} className="w-full flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+                          <option value="">Select a menu item</option>
+                          {bundleOptionsModal.map((item) => (
+                            <option key={item.food_and_beverage_id} value={String(item.food_and_beverage_id)}>{item.name}</option>
+                          ))}
+                      </select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mb-3 mt-2">
+                        <input type="number" min={1} value={bundleItemQty} onChange={(e) => setBundleItemQty(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-2 text-sm" placeholder="Qty" />
+                        <button type="button" onClick={() => { if (!bundleItemSelect) return; addBundleRow(bundleItemSelect, bundleItemQty); setBundleItemSelect(''); setBundleItemQty('1') }} className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg">Add</button>
+                      </div>
+                    </div>
+                  ) : (
                     <div className="flex gap-2 mb-3">
                       <select value={bundleItemSelect} onChange={(e) => setBundleItemSelect(e.target.value)} className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
                         <option value="">Select a menu item</option>
@@ -716,6 +779,7 @@ export default function FoodPackages() {
                       <input type="number" min={1} value={bundleItemQty} onChange={(e) => setBundleItemQty(e.target.value)} className="w-20 border border-slate-200 rounded-lg px-2 py-2 text-sm" placeholder="Qty" />
                       <button type="button" onClick={() => { if (!bundleItemSelect) return; addBundleRow(bundleItemSelect, bundleItemQty); setBundleItemSelect(''); setBundleItemQty('1') }} className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg">Add</button>
                     </div>
+                  )}
 
                     <div className="space-y-2 overflow-y-auto max-h-64 pr-1">
                       {bundleRowsModal.length === 0 ? (
@@ -734,22 +798,46 @@ export default function FoodPackages() {
                 )}
 
                 {activeType === 'catering_package' && (
-                  <div className="flex flex-col min-h-0 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className={`${isMobile ? '' : 'flex flex-col'} min-h-0 rounded-xl border border-slate-200 bg-slate-50 p-3`}>
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-xs font-medium text-slate-700">Menu items</label>
                       <span className="text-[10px] uppercase tracking-wide text-slate-500">{menuItemsRowsModal.length} selected</span>
                     </div>
-
-                    <div className="flex gap-2 mb-3">
-                      <select value={menuItemSelect} onChange={(e) => setMenuItemSelect(e.target.value)} className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
-                        <option value="">Select a menu item</option>
-                        {menuItemsOptionsModal.map((item) => (
-                          <option key={item.food_and_beverage_id} value={String(item.food_and_beverage_id)}>{item.name}</option>
-                        ))}
-                      </select>
-                      <input type="number" min={1} value={menuItemQty} onChange={(e) => setMenuItemQty(e.target.value)} className="w-20 border border-slate-200 rounded-lg px-2 py-2 text-sm" placeholder="Qty" />
-                      <button type="button" onClick={() => { if (!menuItemSelect) return; addMenuItemRow(menuItemSelect, menuItemQty); setMenuItemSelect(''); setMenuItemQty('1') }} className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg">Add</button>
-                    </div>
+                    
+                    {isMobile ? (
+                      <div className="border-b border-slate-200 mb-3">
+                        <div>
+                          <select value={menuItemSelect} onChange={(e) => setMenuItemSelect(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+                            <option value="">Select a menu item</option>
+                            {menuItemsOptionsModal.map((item) => (
+                              <option key={item.food_and_beverage_id} value={String(item.food_and_beverage_id)}>{item.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 mb-3 mt-2">
+                          <div className="w-full">
+                            <input type="number" min={1} value={menuItemQty} onChange={(e) => setMenuItemQty(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-2 text-sm" placeholder="Qty" />
+                          </div>
+                          <div className="flex flex-col">
+                            <button type="button" onClick={() => { if (!menuItemSelect) return; addMenuItemRow(menuItemSelect, menuItemQty); setMenuItemSelect(''); setMenuItemQty('1') }} className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg">Add</button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="flex gap-2 mb-3">
+                          <select value={menuItemSelect} onChange={(e) => setMenuItemSelect(e.target.value)} className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+                            <option value="">Select a menu item</option>
+                            {menuItemsOptionsModal.map((item) => (
+                              <option key={item.food_and_beverage_id} value={String(item.food_and_beverage_id)}>{item.name}</option>
+                            ))}
+                          </select>
+                          <input type="number" min={1} value={menuItemQty} onChange={(e) => setMenuItemQty(e.target.value)} className="w-20 border border-slate-200 rounded-lg px-2 py-2 text-sm" placeholder="Qty" />
+                          <button type="button" onClick={() => { if (!menuItemSelect) return; addMenuItemRow(menuItemSelect, menuItemQty); setMenuItemSelect(''); setMenuItemQty('1') }} className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg">Add</button>
+                        </div>
+                      </div>
+                    )}
+                    
 
                     <div className="space-y-2 overflow-y-auto max-h-64 pr-1">
                       {menuItemsRowsModal.length === 0 ? (
@@ -772,8 +860,8 @@ export default function FoodPackages() {
 
           {/* Footer — outside scroll area, always visible */}
           <div className="flex justify-end gap-2 pt-3 mt-3 border-t border-slate-200">
-            <button type="button" onClick={() => { setShowModal(false); setEditingId(null); setForm(emptyForm(activeType)); setErrors({}); setBundleRowsModal([]); setMenuItemsRowsModal([]); setBundleOptionsModal([]); setMenuItemsOptionsModal([]); setBundleItemSelect(''); setBundleItemQty('1'); setMenuItemSelect(''); setMenuItemQty('1') }} className="px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600">Cancel</button>
-            <button type="button" onClick={handleSave} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg">Save</button>
+            <button type="button" onClick={() => { setShowModal(false); setEditingId(null); setForm(emptyForm(activeType)); setErrors({}); setBundleRowsModal([]); setMenuItemsRowsModal([]); setBundleOptionsModal([]); setMenuItemsOptionsModal([]); setBundleItemSelect(''); setBundleItemQty('1'); setMenuItemSelect(''); setMenuItemQty('1') }} className="px-4 py-2 text-sm border rounded-lg text-slate-600 hover:bg-slate-200">Cancel</button>
+            <button type="button" onClick={handleSave} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>{savingAction === 'save' ? 'Saving…' : 'Save'}</button>
           </div>
         </div>
       </Modal>
@@ -795,7 +883,7 @@ export default function FoodPackages() {
               void addPackageItem(select.value, qty.value)
               qty.value = ''
               select.value = ''
-            }} className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg">Add</button>
+            }} disabled={Boolean(savingAction)} className={`px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>{savingAction === 'add' ? 'Adding…' : 'Add'}</button>
           </div>
 
           <div className="space-y-2">
@@ -814,13 +902,13 @@ export default function FoodPackages() {
                 <div className="flex items-center gap-2">
                   {editingPkgItemId === row.food_package_item_id ? (
                     <>
-                      <button type="button" onClick={() => void savePkgItemEdit(row.food_package_item_id)} className="text-indigo-600 text-sm">Save</button>
+                      <button type="button" onClick={() => void savePkgItemEdit(row.food_package_item_id)} disabled={Boolean(savingAction)} className={`text-indigo-600 text-sm ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>{savingAction === 'save' ? 'Saving…' : 'Save'}</button>
                       <button type="button" onClick={() => { setEditingPkgItemId(null); setEditingPkgItemQty('') }} className="text-slate-600 text-sm">Cancel</button>
                     </>
                   ) : (
                     <>
                       <button type="button" onClick={() => { setEditingPkgItemId(row.food_package_item_id); setEditingPkgItemQty(String(row.quantity)) }} className="text-slate-600"><Pencil size={14} /></button>
-                      <button type="button" onClick={() => void removePackageItem(row.food_package_item_id)} className="text-red-600"><Trash2 size={14} /></button>
+                      <button type="button" onClick={() => void removePackageItem(row.food_package_item_id)} disabled={Boolean(savingAction)} className={`text-red-600 ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>{savingAction === 'delete' ? 'Deleting…' : <Trash2 size={14} />}</button>
                     </>
                   )}
                 </div>
@@ -830,6 +918,71 @@ export default function FoodPackages() {
         </div>
       </Modal>
 
+      {viewItem && (
+        <Modal
+          open={!!viewItem}
+          title={viewItem.type === 'menu_bundle' ? `${viewItem.name} Bundle` : `Selected ${viewItem.name} Package`}
+          onClose={() => setViewItem(null)}
+        >
+          <div className="w-full p-2">
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-slate-800 font-display">{viewItem.name}</h3>
+              <div className="text-sm font-mono text-slate-600 mt-0.5">
+                {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(viewItem.price || 0))}
+              </div>
+            </div>
+
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Items</div>
+            <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
+              {(viewItem.items || []).length === 0 ? (
+                <div className="text-sm text-slate-400">No items in this {viewItem.type === 'menu_bundle' ? 'bundle' : 'package'}.</div>
+              ) : (
+                (viewItem.items || []).map((row: any, idx: number) => (
+                  <div key={row.food_and_beverage_id ?? idx} className="flex items-center justify-between gap-3 border border-slate-200 rounded-lg px-3 py-2">
+                    <div className="text-sm text-slate-700">{row.name || row.menu_name || `Item ${row.food_and_beverage_id}`}</div>
+                    <div className="text-xs text-slate-500 shrink-0">Qty: {row.quantity ?? 1}</div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className={`${isMobile ? 'grid grid-cols-3 gap-2' : 'flex flex-wrap gap-3 justify-end'}`}>
+              <button
+                type="button"
+                onClick={() => { const item = viewItem; setViewItem(null); setDeleteConfirmTarget(item) }}
+                className={`${isMobile? 'text-xs' : 'text-sm'} px-4 py-2 font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display flex items-center gap-1.5`}
+              >
+                <Trash2 size={isMobile ? 10 : 16} /> Delete
+              </button>
+              {viewItem.is_archived ? (
+                <button
+                  type="button"
+                  onClick={() => { const item = viewItem; setViewItem(null); setArchiveConfirmTarget(item) }}
+                  className={`${isMobile? 'text-xs' : 'text-sm'} px-4 py-2 font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-display flex items-center gap-1.5`}
+                >
+                  <ArchiveRestore size={isMobile ? 10 : 16} /> Restore
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { const item = viewItem; setViewItem(null); setArchiveConfirmTarget(item) }}
+                  className={`${isMobile? 'text-xs' : 'text-sm'} px-4 py-2 font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display flex items-center gap-1.5`}
+                >
+                  <Archive size={isMobile ? 10 : 16} /> Archive
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { const item = viewItem; setViewItem(null); openEdit(item) }}
+                className={`${isMobile? 'text-xs' : 'text-sm'} justify-center px-4 py-2  font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display flex items-center gap-1.5`}
+              >
+                <Pencil size={isMobile ? 10 : 16} /> Edit
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {archiveConfirmTarget && (
         <Modal open={!!archiveConfirmTarget} title="Confirm archive" onClose={() => setArchiveConfirmTarget(null)}>
           <div className="w-full p-2">
@@ -838,8 +991,8 @@ export default function FoodPackages() {
             </p>
             <p className="text-xs text-slate-500 mb-4">It will be hidden from the active list and moved to the archived view. You can restore it later.</p>
             <div className="flex gap-3 justify-end">
-              <button type="button" onClick={() => setArchiveConfirmTarget(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
-              <button type="button" onClick={confirmArchivePackage} className="px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display">Archive</button>
+              <button type="button" onClick={() => { if (!savingAction) setArchiveConfirmTarget(null) }} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>Cancel</button>
+              <button type="button" onClick={confirmArchivePackage} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display flex items-center justify-center gap-2 ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>{savingAction === 'archive' ? 'Archiving…' : savingAction === 'restore' ? 'Restoring…' : <><Archive size={14} /> Archive</>}</button>
             </div>
           </div>
         </Modal>
@@ -853,8 +1006,8 @@ export default function FoodPackages() {
             </p>
             <p className="text-xs text-slate-500 mb-4">This action cannot be undone. Packages still referenced by sales or transactions cannot be deleted.</p>
             <div className="flex gap-3 justify-end">
-              <button type="button" onClick={() => setDeleteConfirmTarget(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
-              <button type="button" onClick={deletePackage} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display">Delete</button>
+              <button type="button" onClick={() => { if (!savingAction) setDeleteConfirmTarget(null) }} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>Cancel</button>
+              <button type="button" onClick={deletePackage} disabled={Boolean(savingAction)} className={`px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display flex items-center justify-center gap-2 ${savingAction ? 'opacity-40 cursor-not-allowed' : ''}`}>{savingAction === 'delete' ? 'Deleting…' : <><Trash2 size={14} /> Delete</>}</button>
             </div>
           </div>
         </Modal>

@@ -84,8 +84,8 @@ export default function Modal({
       >
         {/* Header */}
         {title && (
-          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 px-3 pb-2 pt-3 sm:px-4 sm:pt-4">
-            <div className="min-w-0 break-word whitespace-normal text-lg font-semibold text-slate-800">
+          <div className="flex min-w-0 items-center justify-between gap-3 bg-indigo-600 border-b border-slate-100 px-3 pb-2 pt-3 sm:px-4 sm:pt-4">
+            <div className="min-w-0 break-word whitespace-normal text-lg font-semibold text-white">
               {title}
             </div>
 
@@ -93,7 +93,7 @@ export default function Modal({
               type="button"
               aria-label="Close"
               onClick={() => onCloseRef.current()}
-              className="shrink-0 text-slate-400 transition-colors hover:text-slate-600"
+              className="shrink-0 text-slate-100 transition-colors hover:text-slate-300"
             >
               ✕
             </button>

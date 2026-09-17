@@ -19,7 +19,7 @@ export function mapEmployee(row: any): Employee {
     restaurant: row.restaurant ?? '',
     pay_per_day: Number(row.pay_per_day ?? 0),
     status: formatEmployeeStatus(row.status),
-    email: row.email ?? '',
+    address: row.address ?? row.email ?? '',
     contactNumber: row.contact_number ?? '',
     sss: row.sss != null ? Number(row.sss) : undefined,
     philhealth: row.philhealth != null ? Number(row.philhealth) : undefined,

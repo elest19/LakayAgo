@@ -146,6 +146,11 @@ button:disabled {
   --motion-ease-in: cubic-bezier(0.4, 0.0, 1, 1);
 }
 
+/* Remove mobile tap highlight overlay */
+button, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

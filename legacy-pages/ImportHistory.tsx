@@ -333,8 +333,8 @@ export default function ImportHistory() {
                       <td className="py-3 px-4 font-mono text-xs text-slate-600">{imp.records.toLocaleString()}</td>
                       <td className="py-3 px-4 font-mono text-xs text-slate-600">{imp.employees}</td>
                       <td className="py-3 px-4 text-sm text-slate-600">{imp.importedBy}</td>
-                      <td className="py-3 px-4">
-                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[imp.status] || statusColor.Unknown}`}>{imp.status}</span>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`inline-flex items-center justify-center text-xs px-2.5 py-0.5 rounded-full font-medium font-display ${statusColor[imp.status] || statusColor.Unknown}`}>{imp.status}</span>
                       </td>
                     </tr>
                   ))
@@ -349,7 +349,7 @@ export default function ImportHistory() {
                     <div className="text-sm font-medium text-slate-700">{formatImportPeriod(imp.fileName)}</div>
                     <div className="text-xs text-slate-400">{imp.dateImported} • {imp.importedBy}</div>
                   </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColor[imp.status] || statusColor.Unknown}`}>{imp.status}</span>
+                  <span className={`text-[10px] text-center px-2 py-0.5 rounded-full font-medium ${statusColor[imp.status] || statusColor.Unknown}`}>{imp.status}</span>
                 </button>
               ))}
             </div>
@@ -359,7 +359,7 @@ export default function ImportHistory() {
 
       {selectedImport && (
         <Modal open={!!selectedImport} title={formatImportPeriod(selectedImport.fileName)} onClose={() => setSelectedImport(null)}>
-          <div className="p-3 w-[900px] max-h-[80vh] overflow-y-auto">
+          <div className="p-3 w-[900px] max-h-[60vh] overflow-y-auto">
             <div className="space-y-5">
               {employeesLoading ? (
                 <div className="grid grid-cols-2 gap-3">
@@ -404,37 +404,76 @@ export default function ImportHistory() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 font-display">Employees in this Import</p>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50">
-                        {['Employee', 'Source ID', 'Records'].map(h => (
-                          <th key={h} className="text-left py-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
+                  {isMobile ? (
+                    <div className="flex flex-col">
                       {employeesLoading ? (
-                        <SkeletonTableRows columns={3} rows={6} columnConfig={[
-                          { width: "75%" }, { width: "40%" }, { width: "35%" }
-                        ]} />
+                        Array.from({ length: 6 }).map((_, i) => (
+                          <div key={`emp-skeleton-${i}`} className="p-3 border-b border-slate-50 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <SkeletonBar width="28px" height="28px" rounded="rounded-full" />
+                              <SkeletonBar width="120px" height="14px" />
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <SkeletonBar width="60px" height="12px" />
+                              <SkeletonBar width="44px" height="18px" rounded="rounded-full" />
+                            </div>
+                          </div>
+                        ))
                       ) : (
                         employees.slice((employeePage - 1) * EMPLOYEES_PER_PAGE, employeePage * EMPLOYEES_PER_PAGE).map(emp => (
-                          <tr key={emp.employeeId} className="hover:bg-slate-50 cursor-pointer" onClick={() => handleEmployeeClick(emp)}>
-                            <td className="py-2 px-4">
-                              <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                                  <span className="text-indigo-700 text-[10px] font-bold font-display">{emp.employeeName.slice(0, 2)}</span>
-                                </div>
-                                <span className="text-sm font-medium text-slate-700 font-display">{emp.employeeName}</span>
+                          <button
+                            key={emp.employeeId}
+                            type="button"
+                            onClick={() => handleEmployeeClick(emp)}
+                            className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                                <span className="text-indigo-700 text-[10px] font-bold font-display">{emp.employeeName.slice(0, 2)}</span>
                               </div>
-                            </td>
-                            <td className="py-2 px-4 text-sm text-slate-600">{emp.sourceID}</td>
-                            <td className="py-2 px-4 font-mono text-xs text-slate-600">{emp.recordsCount}</td>
-                          </tr>
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-slate-700 font-display truncate">{emp.employeeName}</div>
+                                <div className="text-xs text-slate-400 font-mono">Source ID: {emp.sourceID}</div>
+                              </div>
+                            </div>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium font-display shrink-0">{emp.recordsCount} records</span>
+                          </button>
                         ))
                       )}
-                    </tbody>
-                  </table>
+                    </div>
+                  ) : (
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50">
+                          {['Employee', 'Source ID', 'Records'].map(h => (
+                            <th key={h} className="text-left py-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {employeesLoading ? (
+                          <SkeletonTableRows columns={3} rows={6} columnConfig={[
+                            { width: "75%" }, { width: "40%" }, { width: "35%" }
+                          ]} />
+                        ) : (
+                          employees.slice((employeePage - 1) * EMPLOYEES_PER_PAGE, employeePage * EMPLOYEES_PER_PAGE).map(emp => (
+                            <tr key={emp.employeeId} className="hover:bg-slate-50 cursor-pointer" onClick={() => handleEmployeeClick(emp)}>
+                              <td className="py-2 px-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                                    <span className="text-indigo-700 text-[10px] font-bold font-display">{emp.employeeName.slice(0, 2)}</span>
+                                  </div>
+                                  <span className="text-sm font-medium text-slate-700 font-display">{emp.employeeName}</span>
+                                </div>
+                              </td>
+                              <td className="py-2 px-4 text-sm text-slate-600">{emp.sourceID}</td>
+                              <td className="py-2 px-4 font-mono text-xs text-slate-600">{emp.recordsCount}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
                 {!employeesLoading && employees.length > EMPLOYEES_PER_PAGE && (
                   <div className="flex items-center justify-between px-2 py-3 border-t border-slate-100 bg-white">
@@ -470,10 +509,6 @@ export default function ImportHistory() {
                   </div>
                 )}
               </div>
-
-              <div className="flex justify-end gap-2 pt-4">
-                <button onClick={() => setSelectedImport(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
-              </div>
             </div>
           </div>
         </Modal>
@@ -482,8 +517,8 @@ export default function ImportHistory() {
       {selectedEmployee && (
         <Modal open={!!selectedEmployee} title={`${selectedEmployee.employeeName} — Attendance (${formatDate(employeePeriodStart)} to ${formatDate(employeePeriodEnd)})`} onClose={() => setSelectedEmployee(null)}>
           <div className="p-3">
-            <div className="w-[900px] max-h-[60vh] overflow-y-auto">
-              {employeeLoading && (
+            <div className={`${isMobile ? 'w-full' : 'w-[900px]'} max-h-[60vh] overflow-y-auto`}>
+              {employeeLoading && (!isMobile ? (
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
@@ -502,11 +537,35 @@ export default function ImportHistory() {
                     </tbody>
                   </table>
                 </div>
-              )}
+              ) : (
+                <div className="space-y-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={`attendance-skeleton-${i}`} className="rounded-xl border border-slate-200 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <SkeletonBar width="80px" height="14px" />
+                          <SkeletonBar width="34px" height="12px" />
+                        </div>
+                        <SkeletonBar width="64px" height="18px" rounded="rounded-full" />
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+                        {Array.from({ length: 6 }).map((__, j) => (
+                          <div key={`attendance-skeleton-field-${j}`}>
+                            <SkeletonBar width="48px" height="10px" />
+                            <div className="mt-1">
+                              <SkeletonBar width="56px" height="12px" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
               {employeeError && (
                 <div className="py-8 text-center text-red-500">{employeeError}</div>
               )}
-              {!employeeLoading && !employeeError && (
+              {!employeeLoading && !employeeError && (!isMobile ? (
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
@@ -538,12 +597,54 @@ export default function ImportHistory() {
                     </tbody>
                   </table>
                 </div>
-              )}
+              ) : (
+                <div className="space-y-3">
+                  {employeeAttendance.slice((attendancePage - 1) * ATTENDANCE_PER_PAGE, attendancePage * ATTENDANCE_PER_PAGE).map(rec => (
+                    <div key={rec.attendance_id} className="rounded-xl border border-slate-200 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-700 font-display">{formatDate(rec.work_date)}</p>
+                          <p className="text-xs text-slate-500">
+                            {new Date(rec.work_date).toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+                          </p>
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display shrink-0 ${attendanceStatusColor[getAttendanceStatus(rec)] || 'bg-slate-100 text-slate-500'}`}>
+                          {getAttendanceStatus(rec)}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-display">Time In</p>
+                          <p className="text-xs font-mono text-slate-700">{formatTime(rec.first_on_duty)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-display">Time Out</p>
+                          <p className="text-xs font-mono text-slate-700">{formatTime(rec.first_off_duty)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-display">Late</p>
+                          <p className="text-xs font-mono text-amber-600">{minutesToHHMM(rec.late_minutes)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-display">Undertime</p>
+                          <p className="text-xs font-mono text-orange-600">{minutesToHHMM(rec.leave_early_minutes)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-display">Overtime</p>
+                          <p className="text-xs font-mono text-blue-600">{minutesToHHMM(rec.overtime_minutes)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
               {!employeeLoading && !employeeError && employeeAttendance.length > ATTENDANCE_PER_PAGE && (
-                <div className="flex items-center justify-between px-2 py-3 border-t border-slate-100 bg-white">
-                  <p className="text-xs text-slate-500">
-                    Showing {employeeAttendance.length === 0 ? 0 : (attendancePage - 1) * ATTENDANCE_PER_PAGE + 1}–{Math.min(attendancePage * ATTENDANCE_PER_PAGE, employeeAttendance.length)} of {employeeAttendance.length} records
-                  </p>
+                <div className="grid grid-cols-2 gap-2 px-2 py-3 border-t border-slate-100 bg-white">
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Showing {employeeAttendance.length === 0 ? 0 : (attendancePage - 1) * ATTENDANCE_PER_PAGE + 1}–{Math.min(attendancePage * ATTENDANCE_PER_PAGE, employeeAttendance.length)} of {employeeAttendance.length} records
+                    </p>
+                  </div>
                   <div className="flex items-center gap-1">
                     <button onClick={() => setAttendancePage(p => Math.max(1, p - 1))} disabled={attendancePage === 1} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40">
                       <ChevronLeft size={16} />
