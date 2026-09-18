@@ -3,8 +3,9 @@ import { createClient } from '@supabase/supabase-js'
 let _supabase: any = null
 export function getSupabaseServer() {
   if (_supabase) return _supabase
-  const url = process.env.SUPABASE_URL
-  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const env = (globalThis as any).process?.env ?? (globalThis as any).__ENV__ ?? {}
+  const url = env.SUPABASE_URL
+  const serviceRole = env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !serviceRole) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables')
   _supabase = createClient(url, serviceRole, { auth: { persistSession: false } })
   return _supabase

@@ -279,6 +279,7 @@ export default function App() {
   const themeToggleRef = useRef<HTMLButtonElement>(null)
   const logoSrc = appMode === 'aroo' ? '/Aroo_Logo.jpg' : '/logo.jpg'
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [notifications, setNotifications] = useState<Array<{ id: string; msg: string; time?: string; type?: 'info'|'success'|'warning'|'error'; read?: boolean; href?: string }>>([])
   const [profileOpen, setProfileOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifMounted, setNotifMounted] = useState(false)
@@ -359,7 +360,13 @@ export default function App() {
     ;(window as any).__app_set_user = (u: any) => setUser(normalizeAppUser(u))
     ;(window as any).__app_show_mode_confirmation = () => setShowModeConfirmation(true)
     ;(window as any).routePageMap = routePageMap
-    return () => { delete (window as any).__app_set_user; delete (window as any).__app_show_mode_confirmation; delete (window as any).routePageMap }
+    ;(window as any).__app_notify = (payload: { msg: string; time?: string; type?: any; href?: string }) => {
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? `notif-${crypto.randomUUID()}`
+        : `notif-${Date.now()}-${Math.random().toString(16).slice(2)}`
+      setNotifications(prev => [{ id, msg: payload.msg, time: payload.time || 'now', type: payload.type || 'info', read: false, href: payload.href || '' }, ...prev])
+    }
+    return () => { delete (window as any).__app_set_user; delete (window as any).__app_show_mode_confirmation; delete (window as any).routePageMap; delete (window as any).__app_notify }
   }, [])
 
   // global fetch interceptor: if any fetch returns 401, clear session and redirect to login
@@ -1141,26 +1148,41 @@ export default function App() {
                         className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 cursor-pointer"
                       >
                         <Bell size={18} />
-                        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+                        {notifications.filter(n => !n.read).length > 0 ? (
+                          <span className="absolute -top-1 -right-1 min-w-[18px] h-5 px-1.5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">{notifications.filter(n => !n.read).length}</span>
+                        ) : (
+                          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full opacity-0" />
+                        )}
                       </button>
 
                       {notifMounted && (
                         <div className={`absolute right-0 top-11 w-[min(82vw,20rem)] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown ${notifVisible ? 'show' : 'closing'}`}>
                           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                             <span className="font-semibold text-sm font-display text-slate-800">Notifications</span>
-                            <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">4 new</span>
+                            <button
+                              onClick={() => setNotifications(prev => prev.map(n => ({ ...n, read: true })))}
+                              className="text-xs text-slate-500 hover:text-slate-700"
+                            >
+                              Mark all read
+                            </button>
                           </div>
-                          {[
-                            { msg: '2 employees have missing attendance', time: '10 min ago', type: 'warning' },
-                            { msg: 'Payroll calculation ready for review', time: '1 hr ago', type: 'info' },
-                            { msg: 'Attendance import completed', time: '2 hrs ago', type: 'success' },
-                            { msg: 'Leave request from Carlo Mendoza', time: '1 day ago', type: 'info' },
-                          ].map((n, i) => (
-                            <div key={i} className="px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 cursor-pointer">
-                              <p className="text-sm text-slate-700">{n.msg}</p>
-                              <p className="text-xs text-slate-400 mt-0.5">{n.time}</p>
-                            </div>
-                          ))}
+
+                          {notifications.length === 0 ? (
+                            <div className="px-4 py-4 text-sm text-slate-500">No notifications</div>
+                          ) : (
+                            notifications.map((n) => (
+                              <div
+                                key={n.id}
+                                onClick={() => {
+                                  setNotifications(prev => prev.map(p => p.id === n.id ? { ...p, read: true } : p))
+                                  if (n.href) { try { navigate((n.href as unknown) as any); } catch {} }
+                                }}
+                                className={`px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 cursor-pointer ${n.read ? 'opacity-60' : ''}`}>
+                                <p className="text-sm text-slate-700">{n.msg}</p>
+                                <p className="text-xs text-slate-400 mt-0.5">{n.time || 'now'}</p>
+                              </div>
+                            ))
+                          )}
                         </div>
                       )}
                     </div>

@@ -36,6 +36,7 @@
   },
   "include": [
     "app",
+    "lib",
     "components",
     "data",
     "hooks",
