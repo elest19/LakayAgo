@@ -280,7 +280,11 @@ export default function App() {
   const [appMode, setAppMode] = useState<'aroo' | 'lakayAgo'>('lakayAgo')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const themeToggleRef = useRef<HTMLButtonElement>(null)
-  const logoSrc = appMode === 'aroo' ? '/Aroo_Logo.jpg' : '/logo.jpg'
+  const brandLogoSrc = {
+    lakayAgo: '/logo.jpg?v=2',
+    aroo: '/Aroo_Logo.jpg?v=2',
+  } as const
+  const logoSrc = appMode === 'aroo' ? brandLogoSrc.aroo : brandLogoSrc.lakayAgo
   const [toasts, setToasts] = useState<Toast[]>([])
   const [notifications, setNotifications] = useState<Array<{ id: string; msg: string; time?: string; type?: 'info'|'success'|'warning'|'error'; read?: boolean; href?: string }>>([])
   const [profileOpen, setProfileOpen] = useState(false)
@@ -413,7 +417,7 @@ export default function App() {
 
     if (favicon) favicon.href = logoSrc
     if (appleIcon) appleIcon.href = logoSrc
-    document.title = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
+    document.title = appMode === 'aroo' ? 'Aroo Management Hub' : 'Lakay Ago Management Hub'
   }, [appMode, logoSrc])
 
   useEffect(() => {
