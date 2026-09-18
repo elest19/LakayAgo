@@ -3,26 +3,9 @@ import { useState, useEffect } from 'react'
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
+import { formatActionLabel, actionBadgeClass } from '../lib/auditLogFormat'
 
-const moduleColor: Record<string, string> = {
-  Attendance: 'bg-blue-100 text-blue-700',
-  Payroll: 'bg-indigo-100 text-indigo-700',
-  Employees: 'bg-teal-100 text-teal-700',
-  Leave: 'bg-violet-100 text-violet-700',
-  Settings: 'bg-slate-100 text-slate-600',
-}
-
-const actionColor: Record<string, string> = {
-  'Import Attendance': 'bg-blue-50 text-blue-600',
-  'Validate Attendance': 'bg-cyan-50 text-cyan-600',
-  'Update Employee': 'bg-amber-50 text-amber-600',
-  'Approve Leave': 'bg-emerald-50 text-emerald-600',
-  'Create Employee': 'bg-teal-50 text-teal-600',
-  'Approve Payroll': 'bg-indigo-50 text-indigo-600',
-  'Calculate Payroll': 'bg-violet-50 text-violet-600',
-  'Edit Attendance': 'bg-orange-50 text-orange-600',
-  'Finalize Payroll': 'bg-emerald-50 text-emerald-600',
-}
+// action badge classes are provided by `actionBadgeClass`
 
 interface SkeletonBarProps {
   width?: string | number
@@ -77,7 +60,6 @@ export default function AuditLogs() {
   const [logs, setLogs] = useState<any[]>([])
   const [selectedLog, setSelectedLog] = useState<any | null>(null)
   const [search, setSearch] = useState('')
-  const [module, setModule] = useState('')
   const [logsLoading, setLogsLoading] = useState(true)
   const [action, setAction] = useState('')
   const [user, setUser] = useState('')
@@ -93,7 +75,7 @@ export default function AuditLogs() {
         const params = new URLSearchParams()
         params.set('page', String(page))
         params.set('pageSize', String(PAGE_SIZE))
-        if (module) params.set('module', module)
+        // module filter removed
         if (action) params.set('action', action)
         if (user) params.set('user', user)
         const res = await fetch(`/api/audit-logs?${params.toString()}`)
@@ -110,14 +92,13 @@ export default function AuditLogs() {
       }
     })()
     return () => { mounted = false }
-  }, [page, module, action, user])
+  }, [page, action, user])
 
   const filtered = logs.filter((log: any) => {
     const q = search.toLowerCase()
     return !q || (log.description || '').toLowerCase().includes(q) || (log.user || '').toLowerCase().includes(q)
   })
 
-  const uniqueModules = [...new Set(logs.map(l => l.module))]
   const uniqueActions = [...new Set(logs.map(l => l.action))]
   const uniqueUsers = [...new Set(logs.map(l => l.user))]
 
@@ -135,10 +116,7 @@ export default function AuditLogs() {
             <Search size={14} className="text-slate-400 shrink-0" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search logs..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
           </div>
-          <select value={module} onChange={e => { setModule(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-            <option value="">Module: All</option>
-            {uniqueModules.map(m => <option key={m}>{m}</option>)}
-          </select>
+          {/* module filter removed */}
           <select value={action} onChange={e => { setAction(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
             <option value="">Action: All</option>
             {uniqueActions.map(a => <option key={a}>{a}</option>)}
@@ -155,10 +133,7 @@ export default function AuditLogs() {
             <Search size={14} className="text-slate-400 shrink-0" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search logs..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
           </div>
-          <select value={module} onChange={e => { setModule(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-            <option value="">Module: All</option>
-            {uniqueModules.map(m => <option key={m}>{m}</option>)}
-          </select>
+          {/* module filter removed */}
           <select value={action} onChange={e => { setAction(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
             <option value="">Action: All</option>
             {uniqueActions.map(a => <option key={a}>{a}</option>)}
@@ -176,7 +151,7 @@ export default function AuditLogs() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Date & Time', 'User', 'Action', 'Module', 'Description'].map(h => (
+                  {['Date & Time', 'User', 'Action', 'Description'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -184,13 +159,12 @@ export default function AuditLogs() {
               <tbody className="divide-y divide-slate-50">
                 {logsLoading ? (
                   <SkeletonTableRows
-                    columns={5}
+                    columns={4}
                     rows={6}
                     columnConfig={[
                       { width: '18%' },
                       { width: '22%' },
                       { width: '18%', pill: true },
-                      { width: '16%', pill: true },
                       { width: '42%' },
                     ]}
                   />
@@ -209,13 +183,8 @@ export default function AuditLogs() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display whitespace-nowrap ${actionColor[log.action] || 'bg-slate-100 text-slate-600'}`}>
-                          {log.action}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${moduleColor[log.module] || 'bg-slate-100 text-slate-500'}`}>
-                          {log.module}
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display whitespace-nowrap ${actionBadgeClass(log.action)}`}>
+                          {formatActionLabel(log.action)}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-sm text-slate-600 max-w-sm">{log.description}</td>
@@ -229,10 +198,10 @@ export default function AuditLogs() {
               {filtered.map((log, index) => (
                 <button key={log.id} onClick={() => setSelectedLog(log)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-700">{log.action}</div>
+                    <div className="text-sm font-medium text-slate-700">{formatActionLabel(log.action)}</div>
                     <div className="text-xs text-slate-400">{log.user} • {log.dateTime}</div>
                   </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${moduleColor[log.module] || 'bg-slate-100 text-slate-500'}`}>{log.module}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${actionBadgeClass(log.action)}`}>{formatActionLabel(log.action)}</span>
                 </button>
               ))}
             </div>
@@ -284,19 +253,15 @@ export default function AuditLogs() {
           <div className="w-full p-3">
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-slate-400">User</p>
-                  <p className="text-sm font-medium">{selectedLog.user}</p>
+                  <div>
+                    <p className="text-xs text-slate-400">User</p>
+                    <p className="text-sm font-medium">{selectedLog.user}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-slate-400">Date & Time</p>
+                    <p className="text-sm font-medium">{selectedLog.dateTime}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-slate-400">Module</p>
-                  <p className="text-sm font-medium">{selectedLog.module}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-xs text-slate-400">Date & Time</p>
-                  <p className="text-sm font-medium">{selectedLog.dateTime}</p>
-                </div>
-              </div>
               <div>
                 <p className="text-xs text-slate-400">Description</p>
                 <p className="text-sm text-slate-600">{selectedLog.description}</p>

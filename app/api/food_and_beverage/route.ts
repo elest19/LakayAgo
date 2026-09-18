@@ -242,13 +242,17 @@ export async function DELETE(req: Request) {
     const client = await getClient()
     try {
       await client.query('BEGIN')
+      const existingRes = await client.query(`select * from food_and_beverage_inventory where food_and_beverage_id = $1 for update`, [id])
+      const existing = existingRes.rows[0]
+      if (!existing) { await client.query('ROLLBACK'); return NextResponse.json({ error: 'Not found' }, { status: 404 }) }
+
       const { rows } = await client.query(`update food_and_beverage_inventory set is_archived = true where food_and_beverage_id = $1 returning *`, [id])
       if (rows.length === 0) { await client.query('ROLLBACK'); return NextResponse.json({ error: 'Not found' }, { status: 404 }) }
       // Archiving is reversible, so the recipe rows are kept — restoring the item brings
       // its ingredient list back intact. Recipe rows are only removed on hard delete.
       await client.query('COMMIT')
       const deleted = rows[0]
-      await logAudit({ user_id: session.user_id, restaurant: deleted.restaurant || session.restaurant, action: 'archive_food_and_beverage', table_name: 'food_and_beverage_inventory', record_id: String(id), new_data: deleted })
+      await logAudit({ user_id: session.user_id, restaurant: deleted.restaurant || session.restaurant, action: 'archive_food_and_beverage', table_name: 'food_and_beverage_inventory', record_id: String(id), old_data: existing, new_data: deleted })
       return NextResponse.json({ item: deleted })
     } catch (err) {
       try { await client.query('ROLLBACK') } catch (e) {}

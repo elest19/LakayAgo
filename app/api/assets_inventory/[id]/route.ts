@@ -78,7 +78,7 @@ export async function DELETE(req: Request, { params }: { params: any }) {
     try {
       const res = await query('UPDATE assets_inventory SET is_archived = true WHERE asset_id = $1 RETURNING *', [id])
       const archived = res.rows[0]
-      await logAudit({ user_id: session.user_id, restaurant: archived.restaurant || session.restaurant, action: 'archive_asset', table_name: 'assets_inventory', record_id: String(id), new_data: archived })
+      await logAudit({ user_id: session.user_id, restaurant: archived.restaurant || session.restaurant, action: 'archive_asset', table_name: 'assets_inventory', record_id: String(id), old_data: existing, new_data: archived })
       return NextResponse.json({ asset: archived })
     } catch (e: any) {
       console.error('Asset archive failed', e)

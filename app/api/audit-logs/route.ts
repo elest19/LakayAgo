@@ -2,13 +2,14 @@ import { NextResponse } from 'next/server'
 import { query } from '../../../lib/db'
 import getSessionFromRequest from '../../../lib/session'
 import logAudit from '../../../lib/audit'
+import { generateAuditDescription } from '../../../lib/auditLogFormat'
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url)
     const action = url.searchParams.get('action')
     const user = url.searchParams.get('user')
-    const module = url.searchParams.get('module')
+    // module filtering removed — module derived column is no longer used
     const startDate = url.searchParams.get('startDate')
     const endDate = url.searchParams.get('endDate')
     const page = Math.max(1, Number(url.searchParams.get('page') || 1))
@@ -34,45 +35,40 @@ export async function GET(req: Request) {
       params.push(endDate)
     }
 
-    const moduleCase = `
-      case
-        when al.action ILIKE '%attendance%' then 'Attendance'
-        when al.action ILIKE '%payroll%' then 'Payroll'
-        when al.action ILIKE '%employee%' then 'Employees'
-        when al.action ILIKE '%leave%' then 'Leave'
-        when al.table_name ILIKE '%setting%' then 'Settings'
-        else 'Other'
-      end
-    `.trim()
-
     let sql = `
       select al.log_id as id, coalesce(u.username, 'System') as user, al.action, al.description,
              to_char(al.created_at::timestamptz, 'YYYY-MM-DD') as dateTime,
-             ${moduleCase} as module
+             al.table_name, al.record_id, al.old_data, al.new_data
       from audit_logs al
       left join users u on al.user_id::text = u.id::text
     `
     if (conditions.length > 0) {
       sql += ' where ' + conditions.join(' and ')
     }
-    if (module) {
-      sql += (conditions.length > 0 ? ' and ' : ' where ') + moduleCase + ' = $' + (params.length + 1)
-      params.push(module)
-    }
+    // no module filtering
 
     sql += ' order by al.created_at desc limit $' + (params.length + 1) + ' offset $' + (params.length + 2)
     params.push(pageSize)
     params.push((page - 1) * pageSize)
 
     const res = await query(sql, params)
-    const rows = res.rows.map((r: any) => ({
-      id: r.id,
-      user: r.user,
-      action: r.action,
-      module: r.module,
-      description: r.description,
-      dateTime: r.datetime,
-    }))
+    const rows = res.rows.map((r: any) => {
+      let desc = r.description
+      try {
+        if (!desc) {
+          desc = generateAuditDescription({ action: r.action, tableName: r.table_name, recordId: r.record_id, oldData: r.old_data, newData: r.new_data })
+        }
+      } catch (e) {
+        console.error('generateAuditDescription error', e)
+      }
+      return {
+        id: r.id,
+        user: r.user,
+        action: r.action,
+        description: desc,
+        dateTime: r.datetime,
+      }
+    })
 
     let total = 0
     try {
@@ -91,10 +87,7 @@ export async function GET(req: Request) {
       if (countConditions.length > 0) {
         countSql += ' where ' + countConditions.join(' and ')
       }
-      if (module) {
-        countSql += (countConditions.length > 0 ? ' and ' : ' where ') + moduleCase + ' = $' + (countParams.length + 1)
-        countParams.push(module)
-      }
+      // no module filtering in count
       const countRes = await query(countSql, countParams)
       total = Number(countRes.rows[0]?.total || 0)
     } catch (err) {

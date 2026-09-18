@@ -31,6 +31,7 @@ export async function PATCH(req: Request, { params }: { params: any }) {
       action: 'archive_sub_service',
       table_name: 'sub_services',
       record_id: String(id),
+      old_data: existing,
       new_data: updated,
     })
 

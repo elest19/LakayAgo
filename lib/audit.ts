@@ -1,4 +1,5 @@
 import { query } from './db'
+import { generateAuditDescription } from './auditLogFormat'
 
 function toJsonValue(value: any) {
   if (value === undefined || value === null) return null
@@ -16,6 +17,22 @@ export async function logAudit(entry: {
   description?: string | null
 }) {
   try {
+    // auto-generate description when not explicitly provided
+    let description = entry.description ?? null
+    try {
+      if (!description) {
+        description = generateAuditDescription({
+          action: entry.action,
+          tableName: entry.table_name ?? null,
+          recordId: entry.record_id ?? null,
+          oldData: entry.old_data ?? null,
+          newData: entry.new_data ?? null,
+        })
+      }
+    } catch (e) {
+      console.error('generateAuditDescription error', e)
+    }
+
     const text = `
       insert into audit_logs(user_id, restaurant, action, table_name, record_id, old_data, new_data, description)
       values($1,$2,$3,$4,$5,$6,$7,$8)
@@ -28,7 +45,7 @@ export async function logAudit(entry: {
       entry.record_id ?? null,
       toJsonValue(entry.old_data),
       toJsonValue(entry.new_data),
-      entry.description ?? null,
+      description,
     ])
   } catch (err) {
     console.error('Audit insert error', err)

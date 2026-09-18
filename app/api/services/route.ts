@@ -172,14 +172,18 @@ export async function DELETE(req: Request) {
     const id = url.searchParams.get('id')
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
+    // capture existing before archiving
+    const existingRes = await query('SELECT * FROM services WHERE service_id = $1 LIMIT 1', [id])
+    const existing = existingRes.rows[0]
+    if (!existing) return NextResponse.json({ error: 'Service not found' }, { status: 404 })
+
     const result = await query(
       'UPDATE services SET is_archived = true WHERE service_id = $1 RETURNING *',
       [id]
     )
     const deleted = result.rows[0]
-    if (!deleted) return NextResponse.json({ error: 'Service not found' }, { status: 404 })
 
-    await logAudit({ user_id: session.user_id, restaurant: deleted.restaurant || session.restaurant, action: 'archive_service', table_name: 'services', record_id: String(id), new_data: deleted })
+    await logAudit({ user_id: session.user_id, restaurant: deleted.restaurant || session.restaurant, action: 'archive_service', table_name: 'services', record_id: String(id), old_data: existing, new_data: deleted })
     return NextResponse.json({ service: deleted })
   } catch (err) {
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

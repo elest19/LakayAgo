@@ -246,7 +246,7 @@ export async function DELETE(req: Request) {
           action: 'delete_production_inventory',
           table_name: 'production_inventory',
           record_id: String(id),
-          new_data: rows[0],
+          old_data: rows[0],
         })
         return NextResponse.json({ deleted: true })
       } catch (err) {
@@ -257,21 +257,25 @@ export async function DELETE(req: Request) {
     }
 
     // soft-delete by setting is_archived
+    // capture existing before archiving
+    const existingRes = await query('SELECT * FROM production_inventory WHERE production_inventory_id = $1 LIMIT 1', [id])
+    const existing = existingRes.rows[0]
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
     const result = await query(
       `update production_inventory set is_archived = true where production_inventory_id = $1
        returning *`,
       [id]
     )
 
-    if (result.rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
     const deleted = result.rows[0]
     await logAudit({
       user_id: session.user_id,
-      restaurant: null,
+      restaurant: deleted?.restaurant || null,
       action: 'archive_production_inventory',
       table_name: 'production_inventory',
       record_id: String(id),
+      old_data: existing,
       new_data: deleted,
     })
 

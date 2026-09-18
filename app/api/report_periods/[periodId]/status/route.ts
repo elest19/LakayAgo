@@ -18,7 +18,15 @@ export async function POST(req: Request, context: any) {
 
   const { rows } = await query('update report_periods set status = $1 where report_period_id = $2 returning *', [status, Number(periodId)])
   const updated = rows[0]
-  logAudit({ user_id: session.user_id, restaurant: existing.restaurant, action: 'update_report_period_status', table_name: 'report_periods', record_id: String(periodId), old_data: existing, new_data: updated, description: `status => ${status}` })
+  // only log when status actually changes
+  try {
+    if (existing.status !== status) {
+      // omit explicit description so the shared generator will produce a label-aware message
+      logAudit({ user_id: session.user_id, restaurant: existing.restaurant, action: 'update_report_period_status', table_name: 'report_periods', record_id: String(periodId), old_data: existing, new_data: updated })
+    }
+  } catch (e) {
+    console.error('logAudit error for report_period status change', e)
+  }
   return NextResponse.json({ period: updated })
 }
 

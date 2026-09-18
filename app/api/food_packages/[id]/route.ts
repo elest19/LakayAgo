@@ -155,19 +155,25 @@ export async function DELETE(req: Request, { params }: { params: any }) {
     const packageId = Number(id)
     if (!Number.isFinite(packageId) || packageId <= 0) return NextResponse.json({ error: 'Missing package id' }, { status: 400 })
 
+    // capture existing before archiving
+    const existingRes = await query('SELECT * FROM food_packages WHERE food_package_id = $1 LIMIT 1', [packageId])
+    const existing = existingRes.rows[0]
+    if (!existing) return NextResponse.json({ error: 'Package not found' }, { status: 404 })
+
     const result = await query('update food_packages set is_archived = true where food_package_id = $1 returning *', [packageId])
-    if (!result.rows[0]) return NextResponse.json({ error: 'Package not found' }, { status: 404 })
+    const deleted = result.rows[0]
 
     await logAudit({
       user_id: session.user_id,
-      restaurant: result.rows[0].restaurant || session.restaurant,
+      restaurant: deleted.restaurant || session.restaurant,
       action: 'archive_food_package',
       table_name: 'food_packages',
       record_id: String(packageId),
-      new_data: result.rows[0],
+      old_data: existing,
+      new_data: deleted,
     })
 
-    return NextResponse.json({ package: result.rows[0] })
+    return NextResponse.json({ package: deleted })
   } catch (err) {
     console.error('DELETE /api/food_packages/[id] failed', err)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
