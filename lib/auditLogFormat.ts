@@ -20,6 +20,10 @@ export function formatActionLabel(action: string): string {
     archive_asset: 'Archived Asset',
     update_food_package: 'Updated Food Package',
     update_service: 'Updated Service',
+    create_service_transaction: 'Created Service Transaction',
+    update_service_transaction: 'Updated Service Transaction',
+    delete_service_transaction: 'Deleted Service Transaction',
+    transfer_production_inventory: 'Transferred Production Inventory',
     archive_service: 'Archived Service',
     archive_sub_service: 'Archived Sub-Service',
     attach_sub_service: 'Attached Sub-Service',
@@ -74,12 +78,27 @@ export function resolveRecordLabel(tableName: string | null | undefined, oldData
     return `${rest} ${start && end ? `(${start} – ${end})` : ''}`.trim() || (recordId ? `${tableName} #${recordId}` : '')
   }
   if (t.includes('payslip') || t.includes('payslips')) {
-    return data.employee_name || data.employee || data.name || (data.payslip_id ? `Payslip ${data.payslip_id}` : (recordId ? `${tableName} #${recordId}` : 'Payslip'))
+    const period = data.period_range ? ` (${data.period_range})` : ''
+    return (data.employee_name || data.employee || data.name || (data.payslip_id ? `Payslip ${data.payslip_id}` : (recordId ? `${tableName} #${recordId}` : 'Payslip'))) + period
+  }
+  if (t.includes('service_transaction')) {
+    const rest = data.restaurant || ''
+    const price = data.price != null ? fmtCurrency(data.price) : ''
+    const date = data.service_date ? fmtDate(data.service_date) : ''
+    const status = data.status ? ` (${data.status})` : ''
+    const label = `${rest} service transaction${date ? ` — ${date}` : ''}${price ? ` — ${price}` : ''}${status}`.trim()
+    return label || (recordId ? `${tableName} #${recordId}` : '')
+  }
+  if (t.includes('production_inventory_transfers')) {
+    const item = data.item_name || data.from_name
+    const qty = data.quantity != null ? `${data.quantity}` : ''
+    if (item) return `Transfer of ${qty ? `${qty} ` : ''}${item}`.trim()
+    return recordId ? `${tableName} #${recordId}` : ''
   }
   if (t.includes('production_inventory') || t.includes('food_and_beverage') || t.includes('food_and_beverage_inventory') || t.includes('assets_inventory') || t.includes('services') || t.includes('sub_services') || t.includes('food_packages')) {
     return data.name || data.item_name || data.service_type || data.id || (recordId ? `${tableName} #${recordId}` : '')
   }
-  if (t.includes('cash_advance')) return data.amount_deducted ? `${fmtCurrency(data.amount_deducted)} (${data.report_period_id ? `period ${data.report_period_id}` : ''})`.trim() : data.id || (recordId ? `${tableName} #${recordId}` : '')
+  if (t.includes('cash_advance')) return data.amount_deducted ? `${fmtCurrency(data.amount_deducted)} (${data.period_range || (data.report_period_id ? `period ${data.report_period_id}` : 'no period')})`.trim() : data.id || (recordId ? `${tableName} #${recordId}` : '')
   if (t.includes('attendance')) return `${data.employee_name || data.employee_id || ''}${data.work_date ? ` • ${fmtDate(data.work_date)}` : ''}`.trim() || (recordId ? `${tableName} #${recordId}` : '')
   if (t.includes('service_sub_services') || t.includes('service_sub_service') || t.includes('service_sub') || t.includes('service_subs')) {
     // prefer both names if available
@@ -90,7 +109,7 @@ export function resolveRecordLabel(tableName: string | null | undefined, oldData
   }
 
   // fallback
-  return data.name || data.id || JSON.stringify(data) || (tableName ? `${tableName} #${recordId}` : (recordId ? `#${recordId}` : 'Record'))
+  return data.name || data.id || (tableName ? `${tableName} #${recordId}` : (recordId ? `#${recordId}` : 'Record'))
 }
 
 export function generateAuditDescription({ action, tableName, recordId, oldData, newData }: { action: string, tableName?: string | null, recordId?: string | null, oldData?: any, newData?: any }) {
@@ -112,6 +131,13 @@ export function generateAuditDescription({ action, tableName, recordId, oldData,
 
   // delete
   if (oldData && !newData) {
+    const label = resolveRecordLabel(tableName, oldData, newData, recordId)
+    return `${label}: ${formatActionLabel(action)}`
+  }
+
+  // inventory transfers — raw from/to ids aren't meaningful, keep it concise
+  const tName = (tableName || '').toLowerCase()
+  if (tName.includes('production_inventory_transfers') && newData) {
     const label = resolveRecordLabel(tableName, oldData, newData, recordId)
     return `${label}: ${formatActionLabel(action)}`
   }

@@ -1283,18 +1283,7 @@ export default function ProcessPayroll() {
             )}
             {isMobile ? (
               <div className="flex flex-col">
-                {payrollLoading ? (
-                  <SkeletonTableRows
-                    mobile
-                    columns={3}
-                    rows={PAYROLL_PAGE_SIZE}
-                    columnConfig={[
-                      { width: "60%" },
-                      { width: "35%" },
-                      { width: "22%" },
-                    ]}
-                  />
-                ) : filteredRows.length === 0 ? (
+                {filteredRows.length === 0 ? (
                   <div className="px-4 py-12 text-center text-sm text-slate-500">No payroll rows available for this period.</div>
                 ) : (
                   reviewPageRows.map(r => {
@@ -1407,14 +1396,7 @@ export default function ProcessPayroll() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {payrollLoading ? (
-                      <SkeletonTableRows columns={4} rows={6} columnConfig={[
-                        { width: "60%" },
-                        { width: "40%" },
-                        { width: "40%" },
-                        { width: "50%" },
-                      ]} />
-                    ) : filteredRows.length === 0 ? (
+                    {filteredRows.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">No payroll rows available for this period.</td>
                       </tr>
@@ -1595,7 +1577,7 @@ export default function ProcessPayroll() {
                     setStep('approved')
                     setActivePayrollPeriod(null)
                     // After successful approval (status set to 'released' server-side), move user to Payroll History
-                    navigate('payroll-history')
+                    navigate('payslips')
                   } catch (err) {
                     console.error('Approve error', err)
                     showToast({ type: 'error', message: 'Approve failed', description: String(err) })
@@ -1603,7 +1585,7 @@ export default function ProcessPayroll() {
                     setIsApproving(false)
                   }
                 }}
-                className="px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-display"
+                className={`px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-display ${isApproving ? 'opacity-60 cursor-not-allowed' : ''}`}
               >
                 {isApproving ? 'Approving...' : 'Approve Payroll'}
               </button>

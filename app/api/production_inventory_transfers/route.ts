@@ -103,7 +103,7 @@ export async function POST(req: Request) {
         table_name: 'production_inventory_transfers',
         record_id: String(created.transfer_id),
         old_data: { from: from_production_inventory_id, to: toId },
-        new_data: created,
+        new_data: { ...created, item_name: fromRow.name, from_name: fromRow.name },
       })
 
       return NextResponse.json({ transfer: created })
