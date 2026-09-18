@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState, useMemo } from 'react'
-import { CheckCircle, XCircle, X, Plus } from 'lucide-react'
+import { CheckCircle, XCircle, X, Plus, Pencil, Archive, ArchiveRestore, Trash2 } from 'lucide-react'
 import type { LeaveRequest } from '../types'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
@@ -286,9 +286,20 @@ function AddLeaveModal({ employees, leaveTypesList, onClose, onSave }: {
   )
 }
 
-function AddLeaveTypeModal({ onClose, onSave, defaultRestaurant }: { onClose: () => void; onSave: () => void; defaultRestaurant?: string }) {
+function LeaveTypeModal({ onClose, onSave, defaultRestaurant, leaveType }: {
+  onClose: () => void
+  onSave: () => void
+  defaultRestaurant?: string
+  leaveType?: any | null
+}) {
   const { showToast } = useApp()
-  const [form, setForm] = useState({ name: '', leave_number: 0, restaurant: defaultRestaurant || 'Both', is_paid: true })
+  const isEdit = Boolean(leaveType?.leave_type_id)
+  const [form, setForm] = useState({
+    name: leaveType?.name ?? '',
+    leave_number: Number(leaveType?.leave_number ?? 0),
+    restaurant: leaveType?.restaurant || defaultRestaurant || 'Both',
+    is_paid: leaveType ? Boolean(leaveType.is_paid) : true,
+  })
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -299,23 +310,34 @@ function AddLeaveTypeModal({ onClose, onSave, defaultRestaurant }: { onClose: ()
     }
     setLoading(true)
     try {
-      const res = await fetch('/api/leave_types', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...form, is_paid: Boolean(form.is_paid) }) })
+      const payload = isEdit
+        ? { leave_type_id: leaveType.leave_type_id, ...form, is_paid: Boolean(form.is_paid) }
+        : { ...form, is_paid: Boolean(form.is_paid) }
+      const res = await fetch('/api/leave_types', {
+        method: isEdit ? 'PATCH' : 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Failed to create leave type')
+        throw new Error(err.error || `Failed to ${isEdit ? 'update' : 'create'} leave type`)
       }
-      showToast({ type: 'success', message: 'Leave type created', description: `${form.name} created.` })
+      showToast({
+        type: 'success',
+        message: isEdit ? 'Leave type updated' : 'Leave type created',
+        description: `${form.name} ${isEdit ? 'updated' : 'created'}.`,
+      })
       onSave()
       onClose()
     } catch (err: any) {
-      showToast({ type: 'error', message: 'Create failed', description: err.message || 'Could not create leave type' })
+      showToast({ type: 'error', message: isEdit ? 'Update failed' : 'Create failed', description: err.message || `Could not ${isEdit ? 'update' : 'create'} leave type` })
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <Modal open={true} title="Add Leave Type" onClose={onClose}>
+    <Modal open={true} title={isEdit ? 'Edit Leave Type' : 'Add Leave Type'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="bg-white w-full">
         <div className="px-4 py-4 space-y-4">
           <div>
@@ -341,7 +363,7 @@ function AddLeaveTypeModal({ onClose, onSave, defaultRestaurant }: { onClose: ()
         </div>
         <div className="px-4 py-3 border-t border-slate-100 flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-          <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">{loading ? 'Saving...' : 'Create'}</button>
+          <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">{loading ? 'Saving...' : isEdit ? 'Save Changes' : 'Create'}</button>
         </div>
       </form>
     </Modal>
@@ -362,6 +384,12 @@ export default function LeaveManagement() {
   const [leaveRequestsLoading, setLeaveRequestsLoading] = useState(true)
   const [leaveBalancesLoading, setLeaveBalancesLoading] = useState(true)
   const [showAddLeaveType, setShowAddLeaveType] = useState(false)
+  const [editLeaveType, setEditLeaveType] = useState<any | null>(null)
+  const [archiveTypeTarget, setArchiveTypeTarget] = useState<any | null>(null)
+  const [deleteTypeTarget, setDeleteTypeTarget] = useState<any | null>(null)
+  const [showArchivedTypes, setShowArchivedTypes] = useState(false)
+  // Which leave-type action is currently writing to the DB — disables the related buttons
+  const [savingTypeAction, setSavingTypeAction] = useState<null | 'archive' | 'restore' | 'delete'>(null)
   const [showAddLeaveRequest, setShowAddLeaveRequest] = useState(false)
   const [balancePage, setBalancePage] = useState(0)
   const [listPage, setListPage] = useState(1)
@@ -394,6 +422,34 @@ export default function LeaveManagement() {
     }
   }, [])
 
+  // Leave types are fetched with includeArchived=true so the Leave List tab can
+  // switch between the Active and Archived views client-side.
+  const refreshLeaveTypes = useCallback(async () => {
+    try {
+      const [ltRes, bRes] = await Promise.all([
+        fetch('/api/leave_types?includeArchived=true'),
+        fetch('/api/employee_leave_balances'),
+      ])
+      if (ltRes.ok) {
+        const ltBody = await ltRes.json()
+        setLeaveTypesList(ltBody.leaveTypes || ltBody || [])
+      }
+      if (bRes.ok) {
+        const bBody = await bRes.json()
+        setLeaveBalances(bBody.balances || bBody || [])
+      }
+    } catch (err) {
+      console.error('Failed to load leave meta', err)
+    }
+  }, [])
+
+  // Only active (non-archived) leave types are offered when filing a request or
+  // computing the per-employee balances.
+  const activeLeaveTypes = useMemo(
+    () => (leaveTypesList || []).filter((lt: any) => !lt.is_archived),
+    [leaveTypesList],
+  )
+
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -401,24 +457,11 @@ export default function LeaveManagement() {
       setLeaveBalancesLoading(true)
       await loadLeaveRequests()
       // load leave types and balances
-      try {
-        const [ltRes, bRes] = await Promise.all([fetch('/api/leave_types'), fetch('/api/employee_leave_balances')])
-        if (ltRes.ok) {
-          const ltBody = await ltRes.json()
-          setLeaveTypesList(ltBody.leaveTypes || ltBody || [])
-        }
-        if (bRes.ok) {
-          const bBody = await bRes.json()
-          setLeaveBalances(bBody.balances || bBody || [])
-        }
-      } catch (err) {
-        console.error('Failed to load leave meta', err)
-      } finally {
-        if (mounted) setLeaveBalancesLoading(false)
-      }
+      await refreshLeaveTypes()
+      if (mounted) setLeaveBalancesLoading(false)
     })()
     return () => { mounted = false }
-  }, [loadLeaveRequests])
+  }, [loadLeaveRequests, refreshLeaveTypes])
 
   // Derived leave types and balances fetched from backend. leave_number (total entitlement)
   // is stored on `leave_types.leave_number`; per-employee remaining is `employee_leave_balances.available_leave`.
@@ -428,7 +471,7 @@ export default function LeaveManagement() {
     const emp = employees.find(e => String(e.id) === String(employeeId))
     const sex = emp?.sex ?? ''
     const empDept = (emp?.restaurant ?? '').trim()
-    return (leaveTypesList || []).filter((t: any) => {
+    return (activeLeaveTypes || []).filter((t: any) => {
       if (sex === 'Male' && t.name === 'Maternity Leave') return false
       if (sex === 'Female' && t.name === 'Paternity Leave') return false
       const r = (t.restaurant || 'Both').trim()
@@ -441,7 +484,7 @@ export default function LeaveManagement() {
     const types = getVisibleLeaveTypes(employeeId)
 
     return types.map((typeName) => {
-      const lt = (leaveTypesList || []).find((t: any) => t.name === typeName)
+      const lt = (activeLeaveTypes || []).find((t: any) => t.name === typeName)
       const total = Number(lt?.leave_number ?? 0)
       const approvedUsed = (leaveRequests || [])
         .filter((l: any) =>
@@ -457,7 +500,7 @@ export default function LeaveManagement() {
 
   const getLeaveTypeMeta = (leaveTypeName?: string) => {
     if (!leaveTypeName) return null
-    return (leaveTypesList || []).find((t: any) => String(t.name || t.leave_type_name) === String(leaveTypeName)) ?? null
+    return (activeLeaveTypes || []).find((t: any) => String(t.name || t.leave_type_name) === String(leaveTypeName)) ?? null
   }
 
   const renderPaidBadge = (isPaid?: boolean) => (
@@ -465,6 +508,74 @@ export default function LeaveManagement() {
       {isPaid ? 'Paid' : 'Unpaid'}
     </span>
   )
+
+  // Leave List tab action styling — plain text buttons in the desktop table, pill
+  // buttons with larger tap targets inside the mobile cards.
+  const leaveTypeTone = {
+    edit: { desktop: 'text-indigo-600 hover:text-indigo-800', mobile: 'border-indigo-200 bg-indigo-50 text-indigo-700' },
+    archive: { desktop: 'text-violet-500 hover:text-violet-600', mobile: 'border-violet-500 bg-violet-500 text-white hover:bg-indigo-700' },
+    restore: { desktop: 'text-emerald-600 hover:text-emerald-800', mobile: 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700' },
+    delete: { desktop: 'text-red-600 hover:text-red-800', mobile: 'border-red-200 bg-red-50 text-red-700' },
+  }
+  const leaveTypeActionClass = (isMobileCard: boolean, tone: keyof typeof leaveTypeTone) =>
+    isMobileCard
+      ? `inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium font-display ${leaveTypeTone[tone].mobile}`
+      : `inline-flex items-center gap-1 text-xs font-medium hover:underline ${leaveTypeTone[tone].desktop}`
+
+  // Archive / restore a leave type. Restoring is a direct toggle; archiving goes
+  // through a confirmation modal first.
+  const toggleArchiveLeaveType = async (leaveType: any) => {
+    const nextArchived = !leaveType.is_archived
+    setSavingTypeAction(nextArchived ? 'archive' : 'restore')
+    try {
+      const res = await fetch('/api/leave_types', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ leave_type_id: leaveType.leave_type_id, is_archived: nextArchived }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Archive toggle failed')
+      }
+      showToast({
+        type: 'success',
+        message: nextArchived ? 'Leave type archived' : 'Leave type restored',
+        description: `${leaveType.name} ${nextArchived ? 'moved to the archived list' : 'is active again'}.`,
+      })
+      await refreshLeaveTypes()
+    } catch (err: any) {
+      showToast({ type: 'error', message: 'Update failed', description: err.message || 'Could not update leave type' })
+    } finally {
+      setSavingTypeAction(null)
+    }
+  }
+
+  const confirmArchiveLeaveType = async () => {
+    const leaveType = archiveTypeTarget
+    if (!leaveType || savingTypeAction) return
+    await toggleArchiveLeaveType(leaveType)
+    setArchiveTypeTarget(null)
+  }
+
+  const deleteLeaveType = async () => {
+    const leaveType = deleteTypeTarget
+    if (!leaveType || savingTypeAction) return
+    setSavingTypeAction('delete')
+    try {
+      const res = await fetch(`/api/leave_types?leave_type_id=${encodeURIComponent(String(leaveType.leave_type_id))}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Delete failed')
+      }
+      showToast({ type: 'success', message: 'Leave type deleted', description: `${leaveType.name} was permanently deleted.` })
+      await refreshLeaveTypes()
+    } catch (err: any) {
+      showToast({ type: 'error', message: 'Delete failed', description: err.message || 'Could not delete leave type' })
+    } finally {
+      setSavingTypeAction(null)
+      setDeleteTypeTarget(null)
+    }
+  }
 
   const filtered = leaveRequests.filter(l => {
   if (!statusFilter || l.status === statusFilter) {
@@ -481,7 +592,7 @@ export default function LeaveManagement() {
   const PAGE_SIZE = 10
   const [page, setPage] = useState(1)
   useEffect(() => { setPage(1) }, [statusFilter, restaurantFilter, filtered.length])
-  useEffect(() => { setListPage(1) }, [restaurantFilter, leaveTypesList.length])
+  useEffect(() => { setListPage(1) }, [restaurantFilter, showArchivedTypes, leaveTypesList.length])
   useEffect(() => { setBalancePage(0) }, [restaurantFilter, employees.length])
   const pageData = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page])
   const emptyRowsCount = pageData.length === 0 ? 0 : Math.max(0, PAGE_SIZE - pageData.length)
@@ -672,7 +783,11 @@ export default function LeaveManagement() {
       )}
 
       {tab === 'list' && (() => {
-        const filteredTypes = leaveTypesList.filter((lt: any) => !restaurantFilter || lt.restaurant === restaurantFilter)
+        const filteredTypes = leaveTypesList.filter((lt: any) => {
+          const matchesRestaurant = !restaurantFilter || lt.restaurant === restaurantFilter
+          const matchesArchive = showArchivedTypes ? Boolean(lt.is_archived) : !lt.is_archived
+          return matchesRestaurant && matchesArchive
+        })
         const listPageData = filteredTypes.slice((listPage - 1) * LIST_PAGE_SIZE, listPage * LIST_PAGE_SIZE)
         return (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -682,7 +797,15 @@ export default function LeaveManagement() {
               <Plus size={14} /> Add Leave Type
             </button>
           </div>
-          <div className="px-4 py-3 border-b border-slate-100">
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-slate-100">
+            <select
+              value={showArchivedTypes ? 'archived' : 'active'}
+              onChange={e => setShowArchivedTypes(e.target.value === 'archived')}
+              className="px-2 py-1 text-sm border border-slate-200 rounded"
+            >
+              <option value="active">Active</option>
+              <option value="archived">Archived</option>
+            </select>
             <select value={restaurantFilter} onChange={e => setRestaurantFilter(e.target.value)} className="px-2 py-1 text-sm border border-slate-200 rounded">
               <option value="">All Restaurants</option>
               <option value="Lakay Ago">Lakay Ago</option>
@@ -690,44 +813,128 @@ export default function LeaveManagement() {
               <option value="Both">Both</option>
             </select>
           </div>
+
+          {isMobile ? (
+            <div className="flex flex-col gap-2 bg-slate-50 p-3">
+              {leaveBalancesLoading ? (
+                Array.from({ length: 4 }).map((_, idx) => (
+                  <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <SkeletonBar width="55%" height="0.9rem" />
+                    <div className="mt-2"><SkeletonBar width="35%" height="0.7rem" /></div>
+                    <div className="mt-3 flex justify-end">
+                      <SkeletonBar width="55%" height="1.4rem" rounded="rounded-lg" />
+                    </div>
+                  </div>
+                ))
+              ) : filteredTypes.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+                  {showArchivedTypes ? 'No archived leave types.' : 'No leave types available.'}
+                </div>
+              ) : (
+                listPageData.map((lt: any) => (
+                  <div key={lt.leave_type_id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-700 font-display">{lt.name}</p>
+                        <p className="text-xs text-slate-400">{lt.restaurant}</p>
+                      </div>
+                      {renderPaidBadge(Boolean(lt.is_paid))}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500 font-mono">Leave Number: {lt.leave_number}</p>
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      <button type="button" onClick={() => setDeleteTypeTarget(lt)} className={leaveTypeActionClass(true, 'delete')}>
+                        <Trash2 size={13} /> Delete
+                      </button>
+                      {lt.is_archived ? (
+                        <button
+                          type="button"
+                          onClick={() => void toggleArchiveLeaveType(lt)}
+                          disabled={Boolean(savingTypeAction)}
+                          className={`${leaveTypeActionClass(true, 'restore')} ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        >
+                          <ArchiveRestore size={13} /> {savingTypeAction === 'restore' ? 'Restoring...' : 'Restore'}
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => setArchiveTypeTarget(lt)} className={leaveTypeActionClass(true, 'archive')}>
+                          <Archive size={13} /> Archive
+                        </button>
+                      )}
+                      
+                      <button type="button" onClick={() => setEditLeaveType(lt)} className={leaveTypeActionClass(true, 'edit')}>
+                        <Pencil size={13} /> Edit
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Name', 'Leave Number', 'Restaurant', 'Is Paid'].map(h => (
-                    <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                  {['Name', 'Leave Number', 'Restaurant', 'Is Paid', 'Actions'].map(h => (
+                    <th key={h} className={`py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap ${h === 'Actions' ? 'text-center' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {leaveBalancesLoading ? (
                   <SkeletonTableRows
-                    columns={4}
+                    columns={5}
                     rows={6}
                     columnConfig={[
                       { width: '34%' },
                       { width: '18%' },
                       { width: '26%' },
                       { width: '22%', pill: true },
+                      { width: '70%' },
                     ]}
                   />
                 ) : filteredTypes.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">No leave types available.</td>
+                    <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">
+                      {showArchivedTypes ? 'No archived leave types.' : 'No leave types available.'}
+                    </td>
                   </tr>
                 ) : (
                   listPageData.map((lt: any) => (
-                    <tr key={lt.leave_type_id}>
+                    <tr key={lt.leave_type_id} className="hover:bg-slate-50">
                       <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{lt.name}</td>
                       <td className="py-3 px-4 text-sm text-slate-600 font-mono">{lt.leave_number}</td>
                       <td className="py-3 px-4 text-sm text-slate-500">{lt.restaurant}</td>
                       <td className="py-3 px-4 text-sm text-slate-500">{renderPaidBadge(Boolean(lt.is_paid))}</td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <button type="button" onClick={() => setEditLeaveType(lt)} className={leaveTypeActionClass(false, 'edit')}>
+                            <Pencil size={14} /> Edit
+                          </button>
+                          {lt.is_archived ? (
+                            <button
+                              type="button"
+                              onClick={() => void toggleArchiveLeaveType(lt)}
+                              disabled={Boolean(savingTypeAction)}
+                              className={`${leaveTypeActionClass(false, 'restore')} ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
+                            >
+                              <ArchiveRestore size={14} /> {savingTypeAction === 'restore' ? 'Restoring...' : 'Restore'}
+                            </button>
+                          ) : (
+                            <button type="button" onClick={() => setArchiveTypeTarget(lt)} className={leaveTypeActionClass(false, 'archive')}>
+                              <Archive size={14} /> Archive
+                            </button>
+                          )}
+                          <button type="button" onClick={() => setDeleteTypeTarget(lt)} className={leaveTypeActionClass(false, 'delete')}>
+                            <Trash2 size={14} /> Delete
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
           </div>
+          )}
           <PaginationFooter items={filteredTypes} page={listPage} setPage={setListPage} pageSize={LIST_PAGE_SIZE} noun="leave types" />
         </div>
         )
@@ -947,30 +1154,83 @@ export default function LeaveManagement() {
         />
       )}
       {showAddLeaveType && (
-        <AddLeaveTypeModal
+        <LeaveTypeModal
           defaultRestaurant={undefined}
           onClose={() => setShowAddLeaveType(false)}
           onSave={async () => {
-            try {
-              const [ltRes, bRes] = await Promise.all([fetch('/api/leave_types'), fetch('/api/employee_leave_balances')])
-              if (ltRes.ok) {
-                const ltBody = await ltRes.json()
-                setLeaveTypesList(ltBody.leaveTypes || ltBody || [])
-              }
-              if (bRes.ok) {
-                const bBody = await bRes.json()
-                setLeaveBalances(bBody.balances || bBody || [])
-              }
-            } catch (err) {
-              console.error('Failed to refresh leave meta after create', err)
-            }
+            await refreshLeaveTypes()
           }}
         />
+      )}
+      {editLeaveType && (
+        <LeaveTypeModal
+          leaveType={editLeaveType}
+          onClose={() => setEditLeaveType(null)}
+          onSave={async () => {
+            await refreshLeaveTypes()
+          }}
+        />
+      )}
+      {archiveTypeTarget && (
+        <Modal open={!!archiveTypeTarget} title="Confirm archive" onClose={() => setArchiveTypeTarget(null)}>
+          <div className="p-2">
+            <p className="text-sm text-slate-600 mb-1">
+              Are you sure you want to archive <span className="font-semibold text-slate-700">{archiveTypeTarget.name}</span>?
+            </p>
+            <p className="text-xs text-slate-500 mb-5">It will be hidden from the active list and moved to the archived view. You can restore it later.</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { if (!savingTypeAction) setArchiveTypeTarget(null) }}
+                disabled={Boolean(savingTypeAction)}
+                className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmArchiveLeaveType()}
+                disabled={Boolean(savingTypeAction)}
+                className={`px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display flex items-center justify-center gap-2 ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
+              >
+                {savingTypeAction === 'archive' ? 'Archiving...' : <><Archive size={14} /> Archive</>}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {deleteTypeTarget && (
+        <Modal open={!!deleteTypeTarget} title="Confirm deletion" onClose={() => setDeleteTypeTarget(null)}>
+          <div className="p-2">
+            <p className="text-sm text-slate-600 mb-1">
+              Are you sure you want to permanently delete <span className="font-semibold text-slate-700">{deleteTypeTarget.name}</span>?
+            </p>
+            <p className="text-xs text-slate-500 mb-5">Employee leave balances for this type are removed and can no longer be restored.</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { if (!savingTypeAction) setDeleteTypeTarget(null) }}
+                disabled={Boolean(savingTypeAction)}
+                className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteLeaveType()}
+                disabled={Boolean(savingTypeAction)}
+                className={`px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display flex items-center justify-center gap-2 ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
+              >
+                {savingTypeAction === 'delete' ? 'Deleting...' : <><Trash2 size={14} /> Delete</>}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
       {showAddLeaveRequest && (
         <AddLeaveModal
           employees={employees}
-          leaveTypesList={leaveTypesList}
+          leaveTypesList={activeLeaveTypes}
           onClose={() => setShowAddLeaveRequest(false)}
           onSave={async () => {
             await loadLeaveRequests()

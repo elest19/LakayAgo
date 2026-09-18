@@ -446,8 +446,19 @@ export default function ProductionCatalog() {
       return (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6" style={{ display: loading || items.length > 0 ? 'block' : 'none' }}>
           {isMobile ?  (
-            <div className="px-4 py-3 border-b border-slate-100 bg-indigo-600 ">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100 bg-indigo-600">
               <h3 className="text-lg font-semibold text-white font-display">{title}</h3>
+              <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
+                <div className="flex items-center gap-2 bg-white/10 border border-white/20 rounded-lg px-2.5 py-1.5 flex-1 max-w-[12rem] min-w-0">
+                  <Search size={14} className="text-white/80 shrink-0" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search"
+                    className="w-full bg-transparent text-sm text-white placeholder:text-white/70 outline-none min-w-0"
+                  />
+                </div>
+              </div>
             </div>
           ) : (
             <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
@@ -626,7 +637,7 @@ export default function ProductionCatalog() {
     <div className="p-6">
       <div className="flex items-center justify-between gap-3 mb-6">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 font-display">Ingredients Inventory</h2>
+          <h2 className="text-xl font-bold text-slate-800 font-display">Ingredients Inventory / Production Catalog</h2>
           <p className="text-sm text-slate-500 mt-0.5">Manage ingredient stock by item</p>
         </div>
       </div>

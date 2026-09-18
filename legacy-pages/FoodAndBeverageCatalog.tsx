@@ -978,7 +978,7 @@ export default function FoodAndBeverageCatalog() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-bold">Food & Beverage Catalog</h2>
+          <h2 className="text-xl font-bold">Food & Beverage / Kitchen Catalog</h2>
           <p className="text-sm text-slate-500">Manage menu items and recipes.</p>
         </div>
         <div>

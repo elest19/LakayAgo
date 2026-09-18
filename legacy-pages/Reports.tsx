@@ -270,6 +270,12 @@ async function fetchEmployees() {
         ]
         if (totals.cash_advance > 0) deductionSlices.push({ name: 'Cash Advance', value: totals.cash_advance, color: '#9ca3af' })
 
+        // recharts is loaded through next/dynamic, so `Pie` paints before its `Cell`
+        // children exist on the first render. Carrying the colour on the data as `fill`
+        // keeps the slices coloured on that first paint instead of defaulting to grey.
+        earningsSlices.forEach(slice => { slice.fill = slice.color })
+        deductionSlices.forEach(slice => { slice.fill = slice.color })
+
         setPayrollEarnings(earningsSlices)
         setPayrollDeductions(deductionSlices)
 
@@ -333,16 +339,37 @@ async function fetchEmployees() {
             if (sres.ok) settings = await sres.json()
           }
 
+          // SAT/SUN are rest days. An employee who did not clock in is neither present
+          // nor absent on those days — only an actual Time In + Time Out pair counts as
+          // present (that covers employees who genuinely worked the weekend).
+          const isRestDay = (dateStr: string) => {
+            const [y, m, d] = String(dateStr || '').slice(0, 10).split('-').map(Number)
+            if (!y || !m || !d) return false
+            const dayOfWeek = new Date(y, m - 1, d).getDay() // 0 = Sunday, 6 = Saturday
+            return dayOfWeek === 0 || dayOfWeek === 6
+          }
+          const hasTimeInOut = (row: any) => {
+            const timeIn = String(row.first_on_duty ?? row.firstOnDuty ?? '').trim()
+            const timeOut = String(row.first_off_duty ?? row.firstOffDuty ?? '').trim()
+            return timeIn !== '' && timeOut !== ''
+          }
+          // Rest days without punches are skipped entirely so they never land in the
+          // Present, Absent or On Leave columns.
+          const countable = (daily: any[]) => daily.filter((r: any) => hasTimeInOut(r) || !isRestDay(r.work_date))
+
           if (reportType === 'Daily Attendance') {
             data = dates.map(d => {
-              const daily = rows.filter((r: any) => String(r.work_date) === d)
-              const present = daily.filter((r: any) => !r.is_absent && !r.on_leave).length
-              const absent = daily.filter((r: any) => Boolean(r.is_absent)).length
+              const daily = countable(rows.filter((r: any) => String(r.work_date) === d))
+              const present = daily.filter((r: any) => hasTimeInOut(r) || (!r.is_absent && !r.on_leave)).length
+              const absent = daily.filter((r: any) => !hasTimeInOut(r) && Boolean(r.is_absent)).length
               const onLeave = daily.filter((r: any) => Boolean(r.on_leave)).length
               return { date: d, present, absent, on_leave: onLeave }
             })
           } else if (reportType === 'Absent Report') {
-            data = dates.map(d => ({ date: d, value: rows.filter((r: any) => String(r.work_date) === d && Boolean(r.is_absent)).length }))
+            data = dates.map(d => ({
+              date: d,
+              value: countable(rows.filter((r: any) => String(r.work_date) === d)).filter((r: any) => Boolean(r.is_absent)).length,
+            }))
           } else if (reportType === 'Late Report') {
             const startTime = settings?.start_time || '08:00:00'
             const grace = Number(settings?.grace_period || 0)

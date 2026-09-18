@@ -143,10 +143,10 @@ const navItems: NavEntry[] = [
       { id: 'sales-summary', label: 'Summary Report', icon: <BarChart3 size={16} /> },
       { id: 'sales', label: 'Sales', icon: <Wallet size={16} /> },
       { id: 'services', label: 'Services', icon: <FileText size={16} /> },
-      { id: 'food-and-beverage-catalog', label: 'Food & Beverage', icon: <CookingPot size={16} /> },
+      { id: 'food-and-beverage-catalog', label: 'Food & Beverage / Kitchen Catalog', icon: <CookingPot size={16} /> },
       { id: 'food-packages', label: 'Food Packages', icon: <Package2 size={16} /> },
       { id: 'assets-catalog', label: 'Assets', icon: <Package2 size={16} /> },
-      { id: 'production-catalog', label: 'Ingredients', icon: <Factory size={16} /> },
+      { id: 'production-catalog', label: 'Ingredients / Production Catalog', icon: <Factory size={16} /> },
       { id: 'expenses', label: 'Expenses', icon: <CreditCard size={16} /> },
     ],
   },
@@ -979,9 +979,11 @@ export default function App() {
               onClick={() => toggleAppMode(appMode === 'aroo' ? 'lakayAgo' : 'aroo')}
               className="mb-3 w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left cursor-pointer text-slate-100 bg-green-800 hover:text-white hover:bg-green-600 transition-colors"
             >
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-sm bg-white/10 text-[10px] font-bold">
-                {appMode === 'aroo' ? 'L' : 'A'}
-              </span>
+              <img
+                src={appMode === 'aroo' ? brandLogoSrc.lakayAgo : brandLogoSrc.aroo}
+                alt={appMode === 'aroo' ? 'Lakay Ago' : 'Aroo'}
+                className="h-6 w-6 shrink-0 rounded-sm object-contain"
+              />
               <span className="text-sm font-medium font-display">
                 {appMode === 'aroo' ? 'Switch to Lakay Ago' : 'Switch to Aroo'}
               </span>

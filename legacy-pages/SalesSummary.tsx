@@ -36,6 +36,9 @@ const formatCurrency = (value: number) =>
     minimumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0)
 
+// Palette for the Expense Distribution pie slices.
+const EXPENSE_SLICE_COLORS = ['#14b8a6', '#0ea5e9', '#8b5cf6', '#f59e0b', '#ef4444', '#10b981']
+
 // Label/value pair for the stacked mobile cards. Mirrors the detail modals (small slate-400
 // label above a medium-weight value) so the mobile cards show the same columns as the desktop
 // tables instead of only the name and one amount.
@@ -503,6 +506,10 @@ export default function SalesSummary() {
     return Array.from(grouped.values())
       .filter((entry) => entry.amount > 0)
       .sort((a, b) => b.amount - a.amount)
+      // The slice colour travels with the data because recharts is loaded through
+      // next/dynamic: on the first paint `Pie` renders before its `Cell` children are
+      // available, which otherwise leaves every slice the recharts default grey.
+      .map((entry, index) => ({ ...entry, fill: EXPENSE_SLICE_COLORS[index % EXPENSE_SLICE_COLORS.length] }))
   }, [filteredExpenses, fullyPaidTransactions])
 
   const totalExpenses = useMemo(
@@ -1030,7 +1037,7 @@ export default function SalesSummary() {
               {expenseBreakdown.map((entry, index) => (
                 <Cell
                   key={`${entry.name}-${index}`}
-                  fill={['#14b8a6', '#0ea5e9', '#8b5cf6', '#f59e0b', '#ef4444', '#10b981'][index % 6]}
+                  fill={entry.fill}
                 />
               ))}
             </Pie>

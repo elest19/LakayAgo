@@ -391,7 +391,8 @@ CREATE TABLE IF NOT EXISTS leave_types (
     created_at timestamptz DEFAULT now() NOT NULL,
     restaurant text DEFAULT 'Both'::text NOT NULL,
     leave_number integer DEFAULT 0 NOT NULL,
-    is_paid boolean DEFAULT false NOT NULL
+    is_paid boolean DEFAULT false NOT NULL,
+    is_archived boolean DEFAULT false NOT NULL
 );
 
 ALTER TABLE leave_types ADD CONSTRAINT leave_types_pkey PRIMARY KEY (leave_type_id);
