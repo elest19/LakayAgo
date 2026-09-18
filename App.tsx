@@ -387,13 +387,15 @@ export default function App() {
   // redirect logic after auth load
   useEffect(() => {
     if (!authLoading) {
-      if (!user && currentPage !== 'login') {
+      const loginPending = Boolean((window as any).__app_login_pending)
+
+      if (!user && currentPage !== 'login' && !loginPending) {
         const intended = window.location.pathname
         const safe = Object.keys(routePageMap).includes(intended)
         const redirectUrl = safe ? `/login?redirect=${encodeURIComponent(intended)}` : '/login'
         window.history.replaceState({}, '', redirectUrl)
         setCurrentPage('login')
-      } else if (user && currentPage === 'login') {
+      } else if ((user || loginPending) && currentPage === 'login') {
         setCurrentPage('dashboard')
         window.history.replaceState({}, '', '/dashboard')
       }

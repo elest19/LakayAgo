@@ -30,6 +30,7 @@ export default function LoginPage() {
 
       showToast({ type: 'success', message: 'Logged in', description: `Welcome back, ${appUser?.name || username || 'user'}` })
       try {
+        ;(window as any).__app_login_pending = true
         if (setUser) setUser(appUser)
         ;(window as any).__app_set_user?.(appUser)
         ;(window as any).__app_show_mode_confirmation?.()
