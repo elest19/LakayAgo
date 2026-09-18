@@ -1,4 +1,5 @@
 'use client'
+import dynamic from 'next/dynamic'
 import { useEffect, useState, useMemo } from 'react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
@@ -7,11 +8,26 @@ import {
   ArrowRight, CheckCircle2, Circle, FileText, Activity,
   Eye, HeartPulse
 } from 'lucide-react'
-import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer
-} from 'recharts'
 import DateFilter, { defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
+
+const ChartPlaceholder = ({ height = 180 }: { height?: number }) => (
+  <div
+    className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-400"
+    style={{ height }}
+  >
+    Loading chart…
+  </div>
+)
+
+const BarChart = dynamic(() => import('recharts').then((mod) => mod.BarChart), { ssr: false, loading: () => <ChartPlaceholder /> })
+const Bar = dynamic(() => import('recharts').then((mod) => mod.Bar), { ssr: false, loading: () => null })
+const LineChart = dynamic(() => import('recharts').then((mod) => mod.LineChart), { ssr: false, loading: () => <ChartPlaceholder /> })
+const Line = dynamic(() => import('recharts').then((mod) => mod.Line), { ssr: false, loading: () => null })
+const XAxis = dynamic(() => import('recharts').then((mod) => mod.XAxis), { ssr: false, loading: () => null })
+const YAxis = dynamic(() => import('recharts').then((mod) => mod.YAxis), { ssr: false, loading: () => null })
+const CartesianGrid = dynamic(() => import('recharts').then((mod) => mod.CartesianGrid), { ssr: false, loading: () => null })
+const Tooltip = dynamic(() => import('recharts').then((mod) => mod.Tooltip), { ssr: false, loading: () => null })
+const ResponsiveContainer = dynamic(() => import('recharts').then((mod) => mod.ResponsiveContainer), { ssr: false, loading: () => <ChartPlaceholder /> })
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n)
@@ -345,41 +361,13 @@ export default function Dashboard() {
 
   const payrollStatusPeriod = useMemo(() => {
     const rows = reportPeriods.filter((period: any) => !period.restaurant || String(period.restaurant) === selectedRestaurant)
-    const normalizeStatus = (value: any) => String(value ?? '').trim().toLowerCase()
+    if (rows.length === 0) return null
 
-    const pending = rows.filter((period: any) => normalizeStatus(period.status) === 'pending')
-    if (pending.length > 0) {
-      return pending.reduce((oldest: any, period: any) =>
-        !oldest || new Date(period.period_start) < new Date(oldest.period_start) ? period : oldest,
-      null)
-    }
-
-    const underReview = rows.filter((period: any) => normalizeStatus(period.status) === 'under review')
-    if (underReview.length > 0) {
-      return underReview.reduce((latest: any, period: any) =>
-        !latest || new Date(period.period_start) > new Date(latest.period_start) ? period : latest,
-      null)
-    }
-
-    const reviewed = rows.filter((period: any) => normalizeStatus(period.status) === 'reviewed')
-    if (reviewed.length > 0) {
-      return reviewed.reduce((latest: any, period: any) =>
-        !latest || new Date(period.period_start) > new Date(latest.period_start) ? period : latest,
-      null)
-    }
-
-    const released = rows.filter((period: any) => normalizeStatus(period.status) === 'released')
-    if (released.length > 0) {
-      return released.reduce((latest: any, period: any) =>
-        !latest || new Date(period.period_start) > new Date(latest.period_start) ? period : latest,
-      null)
-    }
-
-    return rows.length > 0
-      ? rows.reduce((latest: any, period: any) =>
-          !latest || new Date(period.period_start) > new Date(latest.period_start) ? period : latest,
-        null)
-      : null
+    return rows.reduce((latest: any, period: any) => {
+      const currentDate = new Date(period.period_start).getTime()
+      const latestDate = new Date(latest.period_start).getTime()
+      return Number.isFinite(currentDate) && Number.isFinite(latestDate) && currentDate > latestDate ? period : latest
+    }, rows[0])
   }, [reportPeriods, selectedRestaurant])
 
   const payrollTotals = useMemo(() => {
@@ -464,11 +452,11 @@ export default function Dashboard() {
   // 'Pending' means nothing has started yet, so no step is active.
   const activeStepLabel: string | null = (() => {
     const s = String(payrollStatusPeriod?.status ?? '').trim().toLowerCase()
-    if (s === 'attendance imported' || s === 'validation required') return 'Attendance Validated'
-    if (s === 'under review' || s === 'ready for payroll') return 'Payroll Calculation'
+    if (s === 'attendance imported' || s === 'validation required' || s === 'pending') return 'Attendance Validated'
+    if (s === 'under review' || s === 'ready for payroll' || s === 'calculated' || s === 'calculation') return 'Payroll Calculation'
     if (s === 'reviewed') return 'Payroll Review'
-    if (s === 'approved') return 'Payslips'
-    return null // Pending, Released, Finalized, unknown — no step in progress
+    if (s === 'approved' || s === 'released') return 'Payslips'
+    return null
   })()
 
   const payrollSteps = [

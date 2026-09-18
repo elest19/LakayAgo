@@ -1,13 +1,33 @@
 'use client'
+import dynamic from 'next/dynamic'
 import { useEffect, useState, useRef } from 'react'
 import { FileText, Download, Printer, BarChart3, Clock, UserCheck, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend,
-  PieChart, Pie, Cell
-} from 'recharts'
+
+const ChartPlaceholder = ({ height = 180 }: { height?: number }) => (
+  <div
+    className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-400"
+    style={{ height }}
+  >
+    Loading chart…
+  </div>
+)
+
+const BarChart = dynamic(() => import('recharts').then((mod) => mod.BarChart), { ssr: false, loading: () => <ChartPlaceholder /> })
+const Bar = dynamic(() => import('recharts').then((mod) => mod.Bar), { ssr: false, loading: () => null })
+const XAxis = dynamic(() => import('recharts').then((mod) => mod.XAxis), { ssr: false, loading: () => null })
+const YAxis = dynamic(() => import('recharts').then((mod) => mod.YAxis), { ssr: false, loading: () => null })
+const CartesianGrid = dynamic(() => import('recharts').then((mod) => mod.CartesianGrid), { ssr: false, loading: () => null })
+const Tooltip = dynamic(() => import('recharts').then((mod) => mod.Tooltip), { ssr: false, loading: () => null })
+const ResponsiveContainer = dynamic(() => import('recharts').then((mod) => mod.ResponsiveContainer), { ssr: false, loading: () => <ChartPlaceholder /> })
+const LineChart = dynamic(() => import('recharts').then((mod) => mod.LineChart), { ssr: false, loading: () => <ChartPlaceholder /> })
+const Line = dynamic(() => import('recharts').then((mod) => mod.Line), { ssr: false, loading: () => null })
+const Legend = dynamic(() => import('recharts').then((mod) => mod.Legend), { ssr: false, loading: () => null })
+const PieChart = dynamic(() => import('recharts').then((mod) => mod.PieChart), { ssr: false, loading: () => <ChartPlaceholder /> })
+const Pie = dynamic(() => import('recharts').then((mod) => mod.Pie), { ssr: false, loading: () => null })
+const Cell = dynamic(() => import('recharts').then((mod) => mod.Cell), { ssr: false, loading: () => null })
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n)

@@ -278,41 +278,27 @@ export default function Payslips() {
     }
   }
 
-  // Fetch missing employee IDs (parallel) and populate employeesRef.
-  const fetchMissingEmployees = async (ids: string[], mountedRef: { current: boolean }) => {
-    if (!ids || ids.length === 0) return
+  const loadEmployeesMap = async () => {
     try {
-      const fetches = ids.map(id => fetch(`/api/employees/${encodeURIComponent(id)}`).then(async res => {
-        if (!res.ok) return null
-        const body = await res.json()
-        return body.employee || null
-      }).catch(() => null))
-      const results = await Promise.all(fetches)
-      results.forEach((emp, i) => {
-        const id = ids[i]
-        if (emp) employeesRef.current.set(String(id), emp)
+      const res = await fetch('/api/employees')
+      if (!res.ok) return
+      const body = await res.json()
+      const list = Array.isArray(body.employees) ? body.employees : []
+      const nextMap = new Map<string, any>()
+      list.forEach((emp: any) => {
+        const id = String(emp.employee_id ?? emp.id ?? emp.source_employee_id ?? '')
+        if (id) nextMap.set(id, emp)
       })
-      // after populating cache, remap payslips from raw rows
-      if (!mountedRef.current) return
+      employeesRef.current = nextMap
       setPayslips(prev => prev.map(p => buildFromRaw(p.raw)))
     } catch (err) {
-      console.error('Failed to fetch employees', err)
+      console.error('Failed to load employees for payslips', err)
     }
   }
 
-  // Clear component-scoped cache and re-trigger lookups for visible payslips
   const clearEmployeesCache = () => {
     employeesRef.current.clear()
-    // compute visible payslip employee ids from current payslips and filters
-    const visible = payslips.filter(p => {
-      const q = search.toLowerCase()
-      const matchQ = !q || `${p.emp.firstName} ${p.emp.lastName}`.toLowerCase().includes(q)
-      const matchRestaurant = !dept || p.emp.restaurant === dept
-      return matchQ && matchRestaurant
-    })
-    const ids = Array.from(new Set(visible.map(p => String(p.emp.id))))
-    const mountedRef = { current: true }
-    fetchMissingEmployees(ids, mountedRef)
+    void loadEmployeesMap()
   }
 
   const loadPeriods = async () => {
@@ -338,8 +324,9 @@ export default function Payslips() {
       const raws: any[] = psBody.payslips || []
       setPayslips(raws.map(r => buildFromRaw(r)))
 
-      const ids = Array.from(new Set(raws.map(r => String(r.employee_id || r.employee_number || '')))).filter(id => id && !employeesRef.current.has(id))
-      if (ids.length > 0) await fetchMissingEmployees(ids, { current: true })
+      if (employeesRef.current.size === 0) {
+        await loadEmployeesMap()
+      }
     } catch (err) {
       console.error('Failed to load payslips', err)
     } finally {
@@ -349,6 +336,7 @@ export default function Payslips() {
 
   useEffect(() => {
     void loadPeriods()
+    void loadEmployeesMap()
   }, [])
 
   useEffect(() => {

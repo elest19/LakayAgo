@@ -363,6 +363,16 @@ export default function ProcessPayroll() {
   const { showToast, navigate, activePayrollPeriod, setActivePayrollPeriod } = useApp()
   const isMobile = useIsMobile()
   const [step, setStep] = useState<Step>('calculation')
+
+  useEffect(() => {
+    if (!activePayrollPeriod) return
+    const status = String(activePayrollPeriod.status || '').trim().toLowerCase()
+    if (status === 'reviewed') {
+      setStep('review')
+    } else if (status === 'under review') {
+      setStep('calculation')
+    }
+  }, [activePayrollPeriod])
   const [search, setSearch] = useState('')
   const [viewRow, setViewRow] = useState<any | null>(null)
   const [approveConfirm, setApproveConfirm] = useState(false)

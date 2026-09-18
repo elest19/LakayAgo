@@ -219,6 +219,18 @@ const validateWeekDay = (date: Date, expected?: string | null) => {
 
 export type AttendanceParseMode = 'aroo' | 'lakayAgo'
 
+const getFileBuffer = async (filePath: string | File | Blob) => {
+  if (typeof filePath === 'string') {
+    const response = await fetch(filePath)
+    if (!response.ok) {
+      throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`)
+    }
+    return new Uint8Array(await response.arrayBuffer())
+  }
+
+  return new Uint8Array(await filePath.arrayBuffer())
+}
+
 export const dispatchAttendanceReport = async (
   filePath: string | File | Blob,
   appMode: AttendanceParseMode = 'lakayAgo',
@@ -235,11 +247,9 @@ export const parseAttendanceReport = async (
   filePath: string | File | Blob,
   _appMode: AttendanceParseMode = 'lakayAgo',
 ): Promise<NormalizedAttendanceRecord[]> => {
-  const fileBuffer = typeof filePath === 'string'
-    ? await (await import('node:fs/promises')).readFile(filePath)
-    : new Uint8Array(await filePath.arrayBuffer())
+  const fileBuffer = await getFileBuffer(filePath)
 
-  const workbook = XLSX.read(fileBuffer instanceof Uint8Array ? fileBuffer : new Uint8Array(fileBuffer), { type: 'array' })
+  const workbook = XLSX.read(fileBuffer, { type: 'array' })
   const records: NormalizedAttendanceRecord[] = []
 
   for (const sheetName of workbook.SheetNames) {
@@ -385,11 +395,9 @@ const guessRowToDate = (raw: string) => {
 }
 
 const parseArooAttendanceReport = async (filePath: string | File | Blob): Promise<NormalizedAttendanceRecord[]> => {
-  const fileBuffer = typeof filePath === 'string'
-    ? await (await import('node:fs/promises')).readFile(filePath)
-    : new Uint8Array(await filePath.arrayBuffer())
+  const fileBuffer = await getFileBuffer(filePath)
 
-  const workbook = XLSX.read(fileBuffer instanceof Uint8Array ? fileBuffer : new Uint8Array(fileBuffer), { type: 'array' })
+  const workbook = XLSX.read(fileBuffer, { type: 'array' })
   const records: NormalizedAttendanceRecord[] = []
 
   const sheetName = workbook.SheetNames.find(name => /att\.?log/i.test(name)) ?? workbook.SheetNames[0]

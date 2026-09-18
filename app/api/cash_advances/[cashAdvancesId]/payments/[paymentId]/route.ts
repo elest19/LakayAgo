@@ -3,14 +3,14 @@ import getSessionFromRequest from '../../../../../../lib/session'
 import { query } from '../../../../../../lib/db'
 import { logAudit } from '../../../../../../lib/audit'
 
-export async function DELETE(req: Request, context: { params: Promise<{ cashAdvancesId: string; paymentId: string }> | { cashAdvancesId: string; paymentId: string } }) {
+export async function DELETE(req: Request, context: { params: Promise<{ cashAdvancesId: string; paymentId: string }> }) {
   try {
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const params = await Promise.resolve(context.params)
-    const cashAdvancesId = Number(params.cashAdvancesId)
-    const paymentId = Number(params.paymentId)
+    const { cashAdvancesId: rawCashAdvancesId, paymentId: rawPaymentId } = await context.params
+    const cashAdvancesId = Number(rawCashAdvancesId)
+    const paymentId = Number(rawPaymentId)
 
     if (!cashAdvancesId || Number.isNaN(cashAdvancesId) || !paymentId || Number.isNaN(paymentId)) {
       return NextResponse.json({ error: 'Invalid cash advance or payment id' }, { status: 400 })

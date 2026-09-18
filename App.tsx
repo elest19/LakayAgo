@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react'
 import type {
   Page,
@@ -22,31 +23,33 @@ import {
   Factory, CookingPot,
 } from 'lucide-react'
 
-import Login from './legacy-pages/Login'
-import Dashboard from './legacy-pages/Dashboard'
+const Login = dynamic(() => import('./legacy-pages/Login').then((mod) => mod.default), {
+  ssr: false,
+  loading: () => <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-700">Loading…</div>,
+})
+const Dashboard = dynamic(() => import('./legacy-pages/Dashboard').then((mod) => mod.default), { ssr: false })
+const Employees = dynamic(() => import('./legacy-pages/Employees').then((mod) => mod.default), { ssr: false })
+const AttendanceRecords = dynamic(() => import('./legacy-pages/AttendanceRecords').then((mod) => mod.default), { ssr: false })
+const ImportAttendance = dynamic(() => import('./legacy-pages/ImportAttendance').then((mod) => mod.default), { ssr: false })
+const ImportHistory = dynamic(() => import('./legacy-pages/ImportHistory').then((mod) => mod.default), { ssr: false })
+const PayrollPeriods = dynamic(() => import('./legacy-pages/PayrollPeriods').then((mod) => mod.default), { ssr: false })
+const PayrollHistory = dynamic(() => import('./legacy-pages/PayrollHistory').then((mod) => mod.default), { ssr: false })
+const CashAdvance = dynamic(() => import('./legacy-pages/CashAdvance').then((mod) => mod.default), { ssr: false })
+const ProcessPayroll = dynamic(() => import('./legacy-pages/ProcessPayroll').then((mod) => mod.default), { ssr: false })
+const Payslips = dynamic(() => import('./legacy-pages/Payslips').then((mod) => mod.default), { ssr: false })
+const LeaveManagement = dynamic(() => import('./legacy-pages/LeaveManagement').then((mod) => mod.default), { ssr: false })
+const Reports = dynamic(() => import('./legacy-pages/Reports').then((mod) => mod.default), { ssr: false })
+const SettingsPage = dynamic(() => import('./legacy-pages/Settings').then((mod) => mod.default), { ssr: false })
+const AuditLogs = dynamic(() => import('./legacy-pages/AuditLogs').then((mod) => mod.default), { ssr: false })
+const SalesSummary = dynamic(() => import('./legacy-pages/SalesSummary.tsx').then((mod) => mod.default), { ssr: false })
+const Sales = dynamic(() => import('./legacy-pages/Sales').then((mod) => mod.default), { ssr: false })
+const AssetsCatalog = dynamic(() => import('./legacy-pages/AssetsCatalog').then((mod) => mod.default), { ssr: false })
+const ProductionCatalog = dynamic(() => import('./legacy-pages/ProductionCatalog').then((mod) => mod.default), { ssr: false })
+const FoodAndBeverageCatalog = dynamic(() => import('./legacy-pages/FoodAndBeverageCatalog').then((mod) => mod.default), { ssr: false })
+const FoodPackages = dynamic(() => import('./legacy-pages/FoodPackages').then((mod) => mod.default), { ssr: false })
+const ServicesPage = dynamic(() => import('./legacy-pages/Services').then((mod) => mod.default), { ssr: false })
+const Expenses = dynamic(() => import('./legacy-pages/Expenses').then((mod) => mod.default), { ssr: false })
 import { authClient } from './lib/auth-client'
-import Employees from './legacy-pages/Employees'
-import AttendanceRecords from './legacy-pages/AttendanceRecords'
-import ImportAttendance from './legacy-pages/ImportAttendance'
-import ImportHistory from './legacy-pages/ImportHistory'
-import PayrollPeriods from './legacy-pages/PayrollPeriods'
-import PayrollHistory from './legacy-pages/PayrollHistory'
-import CashAdvance from './legacy-pages/CashAdvance'
-import ProcessPayroll from './legacy-pages/ProcessPayroll'
-import Payslips from './legacy-pages/Payslips'
-import LeaveManagement from './legacy-pages/LeaveManagement'
-import Reports from './legacy-pages/Reports'
-import SettingsPage from './legacy-pages/Settings'
-import AuditLogs from './legacy-pages/AuditLogs'
-import SalesSummary from './legacy-pages/SalesSummary.tsx'
-import Sales from './legacy-pages/Sales'
-import AssetsCatalog from './legacy-pages/AssetsCatalog'
-import ProductionCatalog from './legacy-pages/ProductionCatalog'
-import FoodAndBeverageCatalog from './legacy-pages/FoodAndBeverageCatalog'
-import FoodPackages from './legacy-pages/FoodPackages'
-import ServicesPage from './legacy-pages/Services'
-import Expenses from './legacy-pages/Expenses'
-// Use the public copy of the logo (served at /LakayAgo_Logo.jpg)
 import Modal from './components/Modal'
 import isMobile from './hooks/isMobile'
 import { useRealtimeConnectionStatus } from './hooks/useRealtimeEntity'
@@ -856,15 +859,16 @@ export default function App() {
     if (!user) return
     try {
       if (user.restaurant === 'Aroo') {
-        setAppMode('aroo')
+        setAppMode(prev => (prev === 'aroo' ? prev : 'aroo'))
       } else if (user.restaurant === 'Lakay Ago') {
-        setAppMode('lakayAgo')
+        setAppMode(prev => (prev === 'lakayAgo' ? prev : 'lakayAgo'))
       } else if (user.restaurant === 'Both') {
         const saved = localStorage.getItem(`appMode:${user.user_id}`)
-        setAppMode(saved === 'aroo' ? 'aroo' : 'lakayAgo')
+        const nextMode = saved === 'aroo' ? 'aroo' : 'lakayAgo'
+        setAppMode(prev => (prev === nextMode ? prev : nextMode))
       }
     } catch (err) {}
-  }, [user, currentPage])
+  }, [user])
 
   const toggleGroup = (label: string) => {
     setExpandedGroups(prev => {
@@ -971,11 +975,9 @@ export default function App() {
               onClick={() => toggleAppMode(appMode === 'aroo' ? 'lakayAgo' : 'aroo')}
               className="mb-3 w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left cursor-pointer text-slate-100 bg-green-800 hover:text-white hover:bg-green-600 transition-colors"
             >
-              <img
-                src={logoSrc}
-                alt={appMode === 'aroo' ? 'Lakay Ago logo' : 'Aroo logo'}
-                className="w-6 h-6 object-contain rounded-sm"
-              />
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-sm bg-white/10 text-[10px] font-bold">
+                {appMode === 'aroo' ? 'L' : 'A'}
+              </span>
               <span className="text-sm font-medium font-display">
                 {appMode === 'aroo' ? 'Switch to Lakay Ago' : 'Switch to Aroo'}
               </span>
@@ -1045,6 +1047,9 @@ export default function App() {
     )
   }
 
+  const appShellVisible = !authLoading || Boolean(user)
+  const shouldShowLogin = currentPage === 'login' || (!user && !authLoading)
+
   return (
       <AppContext.Provider value={{
         currentPage,
@@ -1078,9 +1083,14 @@ export default function App() {
         openEmployeeId,
       }}>
         <>
-          {authLoading ? (
-            <div className="min-h-screen flex items-center justify-center">Loading...</div>
-          ) : currentPage === 'login' ? (
+          {authLoading && !user ? (
+            <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-700">
+              <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-3 shadow-sm">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-600" />
+                <span className="text-sm font-medium">Loading account…</span>
+              </div>
+            </div>
+          ) : shouldShowLogin ? (
             <Login />
           ) : (
             <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-800">

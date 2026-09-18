@@ -605,7 +605,7 @@ export default function PayrollPeriods() {
                 </div>
             {(() => {
               const s = String(selectedPeriod.status || '').toLowerCase()
-              if (s === 'under review') {
+              if (s === 'under review' || s === 'reviewed') {
                 return (
                   <div className="mt-6 flex justify-end">
                     <button
@@ -614,6 +614,7 @@ export default function PayrollPeriods() {
                           ...selectedPeriod,
                           id: selectedPeriod.report_period_id,
                           period_id: selectedPeriod.report_period_id,
+                          status: selectedPeriod.status,
                         })
                         navigate('process-payroll')
                       }}
@@ -694,11 +695,18 @@ export default function PayrollPeriods() {
               return (
                 <div className="mt-6 flex justify-end">
                   <button
+                    onClick={() => {
+                      setActivePayrollPeriod({
+                        ...selectedPeriod,
+                        id: selectedPeriod.report_period_id,
+                        period_id: selectedPeriod.report_period_id,
+                        status: selectedPeriod.status,
+                      })
+                      navigate('process-payroll')
+                    }}
                     className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display"
-                    title="Download Report"
                   >
-                    <Download size={14} />
-                    Download Payroll
+                    Continue <ArrowRight size={12} />
                   </button>
                 </div>
               )

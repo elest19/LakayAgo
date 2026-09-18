@@ -1,24 +1,33 @@
 ﻿'use client'
 
+import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import useIsMobile from '../hooks/isMobile'
 import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import { AnimatePresence, motion } from 'motion/react'
 import PaginationFooter from '../components/PaginationFooter'
 import DateFilter, { dateInRange, defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from 'recharts'
+
+const ChartPlaceholder = ({ height = 180 }: { height?: number }) => (
+  <div
+    className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-400"
+    style={{ height }}
+  >
+    Loading chart…
+  </div>
+)
+
+const BarChart = dynamic(() => import('recharts').then((mod) => mod.BarChart), { ssr: false, loading: () => <ChartPlaceholder /> })
+const Bar = dynamic(() => import('recharts').then((mod) => mod.Bar), { ssr: false, loading: () => null })
+const XAxis = dynamic(() => import('recharts').then((mod) => mod.XAxis), { ssr: false, loading: () => null })
+const YAxis = dynamic(() => import('recharts').then((mod) => mod.YAxis), { ssr: false, loading: () => null })
+const CartesianGrid = dynamic(() => import('recharts').then((mod) => mod.CartesianGrid), { ssr: false, loading: () => null })
+const Tooltip = dynamic(() => import('recharts').then((mod) => mod.Tooltip), { ssr: false, loading: () => null })
+const ResponsiveContainer = dynamic(() => import('recharts').then((mod) => mod.ResponsiveContainer), { ssr: false, loading: () => <ChartPlaceholder /> })
+const PieChart = dynamic(() => import('recharts').then((mod) => mod.PieChart), { ssr: false, loading: () => <ChartPlaceholder /> })
+const Pie = dynamic(() => import('recharts').then((mod) => mod.Pie), { ssr: false, loading: () => null })
+const Cell = dynamic(() => import('recharts').then((mod) => mod.Cell), { ssr: false, loading: () => null })
+const Legend = dynamic(() => import('recharts').then((mod) => mod.Legend), { ssr: false, loading: () => null })
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-PH', {

@@ -81,13 +81,13 @@ async function fetchCashAdvanceById(cashAdvancesId: number) {
   return rows[0] ? normalizeCashAdvance(rows[0]) : null
 }
 
-export async function POST(req: Request, context: { params: Promise<{ cashAdvancesId: string }> | { cashAdvancesId: string } }) {
+export async function POST(req: Request, context: { params: Promise<{ cashAdvancesId: string }> }) {
   try {
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const params = await Promise.resolve(context.params)
-    const cashAdvancesId = Number(params.cashAdvancesId)
+    const { cashAdvancesId: rawCashAdvancesId } = await context.params
+    const cashAdvancesId = Number(rawCashAdvancesId)
     const body = await req.json()
     const amountDeducted = Number(body.amount_deducted)
     const reportPeriodId = body.report_period_id != null ? Number(body.report_period_id) : null

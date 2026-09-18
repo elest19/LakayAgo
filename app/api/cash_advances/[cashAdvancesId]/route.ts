@@ -81,13 +81,13 @@ async function fetchCashAdvanceById(cashAdvancesId: string) {
   return rows[0] ? normalizeCashAdvance(rows[0]) : null
 }
 
-export async function GET(_req: Request, context: { params: Promise<{ cashAdvancesId: string }> | { cashAdvancesId: string } }) {
+export async function GET(_req: Request, context: { params: Promise<{ cashAdvancesId: string }> }) {
   try {
     const session = await getSessionFromRequest(_req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const params = await Promise.resolve(context.params)
-    const record = await fetchCashAdvanceById(params.cashAdvancesId)
+    const { cashAdvancesId } = await context.params
+    const record = await fetchCashAdvanceById(cashAdvancesId)
     if (!record) return NextResponse.json({ error: 'Cash advance not found' }, { status: 404 })
 
     return NextResponse.json({ cash_advance: record })
@@ -109,14 +109,14 @@ async function resolveApproverUserId(session: any, body: any): Promise<string | 
   return session?.user_id ?? null
 }
 
-export async function PATCH(req: Request, context: { params: Promise<{ cashAdvancesId: string }> | { cashAdvancesId: string } }) {
+export async function PATCH(req: Request, context: { params: Promise<{ cashAdvancesId: string }> }) {
   try {
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const params = await Promise.resolve(context.params)
+    const { cashAdvancesId: rawCashAdvancesId } = await context.params
     const body = await req.json()
-    const cashAdvancesId = Number(params.cashAdvancesId)
+    const cashAdvancesId = Number(rawCashAdvancesId)
 
     if (!cashAdvancesId || Number.isNaN(cashAdvancesId)) {
       return NextResponse.json({ error: 'Invalid cash advance id' }, { status: 400 })
@@ -198,13 +198,13 @@ export async function PATCH(req: Request, context: { params: Promise<{ cashAdvan
   }
 }
 
-export async function DELETE(req: Request, context: { params: Promise<{ cashAdvancesId: string }> | { cashAdvancesId: string } }) {
+export async function DELETE(req: Request, context: { params: Promise<{ cashAdvancesId: string }> }) {
   try {
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const params = await Promise.resolve(context.params)
-    const cashAdvancesId = Number(params.cashAdvancesId)
+    const { cashAdvancesId: rawCashAdvancesId } = await context.params
+    const cashAdvancesId = Number(rawCashAdvancesId)
 
     // Use transaction to delete payments and the cash advance
     const client = await getClient()
