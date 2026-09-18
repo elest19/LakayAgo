@@ -364,8 +364,10 @@ export default function LeaveManagement() {
   const [showAddLeaveType, setShowAddLeaveType] = useState(false)
   const [showAddLeaveRequest, setShowAddLeaveRequest] = useState(false)
   const [balancePage, setBalancePage] = useState(0)
+  const [listPage, setListPage] = useState(1)
   const [restaurantFilter, setRestaurantFilter] = useState('')
   const BALANCE_PAGE_SIZE = 9
+  const LIST_PAGE_SIZE = 10
 
   const loadLeaveRequests = useCallback(async () => {
     setLeaveRequestsLoading(true)
@@ -479,6 +481,8 @@ export default function LeaveManagement() {
   const PAGE_SIZE = 10
   const [page, setPage] = useState(1)
   useEffect(() => { setPage(1) }, [statusFilter, restaurantFilter, filtered.length])
+  useEffect(() => { setListPage(1) }, [restaurantFilter, leaveTypesList.length])
+  useEffect(() => { setBalancePage(0) }, [restaurantFilter, employees.length])
   const pageData = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page])
   const emptyRowsCount = pageData.length === 0 ? 0 : Math.max(0, PAGE_SIZE - pageData.length)
   
@@ -587,12 +591,12 @@ export default function LeaveManagement() {
                       ]}
                     />
                   ) : (
-                    pageData.map(leave => {
+                    pageData.map((leave, index) => {
                       const ltIdx = leaveTypes.indexOf(leave.leaveType) % leaveColors.length
                       return (
                         <tr
                           key={leave.id}
-                          className="hover:bg-slate-50 group cursor-pointer"
+                          className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                           onClick={() => setSelectedLeave(leave)}
                           role="button"
                           tabIndex={0}
@@ -639,8 +643,8 @@ export default function LeaveManagement() {
               </table>
             ) : (
               <div className="flex flex-col">
-                {pageData.map(leave => (
-                    <button key={leave.id} onClick={() => setSelectedLeave(leave)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                {pageData.map((leave, index) => (
+                    <button key={leave.id} onClick={() => setSelectedLeave(leave)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-700">{leave.employeeName}</div>
                       <div className="text-xs text-slate-400">{leave.leaveType} • {formatDate(leave.startDate)}</div>
@@ -667,7 +671,10 @@ export default function LeaveManagement() {
         </div>
       )}
 
-      {tab === 'list' && (
+      {tab === 'list' && (() => {
+        const filteredTypes = leaveTypesList.filter((lt: any) => !restaurantFilter || lt.restaurant === restaurantFilter)
+        const listPageData = filteredTypes.slice((listPage - 1) * LIST_PAGE_SIZE, listPage * LIST_PAGE_SIZE)
+        return (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <h3 className="text-sm font-semibold text-slate-700 font-display">Leave Types</h3>
@@ -704,8 +711,12 @@ export default function LeaveManagement() {
                       { width: '22%', pill: true },
                     ]}
                   />
+                ) : filteredTypes.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">No leave types available.</td>
+                  </tr>
                 ) : (
-                  leaveTypesList.filter(lt => !restaurantFilter || lt.restaurant === restaurantFilter).map((lt: any) => (
+                  listPageData.map((lt: any) => (
                     <tr key={lt.leave_type_id}>
                       <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{lt.name}</td>
                       <td className="py-3 px-4 text-sm text-slate-600 font-mono">{lt.leave_number}</td>
@@ -717,8 +728,10 @@ export default function LeaveManagement() {
               </tbody>
             </table>
           </div>
+          <PaginationFooter items={filteredTypes} page={listPage} setPage={setListPage} pageSize={LIST_PAGE_SIZE} noun="leave types" />
         </div>
-      )}
+        )
+      })()}
 
       {tab === 'balances' && (
         <div>
@@ -736,7 +749,6 @@ export default function LeaveManagement() {
                     <option value="">All Restaurants</option>
                     <option value="Lakay Ago">Lakay Ago</option>
                     <option value="Aroo">Aroo</option>
-                    <option value="Both">Both</option>
                   </select>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -792,27 +804,16 @@ export default function LeaveManagement() {
                     })
                   )}
                 </div>
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-end gap-3 mt-5">
-                    <button
-                      onClick={() => setBalancePage(p => Math.max(0, p - 1))}
-                      disabled={balancePage === 0}
-                      className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
-                    >
-                      Previous
-                    </button>
-                    <span className="text-sm text-slate-500 font-display">
-                      Page {balancePage + 1} of {totalPages}
-                    </span>
-                    <button
-                      onClick={() => setBalancePage(p => Math.min(totalPages - 1, p + 1))}
-                      disabled={balancePage >= totalPages - 1}
-                      className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-display"
-                    >
-                      Next
-                    </button>
-                  </div>
-                )}
+                <PaginationFooter
+                  items={filteredEmployees}
+                  page={balancePage + 1}
+                  setPage={(value) => {
+                    const next = typeof value === 'function' ? (value as any)(balancePage + 1) : value
+                    setBalancePage(next - 1)
+                  }}
+                  pageSize={BALANCE_PAGE_SIZE}
+                  noun="employees"
+                />
               </>
             )
           })()}

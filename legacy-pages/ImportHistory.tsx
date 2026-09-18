@@ -309,10 +309,10 @@ export default function ImportHistory() {
                     { width: "35%" }, { width: "55%" }, { width: "40%", pill: true }
                   ]} />
                 ) : (
-                  imports.map(imp => (
+                  imports.map((imp, index) => (
                     <tr
                       key={imp.id}
-                      className="hover:bg-slate-50 group cursor-pointer"
+                      className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                       onClick={() => setSelectedImport(imp)}
                       role="button"
                       tabIndex={0}
@@ -343,8 +343,8 @@ export default function ImportHistory() {
             </table>
           ) : (
             <div className="flex flex-col">
-              {imports.map(imp => (
-                <button key={imp.id} onClick={() => setSelectedImport(imp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+              {imports.map((imp, index) => (
+                <button key={imp.id} onClick={() => setSelectedImport(imp)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-slate-700">{formatImportPeriod(imp.fileName)}</div>
                     <div className="text-xs text-slate-400">{imp.dateImported} • {imp.importedBy}</div>

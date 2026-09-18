@@ -495,8 +495,8 @@ export default function ProductionCatalog() {
                       </tr>
                       ) : (
                       <>
-                        {pagedItems.map(item => (
-                          <tr key={item.id} className="hover:bg-slate-50 group cursor-pointer" onClick={() => setSelectedItem(item)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedItem(item) } }}>
+                        {pagedItems.map((item, index) => (
+                          <tr key={item.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`} onClick={() => setSelectedItem(item)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedItem(item) } }}>
                             <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.name}</td>
                             <td className="py-3 px-4 text-sm text-slate-600">{(() => { const cat = (item as any).ingredient_category; if (cat === 'quantity') return unitAbbrev(item.unit); return unitAbbrev((item as any).recipe_unit || item.unit); })()}</td>
                             <td className="py-3 px-4 font-mono text-xs text-slate-700">{Math.floor(item.stock)} {unitAbbrev(item.unit)}</td>
@@ -567,14 +567,14 @@ export default function ProductionCatalog() {
                 <div className="p-4 text-sm text-slate-400">No production items found.</div>
               ) : (
                 <>
-                  {pagedItems.map(item => (
+                  {pagedItems.map((item, index) => (
                     <div
                       key={item.id}
                       role="button"
                       tabIndex={0}
                       onClick={() => setSelectedItem(item)}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedItem(item) } }}
-                      className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 w-full cursor-pointer"
+                      className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3 w-full cursor-pointer`}
                     >
                       <div>
                         <div className="text-sm font-semibold text-slate-700 font-display">{item.name}</div>

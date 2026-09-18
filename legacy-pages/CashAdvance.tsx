@@ -58,6 +58,8 @@ const statusStyles: Record<string, string> = {
 
 const lockedStatuses = ['cancelled', 'rejected', 'released'] as const
 
+const getRowBg = (index: number) => (index % 2 === 0 ? 'bg-white' : 'bg-slate-100')
+
 function getStatusOptions(currentStatus: string): string[] {
   // Per requirements:
   // pending -> approved, cancelled, rejected
@@ -595,20 +597,37 @@ export default function CashAdvancePage() {
           </div>
           <div className="mt-3 text-2xl font-bold text-slate-800 font-display">{formatCurrency(totalOutstanding)}</div>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs uppercase tracking-wide">Paid Off</span>
-            <CheckCircle2 size={16} />
+        {isMobile ? (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs uppercase tracking-wide">Advances Paid Off</span>
+              </div>
+              <div className="mt-3 text-sm font-bold text-slate-800 font-display">{paidCount}</div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs uppercase tracking-wide">Active Advances</span>
+              </div>
+              <div className="mt-3 text-sm font-bold text-slate-800 font-display">{advances.length}</div>
+            </div>
           </div>
-          <div className="mt-3 text-2xl font-bold text-slate-800 font-display">{paidCount}</div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs uppercase tracking-wide">Active Advances</span>
-            <Wallet size={16} />
+        ) : (
+          <>
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs uppercase tracking-wide">Advances Paid Off</span>
+              </div>
+              <div className="mt-3 text-sm font-bold text-slate-800 font-display">{paidCount}</div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs uppercase tracking-wide">Active Advances</span>
+              </div>
+              <div className="mt-3 text-sm font-bold text-slate-800 font-display">{advances.length}</div>
           </div>
-          <div className="mt-3 text-2xl font-bold text-slate-800 font-display">{advances.length}</div>
-        </div>
+          </>
+        )}
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -622,7 +641,7 @@ export default function CashAdvancePage() {
             {['Lakay Ago', 'Aroo', 'Both'].map(r => <option key={r} value={r}>{r}</option>)}
           </select>
           <select value={filters.status} onChange={e => { setFilters(prev => ({ ...prev, status: e.target.value })); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
-            <option value="all">All statuses</option>
+            <option value="all">All status</option>
             {Object.keys(statusStyles).map(status => <option key={status} value={status}>{status}</option>)}
           </select>
           <select value={filters.period} onChange={e => { setFilters(prev => ({ ...prev, period: e.target.value })); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
@@ -647,10 +666,10 @@ export default function CashAdvancePage() {
               {filteredAdvances.length === 0 ? (
                 <CenteredEmptyRows columns={5} rows={PAGE_SIZE} message={<span className="text-sm text-slate-500">No cash advances found.</span>} />
               ) : (
-                pageData.map(item => (
+                pageData.map((item, index) => (
                   <tr
                     key={item.cash_advances_id}
-                    className="hover:bg-slate-50 cursor-pointer"
+                    className={`${getRowBg(index)} hover:bg-slate-50 cursor-pointer`}
                     onClick={() => { setSelectedAdvance(item.cash_advances_id); setShowDetailModal(true); }}
                   >
                     <td className="px-4 py-3">
@@ -687,12 +706,12 @@ export default function CashAdvancePage() {
               {filteredAdvances.length === 0 ? (
                 <div className="p-4 text-sm text-slate-500">No cash advances found.</div>
               ) : (
-                pageData.map(item => (
+                pageData.map((item, index) => (
                   <button
                     key={item.cash_advances_id}
                     type="button"
                     onClick={() => { setSelectedAdvance(item.cash_advances_id); setShowDetailModal(true); }}
-                    className="text-left p-3 border-b border-slate-100 hover:bg-slate-50 flex flex-col gap-3"
+                    className={`text-left p-3 border-b border-slate-100 ${getRowBg(index)} hover:bg-slate-50 flex flex-col gap-3`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

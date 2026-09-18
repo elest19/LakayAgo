@@ -898,8 +898,8 @@ export default function FoodAndBeverageCatalog() {
                     { width: "50%" },
                   ]}
                 />
-              ) : totalItems.length === 0 ? <tr><td colSpan={6} className="p-6 text-center text-sm text-slate-400">{archiveFilter === 'Archived' ? 'No archived menu items.' : 'No menu items.'}</td></tr> : displayItems.map(i => (
-                <tr key={i.food_and_beverage_id} className="hover:bg-slate-50 group cursor-pointer border-slate-200" onClick={() => setSelectedItem(i)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedItem(i) } }}>
+              ) : totalItems.length === 0 ? <tr><td colSpan={6} className="p-6 text-center text-sm text-slate-400">{archiveFilter === 'Archived' ? 'No archived menu items.' : 'No menu items.'}</td></tr> : displayItems.map((i, index) => (
+                <tr key={i.food_and_beverage_id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer border-slate-200`} onClick={() => setSelectedItem(i)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedItem(i) } }}>
                   <td className="py-3 px-4 font-medium">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span>{i.name}</span>
@@ -959,8 +959,8 @@ export default function FoodAndBeverageCatalog() {
               { width: "35%" },
             ]}
           />
-        ) : totalItems.length === 0 ? <div className="p-4 text-sm text-slate-400">{archiveFilter === 'Archived' ? 'No archived menu items.' : 'No menu items.'}</div> : displayItems.map(i => (
-          <button key={i.food_and_beverage_id} type="button" onClick={() => setSelectedItem(i)} className="text-left p-3 border-b border-slate-200 hover:bg-slate-50 flex items-center justify-between gap-3 w-full">
+        ) : totalItems.length === 0 ? <div className="p-4 text-sm text-slate-400">{archiveFilter === 'Archived' ? 'No archived menu items.' : 'No menu items.'}</div> : displayItems.map((i, index) => (
+          <button key={i.food_and_beverage_id} type="button" onClick={() => setSelectedItem(i)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-200 hover:bg-slate-50 flex items-center justify-between gap-3 w-full`}>
             <div>
               <div className="font-medium">{i.name}</div>
               <div className="text-xs text-slate-500">{i.restaurant}</div>

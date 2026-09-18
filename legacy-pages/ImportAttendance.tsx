@@ -301,12 +301,14 @@ export default function ImportAttendance() {
 
   const attendanceStepIndex = stage === 'upload' && !showUpload ? 0 : stage === 'upload' && showUpload ? 1 : stage === 'validate' ? 2 : 3
 
+  const targetRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
+
   const pendingPeriods = useMemo(() => {
-    const targetRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
     return (payrollPeriods ?? []).filter((p: any) => {
-      return p.status === 'Pending' && String(p.restaurant ?? '').trim() === targetRestaurant
+      return String(p.status ?? '').trim().toLowerCase() === 'pending'
+        && String(p.restaurant ?? '').trim() === targetRestaurant
     })
-  }, [payrollPeriods, appMode])
+  }, [payrollPeriods, targetRestaurant])
 
   useEffect(() => { setPendingPage(1) }, [pendingPeriods.length])
   const pendingPageData = useMemo(() => {
@@ -316,9 +318,11 @@ export default function ImportAttendance() {
 
   useEffect(() => {
     let mounted = true
+    // Show the skeleton while we (re)load periods for the active restaurant
+    setPayrollPeriods(null)
     ;(async () => {
       try {
-        const res = await fetch('/api/report_periods')
+        const res = await fetch(`/api/report_periods?restaurant=${encodeURIComponent(targetRestaurant)}`)
         if (!res.ok) {
           console.error('report_periods fetch failed', res.status)
           if (mounted) setPayrollPeriods([])
@@ -342,12 +346,17 @@ export default function ImportAttendance() {
       }
     })()
     return () => { mounted = false }
-  }, [])
+  }, [targetRestaurant])
 
   const prevAppModeRef = useRef(appMode)
 
   useEffect(() => {
     if (prevAppModeRef.current !== appMode) {
+      // The selected period belongs to the previous restaurant — drop it so the
+      // list always reflects the active appMode.
+      setSelectedPayrollPeriod(null)
+      setPendingPage(1)
+
       // Only reset when switching modes while on the validation/preview step
       if (stage === 'validate') {
         setStage('upload')
@@ -360,6 +369,13 @@ export default function ImportAttendance() {
           message: 'Import reset',
           description: 'Switching between Aroo and Lakay Ago clears the current preview since they use different file formats.',
         })
+      } else if (stage === 'upload' && showUpload) {
+        // Back to period selection so the upload can't target the other restaurant
+        setShowUpload(false)
+        setFileSelected(false)
+        setFileName('')
+        setErrorMessage('')
+        setPreview(null)
       }
     }
 
@@ -904,17 +920,6 @@ export default function ImportAttendance() {
                       </div>
                     </button>
                   ))}
-                  {pendingPageData.length > 0 && pendingPageData.length < PAGE_SIZE && Array.from({ length: Math.max(0, PAGE_SIZE - pendingPageData.length) }).map((_, i) => (
-                    <div key={`empty-mobile-period-${i}`} className="w-full rounded-xl border border-transparent p-3 invisible">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-700 font-display">Period</p>
-                        <p className="mt-0.5 text-xs text-slate-400">Tabulation: —</p>
-                      </div>
-                      <div className="mt-3 flex flex-wrap justify-end gap-2">
-                        <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-700">Restaurant</span>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               ) : (
               <div className="overflow-x-auto">
@@ -1206,20 +1211,6 @@ export default function ImportAttendance() {
                             </button>
                           ))}
 
-                          {paginatedIncompleteEmployees.length > 0 && paginatedIncompleteEmployees.length < PAGE_SIZE && Array.from({ length: incompleteEmptyRowsCount }).map((_, i) => (
-                            <div key={`empty-incomplete-${i}`} className="w-full rounded-xl border border-transparent p-3 invisible">
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-slate-700 font-display">Employee Name</p>
-                                <p className="mt-0.5 text-xs text-slate-500">ID: 000</p>
-                              </div>
-                              <div className="mt-3 flex flex-wrap justify-end gap-2">
-                                <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">Present: 0</span>
-                                <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">Weekends: 0</span>
-                                <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">Absent: 0</span>
-                                <span className="inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-medium text-red-700">Incomplete: 0</span>
-                              </div>
-                            </div>
-                          ))}
                         </div>
                       </div>
                     ) : (
@@ -1372,19 +1363,6 @@ export default function ImportAttendance() {
                           </span>
                         </div>
                       </button>
-                      ))}
-                      {paginatedCompleteEmployees.length > 0 && paginatedCompleteEmployees.length < PAGE_SIZE && Array.from({ length: previewEmptyRowsCount }).map((_, i) => (
-                        <div key={`empty-preview-${i}`} className="w-full rounded-xl border border-transparent p-3 invisible">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-700 font-display">Employee Name</p>
-                            <p className="mt-0.5 text-xs text-slate-400">ID: 000</p>
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">Present: 0</span>
-                            <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">Weekends: 0</span>
-                            <span className="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">Absent: 0</span>
-                          </div>
-                        </div>
                       ))}
                   </div>
                 )}

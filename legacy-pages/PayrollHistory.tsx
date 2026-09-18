@@ -81,10 +81,10 @@ export default function PayrollHistory() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {periods.filter((p:any) => String((p.status || '')).toLowerCase() !== 'pending').map(pp => (
+                {periods.filter((p:any) => String((p.status || '')).toLowerCase() !== 'pending').map((pp, index) => (
                     <tr
                       key={pp.report_period_id ?? pp.id ?? `${pp.period_start}-${pp.period_end}`}
-                    className="hover:bg-slate-50 group cursor-pointer"
+                    className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                     onClick={() => setSelectedPeriod(pp)}
                     role="button"
                     tabIndex={0}
@@ -117,8 +117,8 @@ export default function PayrollHistory() {
             </table>
           ) : (
             <div className="flex flex-col">
-                {periods.filter((p:any) => String((p.status || '')).toLowerCase() !== 'pending').map(pp => (
-                <button key={pp.report_period_id ?? pp.id ?? `${pp.period_start}-${pp.period_end}`} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                {periods.filter((p:any) => String((p.status || '')).toLowerCase() !== 'pending').map((pp, index) => (
+                <button key={pp.report_period_id ?? pp.id ?? `${pp.period_start}-${pp.period_end}`} onClick={() => setSelectedPeriod(pp)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                   <div>
                     <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
                     <div className="text-xs text-slate-400">{pp.restaurant} • {pp.tabulation_date}</div>

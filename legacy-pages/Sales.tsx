@@ -582,10 +582,10 @@ export default function Sales() {
                   <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">No sales records found.</td>
                 </tr>
               ) : (
-                paginatedSales.map(sale => (
+                paginatedSales.map((sale, index) => (
                   <tr
                     key={sale.id}
-                    className="hover:bg-slate-50 group cursor-pointer"
+                    className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                     onClick={() => setSelectedSale(sale)}
                     role="button"
                     tabIndex={0}
@@ -635,8 +635,8 @@ export default function Sales() {
             {filteredSales.length === 0 ? (
               <div className="p-4 text-sm text-slate-400">No sales records found.</div>
         ) : (
-            paginatedSales.map(sale => (
-              <button key={sale.id} type="button" onClick={() => setSelectedSale(sale)} className="text-left p-3 border-b border-slate-200 hover:bg-slate-50 flex items-center justify-between gap-3">
+            paginatedSales.map((sale, index) => (
+              <button key={sale.id} type="button" onClick={() => setSelectedSale(sale)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-200 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                 <div>
                   <div className="text-sm font-semibold text-slate-700 font-display">{sale.item}</div>
                   <div className="text-xs text-slate-400">{sale.restaurant}</div>

@@ -410,10 +410,10 @@ export default function Expenses() {
                   <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">No expenses recorded.</td>
                 </tr>
               ) : (
-                paginatedDailyExpenses.map(expense => (
+                paginatedDailyExpenses.map((expense, index) => (
                   <tr
                     key={expense.id}
-                    className="hover:bg-slate-50 group cursor-pointer"
+                    className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                     onClick={() => setSelectedExpense(expense)}
                     role="button"
                     tabIndex={0}
@@ -478,8 +478,8 @@ export default function Expenses() {
               paginatedDailyExpenses.length === 0 ? (
                 <div className="p-4 text-sm text-slate-400">No expenses recorded.</div>
               ) : (
-                paginatedDailyExpenses.map(expense => (
-                  <button key={expense.id} type="button" onClick={() => setSelectedExpense(expense)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                paginatedDailyExpenses.map((expense, index) => (
+                  <button key={expense.id} type="button" onClick={() => setSelectedExpense(expense)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                     <div>
                       <div className="text-sm font-semibold text-slate-700 font-display">{expense.expense}</div>
                       <div className="text-xs text-slate-400">{new Date(expense.createdAt).toLocaleDateString()}</div>

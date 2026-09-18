@@ -19,6 +19,8 @@ const statusColor: Record<string, string> = {
   'Ready for Payroll': 'bg-indigo-100 text-indigo-700',
   Calculated: 'bg-violet-100 text-violet-700',
   'Under Review': 'bg-orange-100 text-orange-700',
+  Reviewed: 'bg-indigo-100 text-indigo-700',
+  reviewed: 'bg-indigo-100 text-indigo-700',
   Approved: 'bg-emerald-100 text-emerald-700',
   Finalized: 'bg-emerald-100 text-emerald-700',
   released: 'bg-emerald-100 text-emerald-700',
@@ -223,6 +225,7 @@ export default function PayrollPeriods() {
   const [pageSize] = useState(10)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [downloadingReport, setDownloadingReport] = useState(false)
 
   const loadPeriods = useCallback(async () => {
     try {
@@ -269,11 +272,14 @@ export default function PayrollPeriods() {
 
   const visiblePeriods = (() => {
     const source = periods ?? payrollPeriods
-    if (activeTab === 'periods') return source.filter((p: any) => String((p.status || '')).toLowerCase() === 'pending' || String((p.status || '')).toLowerCase() === 'under review')
-    // history: include any period that is not Pending or Under Review (e.g., Finalized, Approved, released)
+    if (activeTab === 'periods') return source.filter((p: any) => {
+      const s = String((p.status || '')).toLowerCase()
+      return s === 'pending' || s === 'under review' || s === 'reviewed'
+    })
+    // history: include any period that is not Pending, Under Review, or Reviewed
     return source.filter((p: any) => {
       const s = String((p.status || '')).toLowerCase()
-      return s !== 'pending' && s !== 'under review'
+      return s !== 'pending' && s !== 'under review' && s !== 'reviewed'
     })
   })()
 
@@ -390,10 +396,10 @@ export default function PayrollPeriods() {
                       { width: "40%" }, { width: "45%", pill: true }
                     ]} />
                   ) : (
-                  pageData.map(pp => (
+                  pageData.map((pp, index) => (
                     <tr
                       key={pp.report_period_id}
-                      className="hover:bg-slate-50 group cursor-pointer"
+                      className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                       onClick={() => setSelectedPeriod(pp)}
                       role="button"
                       tabIndex={0}
@@ -427,7 +433,7 @@ export default function PayrollPeriods() {
                         })()}
                       </td>
                     </tr>
-                  )))}
+                  ))) }
                 </tbody>
               </table>
             ) : (
@@ -437,8 +443,8 @@ export default function PayrollPeriods() {
                     { width: "55%" }, { width: "65%" }, { width: "30%" }
                   ]} />
                 ) : (
-                  pageData.map(pp => (
-                    <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                  pageData.map((pp, index) => (
+                    <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
                         <div className="text-xs text-slate-400">{pp.restaurant} • {pp.tabulation_date}</div>
@@ -482,10 +488,10 @@ export default function PayrollPeriods() {
                       { width: "40%" }, { width: "45%", pill: true }
                     ]} />
                   ) : (
-                  pageData.map(pp => (
+                  pageData.map((pp, index) => (
                     <tr
                       key={pp.report_period_id}
-                      className="hover:bg-slate-50 group cursor-pointer"
+                      className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                       onClick={() => setSelectedPeriod(pp)}
                       role="button"
                       tabIndex={0}
@@ -519,7 +525,7 @@ export default function PayrollPeriods() {
                         })()}
                       </td>
                     </tr>
-                  )))}
+                  ))) }
                 </tbody>
               </table>
             ) : (
@@ -529,8 +535,8 @@ export default function PayrollPeriods() {
                     { width: "55%" }, { width: "65%" }, { width: "30%" }
                   ]} />
                 ) : (
-                  pageData.map(pp => (
-                    <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                  pageData.map((pp, index) => (
+                    <button key={pp.report_period_id} onClick={() => setSelectedPeriod(pp)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                       <div>
                         <div className="text-sm font-semibold text-slate-700">{pp.period_start} – {pp.period_end}</div>
                         <div className="text-xs text-slate-400">{pp.restaurant} • {pp.tabulation_date}</div>
@@ -558,7 +564,7 @@ export default function PayrollPeriods() {
       )}
 
       {selectedPeriod && (
-            <Modal open={!!selectedPeriod} title={`Period: ${selectedPeriod.period_start} – ${selectedPeriod.period_end}`} onClose={() => setSelectedPeriod(null)}>
+            <Modal open={!!selectedPeriod} title={`Period: ${selectedPeriod.period_start} – ${selectedPeriod.period_end}`} onClose={() => { if (!downloadingReport) setSelectedPeriod(null) }}>
               <div className="p-3">
                 <div className="space-y-3">
                   <div className="w-md grid grid-cols-2 gap-3">
@@ -622,9 +628,11 @@ export default function PayrollPeriods() {
                 return (
                   <div className="mt-6 flex justify-end">
                     <button
-                      className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display"
+                      className="flex items-center gap-1 text-xs p-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 font-display disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
                       title="Download Report"
+                      disabled={downloadingReport}
                       onClick={async () => {
+                        setDownloadingReport(true)
                         try {
                           const resp = await fetch(`/api/report_periods/${selectedPeriod.report_period_id}/export`)
                           if (!resp.ok) {
@@ -644,11 +652,13 @@ export default function PayrollPeriods() {
                         } catch (err) {
                           console.error(err)
                           showToast({ type: 'error', message: 'Export failed' })
+                        } finally {
+                          setDownloadingReport(false)
                         }
                       }}
                     >
                       <Download size={14} />
-                      Download Payroll
+                      {downloadingReport ? 'Downloading…' : 'Download Payroll'}
                     </button>
                   </div>
                 )

@@ -258,10 +258,10 @@ export default function FoodPackages() {
                 />
               ) : items.length === 0 ? (
                 <tr><td colSpan={4} className="p-6 text-center text-sm text-slate-400">No {activeType === 'menu_bundle' ? 'bundles' : 'packages'} found.</td></tr>
-              ) : displayItems.map((pkg) => (
+              ) : displayItems.map((pkg, index) => (
                 <tr
                   key={pkg.food_package_id}
-                  className={pkg.is_archived ? 'bg-slate-50 opacity-75 cursor-pointer hover:bg-slate-50' : 'cursor-pointer hover:bg-slate-50'}
+                  className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} ${pkg.is_archived ? 'bg-slate-50 opacity-75 cursor-pointer hover:bg-slate-50' : 'cursor-pointer hover:bg-slate-50'}`}
                   onClick={() => setViewItem(pkg)}
                   role="button"
                   tabIndex={0}
@@ -324,12 +324,12 @@ export default function FoodPackages() {
             />
           ) : totalItems.length === 0 ? (
             <div className="p-4 text-sm text-slate-400">No {activeType === 'menu_bundle' ? 'bundles' : 'packages'} found.</div>
-          ) : displayItems.map((pkg) => (
+          ) : displayItems.map((pkg, index) => (
             <button
               key={pkg.food_package_id}
               type="button"
               onClick={() => setViewItem(pkg)}
-              className="w-full text-left p-3 border-b border-slate-200 hover:bg-slate-50 flex items-center justify-between gap-3"
+              className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} w-full text-left p-3 border-b border-slate-200 hover:bg-slate-50 flex items-center justify-between gap-3`}
             >
               <div>
                 <div className="font-semibold text-slate-800">{pkg.name}</div>

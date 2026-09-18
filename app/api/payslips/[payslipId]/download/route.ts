@@ -176,7 +176,9 @@ export async function GET(req: Request, ctx: any) {
     page.drawText(netPayText, { x: margin + contentWidth - netW - 12, y: barY + 10, size: 14, font: fontBold, color: rgb(0,0.45,0) })
 
     // FOOTER
-    page.drawText(`Copyright © 2023 ${p.restaurant || "Company Name"}. All rights reserved.`, { x: width / 2 - 120, y: 30, size: 9, font, color: rgb(0.45,0.45,0.45) })
+    const footerText = `Copyright © 2023 ${p.restaurant || 'Company Name'}. All rights reserved.`
+    const footerTextWidth = font.widthOfTextAtSize(footerText, 9)
+    page.drawText(footerText, { x: (width - footerTextWidth) / 2, y: 30, size: 9, font, color: rgb(0.45,0.45,0.45) })
 
     const pdfBytes = await pdfDoc.save()
     const fileName = `payslip-${(p.employee_name || 'employee').replace(/\s+/g, '_')}-${p.report_period_id}.pdf`

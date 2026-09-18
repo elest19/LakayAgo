@@ -378,6 +378,7 @@ export default function ProcessPayroll() {
   const cashAdvanceDeductionsRef = useRef<Record<string, number>>(cashAdvanceDeductions)
   const [deductionDrafts, setDeductionDrafts] = useState<Record<string, string>>({})
   const [showDeductConfirm, setShowDeductConfirm] = useState(false)
+  const [isDeducting, setIsDeducting] = useState(false)
   const [selectedAdvanceForConfirm, setSelectedAdvanceForConfirm] = useState<any | null>(null)
   const [editingNetFor, setEditingNetFor] = useState<string | null>(null)
   const [netDrafts, setNetDrafts] = useState<Record<string, string>>({})
@@ -577,6 +578,21 @@ export default function ProcessPayroll() {
     const rawPeriodId = (activePayrollPeriod as any).report_period_id ?? (activePayrollPeriod as any).period_id ?? (activePayrollPeriod as any).id
     const periodId = Number(rawPeriodId)
     return Number.isFinite(periodId) ? periodId : null
+  }
+
+  const updatePayrollPeriodStatus = async (nextStatus: string) => {
+    const periodId = getActivePayrollPeriodId()
+    if (!periodId) return
+
+    try {
+      await fetch(`/api/report_periods/${periodId}/status`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      })
+    } catch (error) {
+      console.error('Failed to update payroll period status', error)
+    }
   }
 
   const syncActivePayrollPeriodStatus = async () => {
@@ -813,21 +829,21 @@ export default function ProcessPayroll() {
     if (changed) setPayrollRowsState(merged)
   }, [cashAdvanceDeductions, payrollRowsState])
 
-  const handleDeductAdvance = async (adv: any, amountParam?: number) => {
-    if (!activePayrollPeriod) return
+  const handleDeductAdvance = async (adv: any, amountParam?: number): Promise<boolean> => {
+    if (!activePayrollPeriod) return false
     const requestId = ++advancesRequestId.current
     try {
       const periodId = Number((activePayrollPeriod as any).report_period_id ?? (activePayrollPeriod as any).period_id ?? (activePayrollPeriod as any).id)
       const amount = amountParam != null ? Number(amountParam) : Number(adv.balance_remaining ?? adv.amount ?? 0)
       if (!amount || Number.isNaN(amount) || amount <= 0) {
         showToast({ type: 'error', message: 'Invalid amount', description: 'Enter a valid deduction amount.' })
-        return
+        return false
       }
 
       const remainingBal = Number(adv.balance_remaining ?? adv.amount ?? 0)
       if (amount > remainingBal) {
         showToast({ type: 'error', message: 'Deduction exceeds remaining balance', description: `Remaining balance is ${fmt(remainingBal)}` })
-        return
+        return false
       }
 
       const res = await fetch(`/api/cash_advances/${adv.cash_advances_id}/payments`, {
@@ -839,10 +855,10 @@ export default function ProcessPayroll() {
       if (!res.ok) {
         console.error('Failed to post deduction', body)
         showToast({ type: 'error', message: 'Deduction failed', description: body?.error || 'Server error' })
-        return
+        return false
       }
 
-      if (requestId !== advancesRequestId.current) return
+      if (requestId !== advancesRequestId.current) return false
 
       const updatedAdvance = body?.cash_advance || null
       const remainingAfter = Number(updatedAdvance?.balance_remaining ?? (remainingBal - amount))
@@ -869,7 +885,7 @@ export default function ProcessPayroll() {
         return { ...r, attendance_deduction: attendanceDeduction, cash_advance_deduction: cashAdvance, total_deduction: totalDeduction, net_pay: net }
       }))
 
-      if (requestId !== advancesRequestId.current) return
+      if (requestId !== advancesRequestId.current) return false
       showToast({ type: 'success', message: 'Deduction applied', description: `${adv.employee_name} will be deducted ${fmt(amount)} for this period.` })
 
       const defaults: Record<string, string> = {}
@@ -888,9 +904,11 @@ export default function ProcessPayroll() {
         defaults[nextAdvanceList[0].cash_advances_id] = draftValue
         setDeductionDrafts(prev => ({ ...prev, ...defaults }))
       }
+      return true
     } catch (err) {
       console.error('Deduct advance error', err)
       showToast({ type: 'error', message: 'Deduction failed', description: String(err) })
+      return false
     }
   }
 
@@ -1090,9 +1108,9 @@ export default function ProcessPayroll() {
                     {!isMobile ? (
                       <table className="w-full">
                         <thead>
-                          <tr className="border-b border-slate-100 bg-slate-50">
+                          <tr className="border-b border-slate-100 bg-indigo-600">
                             {['Employee Name', 'Pay Per Day', 'Present Total', 'Absent Total', 'On Leave', 'Deductions', 'Net Pay'].map(h => (
-                              <th key={h} className="text-left py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                              <th key={h} className="text-left py-2.5 px-4 text-xs font-semibold text-white uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                             ))}
                           </tr>
                         </thead>
@@ -1114,10 +1132,10 @@ export default function ProcessPayroll() {
                               </td>
                             </tr>
                           ) : (
-                            paginatedRows.map(r => (
+                            paginatedRows.map((r, index) => (
                               <tr
                                 key={String(r.employee_id)}
-                                className="hover:bg-slate-50 group cursor-pointer"
+                                className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                                 onClick={() => setViewRow(r)}
                                 role="button"
                                 tabIndex={0}
@@ -1147,7 +1165,20 @@ export default function ProcessPayroll() {
                                 <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700">{fmt(r.net_pay)}</td>
                               </tr>
                             ))
-                          )}
+                            )}
+                            {filteredRows.length > 0 && paginatedRows.length < PAYROLL_PAGE_SIZE && (
+                              Array.from({ length: Math.max(0, PAYROLL_PAGE_SIZE - paginatedRows.length) }).map((_, i) => (
+                                <tr key={`empty-calc-${i}`} className="invisible">
+                                  <td className="py-3 px-4"><p className="text-sm font-semibold text-slate-700 font-display">Placeholder</p></td>
+                                  <td className="py-3 px-4 font-mono text-xs text-slate-700">PHP 0.00</td>
+                                  <td className="py-3 px-4 font-mono text-xs text-slate-700">0</td>
+                                  <td className="py-3 px-4 font-mono text-xs text-slate-700">0</td>
+                                  <td className="py-3 px-4 font-mono text-xs text-violet-700">0</td>
+                                  <td className="py-3 px-4 font-mono text-xs text-red-600">PHP 0.00</td>
+                                  <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700">PHP 0.00</td>
+                                </tr>
+                              ))
+                            )}
                         </tbody>
                       </table>
                     ) : (
@@ -1164,8 +1195,8 @@ export default function ProcessPayroll() {
                             ]}
                           />
                         ) : (
-                        paginatedRows.map(r => (
-                          <button key={String(r.employee_id)} onClick={() => setViewRow(r)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                        paginatedRows.map((r, index) => (
+                          <button key={String(r.employee_id)} onClick={() => setViewRow(r)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-slate-700">{r.employee_name}</div>
                               <div className="text-xs text-slate-400">{r.employee_department || r.emp.department}</div>
@@ -1194,12 +1225,10 @@ export default function ProcessPayroll() {
                 <div className="flex justify-end gap-3 mt-3">
                   <button
                     onClick={async () => {
-                      // mark period as Under Review in DB, then go to review
                       try {
                         if (!activePayrollPeriod) return
                         setIsMarkingReview(true)
-                        const periodId = (activePayrollPeriod as any).report_period_id ?? (activePayrollPeriod as any).period_id ?? (activePayrollPeriod as any).id
-                        await fetch(`/api/report_periods/${periodId}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'Under Review' }) })
+                        await updatePayrollPeriodStatus('Reviewed')
                       } catch (err) {
                         console.error('Failed to mark review', err)
                       } finally {
@@ -1361,9 +1390,9 @@ export default function ProcessPayroll() {
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
+                    <tr className="border-b border-slate-100 bg-indigo-600">
                       {['Employee Name', 'Deductions', 'Net Pay', 'Actions'].map(h => (
-                        <th key={h} className={` ${h === 'Employee Name' ? 'text-left' : 'text-center'} py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap`}>{h}</th>
+                        <th key={h} className={` ${h === 'Employee Name' ? 'text-left' : 'text-center'} py-2.5 px-4 text-xs font-semibold text-white uppercase tracking-wide font-display whitespace-nowrap`}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1451,6 +1480,16 @@ export default function ProcessPayroll() {
                         )
                       })
                     )}
+                    {filteredRows.length > 0 && reviewPageRows.length < PAYROLL_PAGE_SIZE && (
+                      Array.from({ length: Math.max(0, PAYROLL_PAGE_SIZE - reviewPageRows.length) }).map((_, i) => (
+                        <tr key={`empty-review-${i}`} className="invisible">
+                          <td className="py-3 px-4"><p className="text-sm font-semibold text-slate-700 font-display">Placeholder</p></td>
+                          <td className="py-3 px-4 font-mono text-xs text-red-600 text-center">PHP 0.00</td>
+                          <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700 text-center">PHP 0.00</td>
+                          <td className="py-3 px-4 text-center"><div className="invisible">Edit</div></td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1471,7 +1510,13 @@ export default function ProcessPayroll() {
 
           <div className="flex justify-end gap-2 mt-3">
             <div className="flex gap-3">
-              <button onClick={() => setStep('calculation')} className="px-2 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">
+              <button
+                onClick={async () => {
+                  await updatePayrollPeriodStatus('Under Review')
+                  setStep('calculation')
+                }}
+                className="px-2 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display"
+              >
                 Back to Calculation
               </button>
               <button onClick={() => setApproveConfirm(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display">
@@ -1558,7 +1603,7 @@ export default function ProcessPayroll() {
       )}
 
       {showDeductConfirm && selectedAdvanceForConfirm && (
-        <Modal open={true} title={`Deduct ${selectedAdvanceForConfirm.employee_name}?`} onClose={() => setShowDeductConfirm(false)}>
+        <Modal open={true} title={`Deduct ${selectedAdvanceForConfirm.employee_name}?`} onClose={() => { if (!isDeducting) setShowDeductConfirm(false) }}>
           <div className="w-full max-w-md p-2">
             <p className="text-sm text-slate-600 mb-2">Confirm deduction amount for this payroll period.</p>
             <div className="bg-slate-50 rounded-xl p-3 mb-5">
@@ -1567,25 +1612,37 @@ export default function ProcessPayroll() {
             </div>
             <div className="mb-4">
               <label className="block text-xs text-slate-500 mb-1">Amount to deduct</label>
-              <input type="number" min="0" step="0.01" value={deductionDrafts[selectedAdvanceForConfirm.cash_advances_id] ?? ''} onChange={e => setDeductionDrafts(prev => ({ ...prev, [selectedAdvanceForConfirm.cash_advances_id]: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none" />
+              <input type="number" min="0" step="0.01" disabled={isDeducting} value={deductionDrafts[selectedAdvanceForConfirm.cash_advances_id] ?? ''} onChange={e => setDeductionDrafts(prev => ({ ...prev, [selectedAdvanceForConfirm.cash_advances_id]: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none disabled:bg-slate-100 disabled:cursor-not-allowed" />
             </div>
             <div className="flex gap-3 justify-end">
-              <button onClick={() => setShowDeductConfirm(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+              <button
+                onClick={() => setShowDeductConfirm(false)}
+                disabled={isDeducting}
+                className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              >Cancel</button>
               <button
                 onClick={async () => {
+                  const adv = selectedAdvanceForConfirm
+                  if (!adv) return
+                  const amount = Number(deductionDrafts[adv.cash_advances_id] ?? 0)
+                  setIsDeducting(true)
                   try {
-                    const adv = selectedAdvanceForConfirm
-                    const amount = Number(deductionDrafts[adv.cash_advances_id] ?? 0)
-                    setShowDeductConfirm(false)
-                    setSelectedAdvanceForConfirm(null)
-                    await handleDeductAdvance(adv, amount)
+                    // keep the modal open until the deduction succeeds
+                    const ok = await handleDeductAdvance(adv, amount)
+                    if (ok) {
+                      setShowDeductConfirm(false)
+                      setSelectedAdvanceForConfirm(null)
+                    }
                   } catch (err) {
                     console.error('Confirm deduct error', err)
+                  } finally {
+                    setIsDeducting(false)
                   }
                 }}
-                className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg"
+                disabled={isDeducting}
+                className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
               >
-                Confirm Deduction
+                {isDeducting ? 'Deducting…' : 'Confirm Deduction'}
               </button>
             </div>
           </div>

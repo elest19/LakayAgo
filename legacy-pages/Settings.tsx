@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
-import { Plus, Edit2, Trash2, Eye, EyeOff } from 'lucide-react'
+import { Plus, Edit2, Trash2, Eye, EyeOff, Archive } from 'lucide-react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
@@ -137,6 +137,7 @@ export default function SettingsPage() {
   const [userLoading, setUserLoading] = useState(true)
   const HOLIDAY_PAGE_SIZE = 10
   const [holidayPage, setHolidayPage] = useState(1)
+  const [holidayStatusFilter, setHolidayStatusFilter] = useState<'all' | 'Active' | 'Inactive'>('all')
 
   const refreshHolidays = useCallback(async () => {
     try {
@@ -210,12 +211,17 @@ export default function SettingsPage() {
     onChange: () => { void refreshPayrollSettings() },
   })
 
-  useEffect(() => { setHolidayPage(1) }, [holidayList])
+  useEffect(() => { setHolidayPage(1) }, [holidayList, holidayStatusFilter])
+
+  const filteredHolidays = useMemo(
+    () => holidayStatusFilter === 'all' ? holidayList : holidayList.filter(h => h.status === holidayStatusFilter),
+    [holidayList, holidayStatusFilter]
+  )
 
   const holidayPageData = useMemo(() => {
     const start = (holidayPage - 1) * HOLIDAY_PAGE_SIZE
-    return holidayList.slice(start, start + HOLIDAY_PAGE_SIZE)
-  }, [holidayList, holidayPage])
+    return filteredHolidays.slice(start, start + HOLIDAY_PAGE_SIZE)
+  }, [filteredHolidays, holidayPage])
   const holidayEmptyCount = holidayPageData.length === 0 ? 0 : Math.max(0, HOLIDAY_PAGE_SIZE - holidayPageData.length)
   useEffect(() => {
     let mounted = true
@@ -235,7 +241,8 @@ export default function SettingsPage() {
           restaurant: u.restaurant || 'Both',
           // map DB role values like 'SuperAdmin' to UI label 'Super Admin'
           role: u.role === 'SuperAdmin' ? 'Super Admin' : u.role === 'Admin' ? 'Admin' : u.role,
-          status: 'Active',
+          is_archived: Boolean(u.is_archived),
+          status: u.is_archived ? 'Archived' : 'Active',
         }))
         if (mapped.length) setUserList(mapped)
       } catch (err) {
@@ -327,6 +334,94 @@ export default function SettingsPage() {
   const [deductionTypesList, setDeductionTypesList] = useState(deductionTypes)
   const [selectedHoliday, setSelectedHoliday] = useState<any | null>(null)
   const [selectedUser, setSelectedUser] = useState<any | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<any | null>(null)
+  const [archiving, setArchiving] = useState(false)
+  const [restoreTarget, setRestoreTarget] = useState<any | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  const [userArchiveFilter, setUserArchiveFilter] = useState<'active' | 'archived'>('active')
+
+  const archiveUser = useCallback(async (user: any): Promise<boolean> => {
+    const userId = user?.user_id
+    if (!userId) return false
+
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ is_archived: true }),
+      })
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        throw new Error(payload?.error || 'Archive failed')
+      }
+
+      const nextValue = { ...user, is_archived: true, status: 'Archived' }
+      setUserList(prev => prev.map(item => String(item.user_id) === String(userId) ? nextValue : item))
+      if (selectedUser && String(selectedUser.user_id) === String(userId)) {
+        setSelectedUser(nextValue)
+      }
+      showToast({ type: 'success', message: 'User archived', description: `${user.name} was archived.` })
+      return true
+    } catch (err) {
+      console.error('Archive user error', err)
+      showToast({ type: 'error', message: 'Archive failed', description: err instanceof Error ? err.message : 'Could not archive user' })
+      return false
+    }
+  }, [selectedUser, showToast])
+
+  const confirmArchiveUser = async () => {
+    if (!archiveTarget || archiving) return
+    setArchiving(true)
+    try {
+      const ok = await archiveUser(archiveTarget)
+      if (ok) setArchiveTarget(null)
+    } finally {
+      setArchiving(false)
+    }
+  }
+
+  const restoreUser = useCallback(async (user: any): Promise<boolean> => {
+    const userId = user?.user_id
+    if (!userId) return false
+
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ is_archived: false }),
+      })
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        throw new Error(payload?.error || 'Restore failed')
+      }
+
+      const nextValue = { ...user, is_archived: false, status: 'Active' }
+      setUserList(prev => prev.map(item => String(item.user_id) === String(userId) ? nextValue : item))
+      if (selectedUser && String(selectedUser.user_id) === String(userId)) {
+        setSelectedUser(nextValue)
+      }
+      showToast({ type: 'success', message: 'User restored', description: `${user.name} was restored to active accounts.` })
+      return true
+    } catch (err) {
+      console.error('Restore user error', err)
+      showToast({ type: 'error', message: 'Restore failed', description: err instanceof Error ? err.message : 'Could not restore user' })
+      return false
+    }
+  }, [selectedUser, showToast])
+
+  const confirmRestoreUser = async () => {
+    if (!restoreTarget || restoring) return
+    setRestoring(true)
+    try {
+      const ok = await restoreUser(restoreTarget)
+      if (ok) setRestoreTarget(null)
+    } finally {
+      setRestoring(false)
+    }
+  }
+
   const [editingHoliday, setEditingHoliday] = useState<{ index: number; item: any } | null>(null)
   const [editingUser, setEditingUser] = useState<{ index: number; item: any } | null>(null)
   const [showConfirmSave, setShowConfirmSave] = useState(false)
@@ -336,6 +431,9 @@ export default function SettingsPage() {
   const [deleteSalaryTarget, setDeleteSalaryTarget] = useState<{ kind: 'earning' | 'deduction'; key: string } | null>(null)
   const [tab, setTab] = useState<Tab>('payroll')
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
+  const [editingPayroll, setEditingPayroll] = useState(false)
+  const [editingAttendance, setEditingAttendance] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
 
   const defaultPayrollSettings = {
     undertimeDeduction: '0',
@@ -556,6 +654,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
 
   const confirmSave = async () => {
     setSaveConfirmOpen(false)
+    setSavingSettings(true)
     try {
       if (tab === 'attendance') {
         const requiredHours = Number(calculateRequiredHours(attendanceSettings.startTime, attendanceSettings.endTime)) || 0
@@ -600,8 +699,12 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
         message: 'Settings saved',
         description: `Changes to ${tabLabels.find(t => t.id === tab)?.label ?? 'this settings section'} were saved successfully.`,
       })
+      setEditingPayroll(false)
+      setEditingAttendance(false)
     } catch (err) {
       showToast({ type: 'error', message: 'Save failed', description: 'Could not save settings' })
+    } finally {
+      setSavingSettings(false)
     }
   }
 
@@ -650,7 +753,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                 onChange={e => setPayrollSettings(prev => ({ ...prev, undertimeDeduction: e.target.value }))}
                 type="number"
                 step="0.01"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                disabled={!editingPayroll}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
               />
             </div>
             <div>
@@ -658,7 +762,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
               <select
                 value={(payrollSettings as any).undertimeDeductionRateType}
                 onChange={e => setPayrollSettings(prev => ({ ...prev, undertimeDeductionRateType: e.target.value }))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                disabled={!editingPayroll}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
               >
                 <option value="Hour">Hour</option>
                 <option value="Minute">Minute</option>
@@ -671,13 +776,21 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                 onChange={e => setPayrollSettings(prev => ({ ...prev, undertimeDeductionRate: e.target.value }))}
                 type="number"
                 step="0.01"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                disabled={!editingPayroll}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
               />
             </div>
             
           </div>
           <div className="mt-5 flex justify-end">
-            <button onClick={handleSave} className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
+            {editingPayroll ? (
+              <>
+                <button onClick={() => setEditingPayroll(false)} disabled={savingSettings} className="px-5 py-2 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">Cancel</button>
+                <button onClick={handleSave} disabled={savingSettings} className="ml-3 px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">{savingSettings ? 'Saving…' : 'Save Changes'}</button>
+              </>
+            ) : (
+              <button onClick={() => setEditingPayroll(true)} className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Edit</button>
+            )}
           </div>
         </div>
       )}
@@ -695,8 +808,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                     value={timeToParts(attendanceSettings.startTime).hour}
                     part="hour"
                     field="startTime"
-                    openTimePicker={openTimePicker}
-                    setOpenTimePicker={setOpenTimePicker}
+                    openTimePicker={editingAttendance ? openTimePicker : null}
+                    setOpenTimePicker={v => { if (editingAttendance) setOpenTimePicker(v) }}
                     updateTime={updateTime}
                   />
                   <span className="text-slate-400 px-1">:</span>
@@ -705,8 +818,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                     value={timeToParts(attendanceSettings.startTime).minute}
                     part="minute"
                     field="startTime"
-                    openTimePicker={openTimePicker}
-                    setOpenTimePicker={setOpenTimePicker}
+                    openTimePicker={editingAttendance ? openTimePicker : null}
+                    setOpenTimePicker={v => { if (editingAttendance) setOpenTimePicker(v) }}
                     updateTime={updateTime}
                   />
                 </div>
@@ -719,8 +832,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                     value={timeToParts(attendanceSettings.endTime).hour}
                     part="hour"
                     field="endTime"
-                    openTimePicker={openTimePicker}
-                    setOpenTimePicker={setOpenTimePicker}
+                    openTimePicker={editingAttendance ? openTimePicker : null}
+                    setOpenTimePicker={v => { if (editingAttendance) setOpenTimePicker(v) }}
                     updateTime={updateTime}
                   />
                   <span className="text-slate-400 px-1">:</span>
@@ -729,8 +842,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                     value={timeToParts(attendanceSettings.endTime).minute}
                     part="minute"
                     field="endTime"
-                    openTimePicker={openTimePicker}
-                    setOpenTimePicker={setOpenTimePicker}
+                    openTimePicker={editingAttendance ? openTimePicker : null}
+                    setOpenTimePicker={v => { if (editingAttendance) setOpenTimePicker(v) }}
                     updateTime={updateTime}
                   />
                 </div>
@@ -746,12 +859,13 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Grace Period (minutes)</label>
+                <label className="block text-xs font-medium text-slate-600 mb-1 font-display">{isMobile ? 'Grace Period (mins)' : 'Grace Period (minutes)'}</label>
                 <input
                   value={attendanceSettings.gracePeriod}
                   onChange={e => setAttendanceSettings(prev => ({ ...prev, gracePeriod: e.target.value }))}
                   type="number"
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  disabled={!editingAttendance}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                 />
               </div>
             </div>
@@ -760,28 +874,70 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                 value={attendanceSettings.halfDay}
                 onChange={value => setAttendanceSettings(prev => ({ ...prev, halfDay: value }))}
                 label="Half Day Pay"
+                disabled={!editingAttendance}
               />
             </div>
           </div>
           <div className="mt-5 flex justify-end">
-            <button onClick={handleSave} className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
+            {editingAttendance ? (
+              <>
+                <button onClick={() => setEditingAttendance(false)} disabled={savingSettings} className="px-5 py-2 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">Cancel</button>
+                <button onClick={handleSave} disabled={savingSettings} className="ml-3 px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">{savingSettings ? 'Saving…' : 'Save Changes'}</button>
+              </>
+            ) : (
+              <button onClick={() => setEditingAttendance(true)} className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Edit</button>
+            )}
           </div>
         </div>
       )}
 
       {tab === 'holidays' && (
         <div className="bg-white rounded-t rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <p className="text-sm font-semibold text-slate-700 font-display">Holidays</p>
-            <button onClick={() => setEditingHoliday({ index: -1, item: { holiday: '', date: '', type: 'Regular Holiday', status: 'Active', raw: null } })} className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
-              <Plus size={14} /> Add Holiday
-            </button>
-          </div>
+          {isMobile ? (
+            <div className="items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div className="flex flex-row justify-between items-center mb-2">
+                    <p className="text-sm font-semibold text-slate-700 font-display">Holidays</p>
+                    <button onClick={() => setEditingHoliday({ index: -1, item: { holiday: '', date: '', type: 'Regular Holiday', status: 'Active', raw: null } })} className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
+                      <Plus size={14} /> Add Holiday
+                    </button>
+              </div>
+              <div>
+              <select
+                  value={holidayStatusFilter}
+                  onChange={e => setHolidayStatusFilter(e.target.value as 'all' | 'Active' | 'Inactive')}
+                  className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 outline-none focus:border-indigo-400 font-display cursor-pointer"
+                >
+                  <option value="all">All Holidays</option>
+                  <option value="Active">Active Holidays</option>
+                  <option value="Inactive">Inactive Holidays</option>
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <p className="text-sm font-semibold text-slate-700 font-display">Holidays</p>
+              <div className="flex items-center gap-2">
+                <select
+                  value={holidayStatusFilter}
+                  onChange={e => setHolidayStatusFilter(e.target.value as 'all' | 'Active' | 'Inactive')}
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 outline-none focus:border-indigo-400 font-display cursor-pointer"
+                >
+                  <option value="all">All Holidays</option>
+                  <option value="Active">Active Holidays</option>
+                  <option value="Inactive">Inactive Holidays</option>
+                </select>
+                <button onClick={() => setEditingHoliday({ index: -1, item: { holiday: '', date: '', type: 'Regular Holiday', status: 'Active', raw: null } })} className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
+                  <Plus size={14} /> Add Holiday
+                </button>
+              </div>
+            </div>
+          )}
+          
           {!isMobile ? (
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Date', 'Holiday', 'Type', 'Status'].map(h => (
+                  {['Date', 'Holiday', 'Type', 'Status', 'Actions'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">{h}</th>
                   ))}
                 </tr>
@@ -789,20 +945,21 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
               <tbody className="divide-y divide-slate-50">
                 {holidayLoading ? (
                   <SkeletonTableRows
-                    columns={4}
+                    columns={5}
                     rows={6}
                     columnConfig={[
                       { width: '20%' },
                       { width: '32%' },
                       { width: '28%', pill: true },
                       { width: '20%', pill: true },
+                      { width: '16%' },
                     ]}
                   />
                 ) : (
                   holidayPageData.map((h, i) => (
                     <tr
                       key={`${h.date}-${h.holiday}`}
-                      className="hover:bg-slate-50 group cursor-pointer"
+                      className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                       onClick={() => setSelectedHoliday(h)}
                       role="button"
                       tabIndex={0}
@@ -821,6 +978,31 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                       <td className="py-3 px-4">
                         <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{h.status}</span>
                       </td>
+                      <td>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const idx = holidayList.findIndex(it => it.id === h.id)
+                              const isoDate = normalizeDateOnly(h?.raw?.date ?? h?.date)
+                              setEditingHoliday({ index: idx, item: { ...h, date: isoDate } })
+                            }}
+                            className="flex items-center px-2 gap-1 p-1.5 text-sm text-green-600 hover:text-green-700 hover:underline"
+                          >
+                            <Edit2 size={13} />Edit
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const idx = holidayList.findIndex(it => it.id === h.id)
+                              setDeleteTarget({ kind: 'holiday', index: idx, item: h })
+                            }}
+                            className="flex items-center px-2 gap-1 p-1.5 text-sm text-red-600 hover:text-red-700 hover:underline"
+                          >
+                            <Trash2 size={13} /> Delete
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -829,14 +1011,14 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
           ) : (
             <div className="flex flex-col">
               {holidayPageData.map((h, i) => (
-                <div key={`${h.date}-${h.holiday}`} className="p-3 border-b border-slate-50 flex items-center justify-between gap-3">
+                <div key={`${h.date}-${h.holiday}`} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-100'} p-3 border-b border-slate-50 flex items-center justify-between gap-3`}>
                   <button onClick={() => setSelectedHoliday(h)} className="text-left flex-1 min-w-0 hover:bg-slate-50">
                     <div className="text-sm font-medium text-slate-700">{h.holiday}</div>
                     <div className="text-xs text-slate-400">{h.date} • {h.type}</div>
                   </button>
                 </div>
               ))}
-              {holidayPageData.length > 0 && holidayPageData.length < HOLIDAY_PAGE_SIZE && Array.from({ length: holidayEmptyCount }).map((_, i) => (
+              {isMobile ? null : holidayPageData.length > 0 && holidayPageData.length < HOLIDAY_PAGE_SIZE && Array.from({ length: holidayEmptyCount }).map((_, i) => (
                 <div key={`empty-${i}`} className="p-3 border-b border-slate-50 flex items-center justify-between gap-3 invisible">
                   <div>
                     <div className="text-sm font-medium text-slate-700">Placeholder</div>
@@ -846,46 +1028,80 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
               ))}
             </div>
           )}
-          <PaginationFooter items={holidayList} page={holidayPage} setPage={setHolidayPage} pageSize={HOLIDAY_PAGE_SIZE} noun="holidays" />
+          <PaginationFooter items={filteredHolidays} page={holidayPage} setPage={setHolidayPage} pageSize={HOLIDAY_PAGE_SIZE} noun="holidays" />
           {/* Holidays do not use the global Save Changes button here; actions are per-item in the modal */}
         </div>
       )}
 
       {tab === 'users' && (
         <div className="bg-white rounded-t rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <p className="text-sm font-semibold text-slate-700 font-display">Users & Roles</p>
-            <button onClick={() => { setAddUserOpen(true); setNewUser({ username: '', name: '', email: '', password: '', role: 'Staff', status: 'Active', restaurant: 'Both' }) }} className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
-              <Plus size={14} /> Add Users
-            </button>
-          </div>
+          {isMobile ? (
+            <>
+            <div className="items-center px-5 py-4 border-b border-slate-100">
+              <div className="flex flex-row justify-between items-center gap-2 mb-2">
+                <p className="text-sm font-semibold text-slate-700 font-display">Users & Roles</p>
+                <button onClick={() => { setAddUserOpen(true); setNewUser({ username: '', name: '', email: '', password: '', role: 'Staff', status: 'Active', restaurant: 'Both' }) }} className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
+                  <Plus size={14} /> Add Users
+                </button>
+              </div>
+              <div>
+                <select
+                    value={userArchiveFilter}
+                    onChange={e => setUserArchiveFilter(e.target.value as 'active' | 'archived')}
+                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 outline-none focus:border-indigo-400 font-display cursor-pointer"
+                  >
+                    <option value="active">Active Accounts</option>
+                    <option value="archived">Archived Accounts</option>
+                </select>
+              </div>
+            </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <p className="text-sm font-semibold text-slate-700 font-display">Users & Roles</p>
+              <div className="flex items-center gap-2">
+                <select
+                  value={userArchiveFilter}
+                  onChange={e => setUserArchiveFilter(e.target.value as 'active' | 'archived')}
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 outline-none focus:border-indigo-400 font-display cursor-pointer"
+                >
+                  <option value="active">Active Accounts</option>
+                  <option value="archived">Archived Accounts</option>
+                </select>
+                <button onClick={() => { setAddUserOpen(true); setNewUser({ username: '', name: '', email: '', password: '', role: 'Staff', status: 'Active', restaurant: 'Both' }) }} className="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-display">
+                  <Plus size={14} /> Add Users
+                </button>
+              </div>
+            </div>
+          )}
           {!isMobile ? (
             <table className="w-full">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  {['User', 'Email', 'Role', 'Restaurant', 'Status'].map(h => (
-                        <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display">{h}</th>
+                <tr className="border-b border-slate-100 bg-indigo-600">
+                  {['User', 'Email', 'Role', 'Restaurant', 'Status', 'Actions'].map(h => (
+                        <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-white uppercase tracking-wide font-display">{h}</th>
                       ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {userLoading ? (
                   <SkeletonTableRows
-                    columns={5}
-                    rows={6}
+                    columns={6}
+                    rows={10}
                     columnConfig={[
                       { width: '30%' },
                       { width: '28%' },
                       { width: '18%', pill: true },
                       { width: '18%', pill: true },
                       { width: '16%', pill: true },
+                      { width: '16%', pill: true },
                     ]}
                   />
                 ) : (
-                  userList.map((u, i) => (
+                  userList.filter(u => Boolean(u.is_archived) === (userArchiveFilter === 'archived')).map((u, i) => (
                     <tr
                       key={`${u.email}-${u.name}`}
-                      className="hover:bg-slate-50 group cursor-pointer"
+                      className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                       onClick={() => setSelectedUser(u)}
                       role="button"
                       tabIndex={0}
@@ -912,7 +1128,26 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                         <span className={`text-xs ${u.restaurant === "Both" ? "bg-blue-200 text-blue-700" : u.restaurant === "Lakay Ago" ? "bg-green-200 text-green-700" : "bg-yellow-100 text-yellow-700"} px-2 py-0.5 rounded-full font-medium font-display`}>{u.restaurant}</span>
                       </td>
                       <td className="py-3 px-4">
-                        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium font-display">{u.status}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium font-display ${u.is_archived ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>{u.status}</span>
+                      </td>
+                      <td>
+                        <div className="flex gap-1 flex-wrap">
+                          <div>
+                            <button onClick={(e) => { e.stopPropagation(); setEditingUser({ index: i, item: { ...u, password: '' } }) }} className="flex items-center px-2 gap-1 p-1.5 text-sm text-green-600 hover:text-green-700 hover:underline">
+                              <Edit2 size={13} />Edit
+                            </button>
+                          </div>
+                          <div>
+                            <button onClick={(e) => { e.stopPropagation(); if (u.is_archived) { setRestoreTarget(u) } else { setArchiveTarget(u) } }} className="flex items-center px-2 gap-1 p-1.5 text-sm text-violet-500 hover:text-violet-600 hover:underline">
+                              <Archive size={13} /> {u.is_archived ? 'Restore' : 'Archive'}
+                            </button>
+                          </div>
+                          <div>
+                            <button onClick={(e) => { e.stopPropagation(); setDeleteTarget({ kind: 'user', index: i, item: u }) }} className="flex items-center px-2 gap-1 p-1.5 text-sm text-red-600 hover:text-red-700 hover:underline">
+                              <Trash2 size={13} /> Delete
+                            </button>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -921,8 +1156,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
             </table>
           ) : (
             <div className="flex flex-col">
-              {userList.map((u, i) => (
-                <div key={`${u.email}-${u.name}`} className="p-3 border-b border-slate-50 flex items-center justify-between gap-3">
+              {userList.filter(u => Boolean(u.is_archived) === (userArchiveFilter === 'archived')).map((u, i) => (
+                <div key={`${u.email}-${u.name}`} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-100'} p-3 border-b border-slate-50 flex items-center justify-between gap-3`}>
                   <button
                     onClick={() => setSelectedUser(u)}
                     className="flex flex-col items-start text-left min-w-0 hover:bg-slate-50"
@@ -931,15 +1166,6 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                     <span className="text-xs text-slate-400">{u.role}</span>
                     <span className="text-xs text-slate-400">{u.email}</span>
                   </button>
-
-                  <div className="flex gap-1">
-                    <button onClick={() => setEditingUser({ index: i, item: u })} className="p-1.5 text-slate-400 hover:text-slate-700">
-                      <Edit2 size={13} />
-                    </button>
-                    <button onClick={() => setDeleteTarget({ kind: 'user', index: i, item: u })} className="p-1.5 text-slate-400 hover:text-red-600">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
                 </div>
               ))}
             </div>
@@ -948,7 +1174,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
       )}
 
       {saveConfirmOpen && (
-        <Modal open={saveConfirmOpen} title="Save Changes?" onClose={() => setSaveConfirmOpen(false)}>
+        <Modal open={saveConfirmOpen} title="Save Changes?" onClose={() => { if (!savingSettings) setSaveConfirmOpen(false) }}>
           <div className="w-full p-2">
             <p className="text-sm font-semibold text-slate-700 mb-3">{tabLabels.find(t => t.id === tab)?.label ?? 'This section'}</p>
             <p className="text-sm text-slate-600 mb-4">You are about to save the following changes:</p>
@@ -976,8 +1202,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
               </ul>
             )}
             <div className="flex gap-3 justify-end">
-              <button onClick={() => setSaveConfirmOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
-              <button onClick={confirmSave} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Confirm Save</button>
+              <button onClick={() => setSaveConfirmOpen(false)} disabled={savingSettings} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">Cancel</button>
+              <button onClick={confirmSave} disabled={savingSettings} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">{savingSettings ? 'Saving…' : 'Confirm Save'}</button>
             </div>
           </div>
         </Modal>
@@ -1185,7 +1411,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                <div>
                  <label className="block text-xs text-slate-500 mb-1">Password</label>
                  <input
-                   value={editingUser.item.password}
+                   value={editingUser.item.password ?? ''}
                    placeholder="Enter new password"
                    onChange={e => setEditingUser(prev => prev ? { ...prev, item: { ...prev.item, password: e.target.value } } : prev)}
                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
@@ -1366,7 +1592,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
 
       {deleteTarget && (
         <Modal open={!!deleteTarget} title="Confirm deletion" onClose={() => setDeleteTarget(null)}>
-          <div className="w-full p-2">
+          <div className="w-md p-2">
             <p className="text-sm text-slate-600 mb-4">
               Are you sure you want to delete <span className="font-semibold text-slate-700">{deleteTarget.kind === 'holiday' ? (deleteTarget.item as any).holiday : (deleteTarget.item as any).name}</span>?
             </p>
@@ -1401,6 +1627,36 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
               >
                 Delete
               </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {archiveTarget && (
+        <Modal open={!!archiveTarget} title="Archive User" onClose={() => { if (!archiving) setArchiveTarget(null) }}>
+          <div className="w-md p-2">
+            <p className="text-sm text-slate-600 mb-4">
+              Are you sure you want to archive <span className="font-semibold text-slate-700">{archiveTarget.name}</span>?
+              Archived accounts will no longer appear in the active accounts list.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setArchiveTarget(null)} disabled={archiving} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">Cancel</button>
+              <button onClick={confirmArchiveUser} disabled={archiving} className="px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-violet-600">{archiving ? 'Archiving…' : 'Archive'}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {restoreTarget && (
+        <Modal open={!!restoreTarget} title="Restore User" onClose={() => { if (!restoring) setRestoreTarget(null) }}>
+          <div className="w-full p-2">
+            <p className="text-sm text-slate-600 mb-4">
+              Are you sure you want to restore <span className="font-semibold text-slate-700">{restoreTarget.name}</span>?
+              The account will be moved back to the active accounts list.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setRestoreTarget(null)} disabled={restoring} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">Cancel</button>
+              <button onClick={confirmRestoreUser} disabled={restoring} className="px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-violet-600">{restoring ? 'Restoring…' : 'Restore'}</button>
             </div>
           </div>
         </Modal>
@@ -1464,15 +1720,19 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
               <p className="text-sm font-medium">{selectedHoliday.status}</p>
             </div>
           </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <button onClick={() => setSelectedHoliday(null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
-            <button onClick={() => {
-                const idx = holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date)
-                const isoDate = normalizeDateOnly(selectedHoliday?.raw?.date ?? selectedHoliday?.date)
-                setSelectedHoliday(null)
-                setEditingHoliday({ index: idx, item: { ...selectedHoliday, date: isoDate } })
-              }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
-            <button onClick={() => { setSelectedHoliday(null); setDeleteTarget({ kind: 'holiday', index: holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date), item: selectedHoliday }) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Delete</button>
+          <div className="flex flex-row justify-end gap-2 pt-2 border-t border-slate-100">
+            <div>
+              <button onClick={() => { setSelectedHoliday(null); setDeleteTarget({ kind: 'holiday', index: holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date), item: selectedHoliday }) }} className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg"><Trash2 size={12}/>Delete</button>
+            </div>
+            <div>
+              <button onClick={() => {
+                  const idx = holidayList.findIndex(it => it.holiday === selectedHoliday.holiday && it.date === selectedHoliday.date)
+                  const isoDate = normalizeDateOnly(selectedHoliday?.raw?.date ?? selectedHoliday?.date)
+                  setSelectedHoliday(null)
+                  setEditingHoliday({ index: idx, item: { ...selectedHoliday, date: isoDate } })
+                }} className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"><Edit2 size={12}/>Edit</button>
+            </div>
+            
           </div>
         </Modal>
       )}
@@ -1565,7 +1825,8 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button onClick={() => { setSelectedUser(null); setDeleteTarget({ kind: 'user', index: userList.findIndex(it => it.email === selectedUser.email), item: selectedUser }) }} className="px-3 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg">Delete</button>
-              <button onClick={() => { setSelectedUser(null); setEditingUser({ index: userList.findIndex(it => it.email === selectedUser.email), item: selectedUser }) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
+              <button onClick={() => { setSelectedUser(null); if (selectedUser.is_archived) { setRestoreTarget(selectedUser) } else { setArchiveTarget(selectedUser) } }} className="px-3 py-2 text-sm text-white bg-violet-600 hover:bg-violet-700 rounded-lg">{selectedUser.is_archived ? 'Restore' : 'Archive'}</button>
+              <button onClick={() => { setSelectedUser(null); setEditingUser({ index: userList.findIndex(it => it.email === selectedUser.email), item: { ...selectedUser, password: '' } }) }} className="px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Edit</button>
             </div>
           </div>
         </Modal>

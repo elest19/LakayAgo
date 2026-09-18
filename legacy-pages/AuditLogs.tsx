@@ -195,8 +195,8 @@ export default function AuditLogs() {
                     ]}
                   />
                 ) : (
-                  filtered.map(log => (
-                    <tr key={log.id} className="hover:bg-slate-50 group cursor-pointer" role="button" tabIndex={0} onClick={() => setSelectedLog(log)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLog(log) } }}>
+                  filtered.map((log, index) => (
+                    <tr key={log.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`} role="button" tabIndex={0} onClick={() => setSelectedLog(log)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLog(log) } }}>
                       <td className="py-3 px-4 whitespace-nowrap">
                         <p className="text-xs font-mono text-slate-600">{log.dateTime}</p>
                       </td>
@@ -226,8 +226,8 @@ export default function AuditLogs() {
             </table>
           ) : (
             <div className="flex flex-col">
-              {filtered.map(log => (
-                <button key={log.id} onClick={() => setSelectedLog(log)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+              {filtered.map((log, index) => (
+                <button key={log.id} onClick={() => setSelectedLog(log)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-slate-700">{log.action}</div>
                     <div className="text-xs text-slate-400">{log.user} • {log.dateTime}</div>

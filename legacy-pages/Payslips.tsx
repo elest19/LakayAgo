@@ -17,6 +17,7 @@ function PayslipDetailModal({ item, onClose }: { item: any; onClose: () => void 
   const { logoSrc } = useApp()
   const [empDetails, setEmpDetails] = useState<any | null>(null)
   const [periodLabel, setPeriodLabel] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -56,7 +57,7 @@ function PayslipDetailModal({ item, onClose }: { item: any; onClose: () => void 
   }, [item])
 
   return (
-    <Modal open={true} title={`Payslip — ${item.emp.firstName} ${item.emp.lastName}`} onClose={onClose}>
+    <Modal open={true} title={`Payslip — ${item.emp.firstName} ${item.emp.lastName}`} onClose={() => { if (!downloading) onClose() }}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-h-[70vh] overflow-y-auto">
         {/* Payslip header */}
         <div className="flex items-center bg-indigo-600 rounded-t-2xl px-8 py-3 text-white"> 
@@ -136,12 +137,36 @@ function PayslipDetailModal({ item, onClose }: { item: any; onClose: () => void 
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => {
-              const id = item.raw?.payslip_id ?? item.id
-              if (!id) return
-              window.location.href = `/api/payslips/${id}/download`
-            }} className="flex-1 flex items-center justify-center gap-2 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display">
-              <Download size={14} /> Download PDF
+            <button
+              onClick={async () => {
+                const id = item.raw?.payslip_id ?? item.id
+                if (!id || downloading) return
+                setDownloading(true)
+                try {
+                  const resp = await fetch(`/api/payslips/${id}/download`)
+                  if (!resp.ok) {
+                    console.error('Payslip download failed', resp.status)
+                    return
+                  }
+                  const blob = await resp.blob()
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `payslip-${id}.pdf`
+                  document.body.appendChild(a)
+                  a.click()
+                  a.remove()
+                  URL.revokeObjectURL(url)
+                } catch (err) {
+                  console.error('Payslip download failed', err)
+                } finally {
+                  setDownloading(false)
+                }
+              }}
+              disabled={downloading}
+              className="flex-1 flex items-center justify-center gap-2 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            >
+              <Download size={14} /> {downloading ? 'Downloading…' : 'Download PDF'}
             </button>
             {/* 
             <button className="flex-1 flex items-center justify-center gap-2 border border-slate-200 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 font-display">
@@ -449,10 +474,10 @@ export default function Payslips() {
                     <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">No payslips available for this period.</td>
                   </tr>
                 ) : (
-                  pageData.map(p => (
+                  pageData.map((p, index) => (
                     <tr
                       key={p.id}
-                      className="hover:bg-slate-50 group cursor-pointer"
+                      className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                       onClick={() => setViewing(p)}
                       role="button"
                       tabIndex={0}
@@ -484,6 +509,28 @@ export default function Payslips() {
                     </tr>
                   ))
                 )}
+                  {!loading && filtered.length > 0 && pageData.length < PAGE_SIZE && (
+                    Array.from({ length: Math.max(0, PAGE_SIZE - pageData.length) }).map((_, i) => (
+                      <tr key={`empty-payslip-${i}`} className="invisible">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-full bg-slate-100 shrink-0"></div>
+                            <div>
+                              <p className="text-sm font-medium text-slate-700 font-display whitespace-nowrap">Placeholder</p>
+                              <p className="text-xs text-slate-400">Restaurant</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">Placeholder</td>
+                        <td className="py-3 px-4 font-mono text-xs text-slate-700">PHP 0.00</td>
+                        <td className="py-3 px-4 font-mono text-xs text-red-600">PHP 0.00</td>
+                        <td className="py-3 px-4 font-mono text-xs font-semibold text-emerald-700">PHP 0.00</td>
+                        <td className="py-3 px-4">
+                          <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium font-display invisible">Status</span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
               </tbody>
             </table>
           ) : (
@@ -502,8 +549,8 @@ export default function Payslips() {
               ) : filtered.length === 0 ? (
                 <div className="p-4 text-sm text-slate-500">No payslips available for this period.</div>
               ) : (
-                pageData.map(p => (
-                  <button key={p.id} onClick={() => setViewing(p)} className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3">
+                pageData.map((p, index) => (
+                  <button key={p.id} onClick={() => setViewing(p)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}>
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-700">{p.emp.firstName} {p.emp.lastName}</div>
                       <div className="text-xs text-slate-400">Restaurant: {p.emp.restaurant}</div>

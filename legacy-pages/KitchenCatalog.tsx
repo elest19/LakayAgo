@@ -252,10 +252,10 @@ export default function KitchenCatalog() {
                   <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">No kitchen items found.</td>
                 </tr>
               ) : (
-                filteredItems.map(item => (
+                filteredItems.map((item, index) => (
                   <tr
                     key={item.id}
-                    className="hover:bg-slate-50 group cursor-pointer"
+                    className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`}
                     onClick={() => setSelectedItem(item)}
                     role="button"
                     tabIndex={0}
@@ -284,12 +284,12 @@ export default function KitchenCatalog() {
           {filteredItems.length === 0 ? (
             <div className="p-4 text-sm text-slate-400">No kitchen items found.</div>
           ) : (
-            filteredItems.map(item => (
+            filteredItems.map((item, index) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => setSelectedItem(item)}
-                className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3"
+                className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center justify-between gap-3`}
               >
                 <div>
                   <div className="text-sm font-semibold text-slate-700 font-display">{item.itemName}</div>

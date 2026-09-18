@@ -83,6 +83,7 @@ export default function AttendanceRecords() {
   const [specificDate, setSpecificDate] = useState<string>('')
   const [page, setPage] = useState(1)
   const [isEditing, setIsEditing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -756,10 +757,10 @@ export default function AttendanceRecords() {
             <>
               {!isMobile ? (
               <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
+              <thead >
+                <tr className="border-b border-slate-100 bg-indigo-600 ">
                   {['Employee', 'Employee ID', 'Date', 'Day', 'Status', 'Time In', 'Time Out'].map(h => (
-                    <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
+                    <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-white uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -781,8 +782,8 @@ export default function AttendanceRecords() {
                   />
                 ) : (
                   <>
-                    {pageData.map(rec => (
-                      <tr key={rec.id} onClick={() => setSelectedRecord(rec)} className={`hover:bg-slate-50 ${rec.status === 'Incomplete' ? 'bg-amber-50/50' : ''} cursor-pointer`}>
+                    {pageData.map((rec, index) => (
+                      <tr key={rec.id} onClick={() => setSelectedRecord(rec)} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 ${rec.status === 'Incomplete' ? 'bg-amber-50/50' : ''} cursor-pointer`}>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
@@ -801,7 +802,6 @@ export default function AttendanceRecords() {
                         </td>
                         <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.firstOnDuty ?? rec.timeIn ?? '—'}</td>
                         <td className="py-3 px-4 font-mono text-xs text-slate-600 whitespace-nowrap">{rec.firstOffDuty ?? rec.timeOut ?? '—'}</td>                
-                        <td className="py-3 px-4" />
                       </tr>
                     ))}
                     {Array.from({ length: emptyRowsCount }).map((_, i) => (
@@ -818,9 +818,6 @@ export default function AttendanceRecords() {
                         <td className="py-3 px-4"><span className="text-xs px-2 py-0.5 rounded-full font-medium font-display">Status</span></td>
                         <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
                         <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
-                        <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
-                        <td className="py-3 px-4 font-mono text-xs whitespace-nowrap">00:00</td>
-                        <td className="py-3 px-4" />
                       </tr>
                     ))}
                   </>
@@ -834,11 +831,11 @@ export default function AttendanceRecords() {
               </div>
             ) : (
               <div className="flex flex-col">
-                {pageData.map(rec => (
+                {pageData.map((rec, index) => (
                   <button
                     key={rec.id}
                     onClick={() => setSelectedRecord(rec)}
-                    className="text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center gap-3"
+                    className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 border-b border-slate-50 hover:bg-slate-50 flex items-center gap-3`}
                   >
                     <div className="w-10">
                       <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center">
@@ -919,7 +916,7 @@ export default function AttendanceRecords() {
         <Modal
           open={!!selectedRecord}
           title={`Attendance`}
-          onClose={() => { setSelectedRecord(null); setIsEditing(false) }}
+          onClose={() => { if (!isSaving) { setSelectedRecord(null); setIsEditing(false) } }}
         >
               <div className="flex items-start justify-between border-b pb-2 border-slate-100">
                 <div className="w-md">
@@ -1004,7 +1001,8 @@ export default function AttendanceRecords() {
                 <div className="flex justify-end gap-3">
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="px-4 py-2 text-sm font-medium bg-green-700 hover:bg-green-600 text-slate-100 rounded-lg font-display"
+                    disabled={isSaving}
+                    className="px-4 py-2 text-sm font-medium bg-green-700 hover:bg-green-600 text-slate-100 rounded-lg font-display disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-green-700"
                   >
                     Edit
                   </button>
@@ -1077,9 +1075,10 @@ export default function AttendanceRecords() {
                   </div>
 
                   <div className="py-2 border-t border-slate-100 flex gap-3 justify-end">
-                      <button onClick={() => setIsEditing(false)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+                      <button onClick={() => setIsEditing(false)} disabled={isSaving} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">Cancel</button>
                       <button onClick={async () => {
-                        if (!selectedRecord) return
+                        if (!selectedRecord || isSaving) return
+                        setIsSaving(true)
                         try {
                           const effectiveTimeIn = timeIn || '08:00'
                           const effectiveTimeOut = timeOut || '17:00'
@@ -1132,10 +1131,11 @@ export default function AttendanceRecords() {
                         } catch (err: any) {
                           showToast({ type: 'error', message: 'Update failed', description: err.message || 'Could not update attendance' })
                         } finally {
+                          setIsSaving(false)
                           setIsEditing(false)
                           setSelectedRecord(null)
                         }
-                      }} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">Save Changes</button>
+                      }} disabled={isSaving} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">{isSaving ? 'Saving…' : 'Save Changes'}</button>
                     </div>
                 </div>
               )}

@@ -9,7 +9,7 @@ export async function GET(req: Request) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-    const res = await query('SELECT user_id, name, username, email, role, restaurant FROM users ORDER BY name')
+    const res = await query('SELECT user_id, name, username, email, role, restaurant, is_archived FROM users ORDER BY name')
     // The `restaurants` table may not exist in all deployments; avoid joining it here.
     const users = res.rows.map((u: any) => ({
       user_id: u.user_id,
@@ -19,7 +19,8 @@ export async function GET(req: Request) {
       role: u.role,
       restaurant: u.restaurant,
       restaurant_id: null,
-      status: 'Active',
+      is_archived: Boolean(u.is_archived),
+      status: Boolean(u.is_archived) ? 'Archived' : 'Active',
     }))
     return NextResponse.json(users)
   } catch (err) {

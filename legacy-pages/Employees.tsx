@@ -780,20 +780,20 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, onDelete,
         {tab === "overview" && !isEditing && (
           <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
             {isMobile ? (
-              <>
-                <button onClick={() => onDelete?.(employee)} className="px-4 py-2 text-sm font-medium bg-red-700 hover:bg-red-800 text-white rounded-lg font-display flex items-center gap-1.5">Delete</button>
+              <div className="flex flex-row gap-2 items-center justify-end">
+                <button onClick={() => onDelete?.(employee)} className="px-2 py-2 text-sm font-medium bg-red-700 hover:bg-red-800 text-white rounded-lg font-display flex items-center gap-1.5"><Trash2 size={12}/>Delete</button>
               {normalizeEmployeeStatus(employee.status) === "active" ? (
-                <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-display flex items-center gap-1.5">Archive</button>
+                <button onClick={() => onArchive?.(employee)} className="px-2 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display flex items-center gap-1.5"><Archive size={12} />Archive</button>
               ) : (
-                <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-display flex items-center gap-1.5">Restore</button>
+                <button onClick={() => onArchive?.(employee)} className="px-2 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-display flex items-center gap-1.5"><ArchiveRestore size={12} />Restore</button>
               )}
-              <button onClick={() => setIsEditing(true)} className="px-4 py-2 text-sm font-medium border border-slate-200 text-white bg-green-700 rounded-lg hover:bg-green-600 font-display flex items-center gap-1.5">Edit</button>
-              </>
+              <button onClick={() => setIsEditing(true)} className="px-2 py-2 text-sm font-medium border border-slate-200 text-white bg-green-700 rounded-lg hover:bg-green-600 font-display flex items-center gap-1.5"><Pencil size={12} />Edit</button>
+              </div>
             ) :(
               <>
                 <button onClick={() => onDelete?.(employee)} className="px-4 py-2 text-sm font-medium bg-red-700 hover:bg-red-800 text-white rounded-lg font-display flex items-center gap-1.5"><Trash2 size={14} /> Delete</button>
               {normalizeEmployeeStatus(employee.status) === "active" ? (
-                <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-display flex items-center gap-1.5"><Archive size={14} /> Archive</button>
+                <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-display flex items-center gap-1.5"><Archive size={14} /> Archive</button>
               ) : (
                 <button onClick={() => onArchive?.(employee)} className="px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-display flex items-center gap-1.5"><ArchiveRestore size={14} /> Restore</button>
               )}
@@ -1361,16 +1361,35 @@ export default function Employees() {
           <Search size={14} className="text-slate-400 shrink-0" />
           <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Search employee..." className="bg-transparent text-sm outline-none text-slate-700 w-full placeholder:text-slate-400" />
         </div>
-        <select value={restaurantFilter} onChange={(e) => { setRestaurantFilter(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer">
-          <option value="All">All Restaurants</option>
-          {restaurants.map(r => <option key={r} value={r}>{r}</option>)}
-        </select>
-        <div className="flex items-center gap-1 border border-slate-200 rounded-lg overflow-hidden">
-          <label className="px-2 py-2 text-slate-500 font-display">Name :</label>
-          <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}  title={sortDir === "asc" ? "Ascending" : "Descending"} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 font-display">
-            {sortDir === "asc" ? `Sort by Ascending ` : `Sort by Descending `}
-          </button>
-        </div>
+        {isMobile ? (
+          <>
+          <select value={restaurantFilter} onChange={(e) => { setRestaurantFilter(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer">
+            <option value="All">All Restaurants</option>
+            {restaurants.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <div className="w-full flex items-center gap-1 border border-slate-200 rounded-lg overflow-hidden">
+            <label className="px-2 py-2 text-slate-500 font-display">Name :</label>
+            <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}  title={sortDir === "asc" ? "Ascending" : "Descending"} className="px-3 py-2 text-sm text-slate-600  hover:bg-slate-50 font-display">
+              {sortDir === "asc" ? `Sort by Ascending ` : `Sort by Descending `}
+            </button>
+          </div>
+          </>
+        ) : (
+          <>
+          <select value={restaurantFilter} onChange={(e) => { setRestaurantFilter(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer">
+            <option value="All">All Restaurants</option>
+            {restaurants.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <div className="flex items-center gap-1 border border-slate-200 rounded-lg overflow-hidden">
+            <label className="px-2 py-2 text-slate-500 font-display">Name :</label>
+            <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}  title={sortDir === "asc" ? "Ascending" : "Descending"} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 font-display">
+              {sortDir === "asc" ? `Sort by Ascending ` : `Sort by Descending `}
+            </button>
+          </div>
+          </>
+        )}
+        
+        
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1407,8 +1426,8 @@ export default function Employees() {
                   ]} />
                 ) : (
                   <>
-                    {pageData.map((emp) => (
-                      <tr key={emp.id} className="hover:bg-slate-50 group cursor-pointer" onClick={() => { setEditOnOpen(false); setSelectedEmployee(emp) }}>
+                    {pageData.map((emp, index) => (
+                      <tr key={emp.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`} onClick={() => { setEditOnOpen(false); setSelectedEmployee(emp) }}>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2.5">
                             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
@@ -1436,7 +1455,7 @@ export default function Employees() {
                               type="button"
                               onClick={() => { setEditOnOpen(true); setSelectedEmployee(emp) }}
                               title={`Edit ${emp.name}`}
-                              className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                              className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"
                             >
                               <Pencil size={14} /> Edit
                             </button>
@@ -1446,7 +1465,7 @@ export default function Employees() {
                                 onClick={() => requestArchive(emp)}
                                 disabled={togglingId === emp.id}
                                 title={`Archive ${emp.name}`}
-                                className="text-xs font-medium text-violet-600 hover:text-violet-800 flex items-center gap-1 disabled:opacity-50"
+                                className="text-xs font-medium text-violet-500 hover:text-violet-600 hover:underline flex items-center gap-1 disabled:opacity-50"
                               >
                                 <Archive size={14} /> Archive
                               </button>
@@ -1456,7 +1475,7 @@ export default function Employees() {
                                 onClick={() => restoreEmployee(emp)}
                                 disabled={togglingId === emp.id}
                                 title={`Restore ${emp.name}`}
-                                className="text-xs font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1 disabled:opacity-50"
+                                className="text-xs font-medium text-emerald-600 hover:text-emerald-800 hover:underline flex items-center gap-1 disabled:opacity-50"
                               >
                                 <ArchiveRestore size={14} /> Restore
                               </button>
@@ -1466,7 +1485,7 @@ export default function Employees() {
                               onClick={() => setDeleteConfirm(emp)}
                               disabled={deletingId === emp.id}
                               title={`Delete ${emp.name}`}
-                              className="text-xs font-medium text-red-600 hover:text-red-800 flex items-center gap-1 disabled:opacity-50"
+                              className="text-xs font-medium text-red-600 hover:text-red-800 hover:underline flex items-center gap-1 disabled:opacity-50"
                             >
                               <Trash2 size={14} /> Delete
                             </button>
@@ -1499,9 +1518,9 @@ export default function Employees() {
                 <SkeletonTableRows columns={2} columnConfig={[{ width: "60%" }, { width: "30%" }]} rows={10} mobile />
               ) : (
                 <div className="flex flex-col">
-                  {pageData.map((emp) => (
+                  {pageData.map((emp, index) => (
                     <div key={emp.id} className="border-b border-slate-50">
-                      <div role="button" onClick={() => { setEditOnOpen(false); setSelectedEmployee(emp) }} className="text-left p-3 hover:bg-slate-50 flex items-center justify-between gap-3 cursor-pointer">
+                      <div role="button" onClick={() => { setEditOnOpen(false); setSelectedEmployee(emp) }} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} text-left p-3 hover:bg-slate-50 flex items-center justify-between gap-3 cursor-pointer`}>
                         <div>
                           <div className="text-sm font-medium text-slate-700">{emp.name}</div>
                           <div className="text-xs text-slate-400">{emp.restaurant}</div>
@@ -1604,7 +1623,7 @@ export default function Employees() {
               <button
                 onClick={() => confirmArchive(archiveConfirm)}
                 disabled={togglingId === archiveConfirm.id}
-                className="px-4 py-2 text-sm font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg flex items-center gap-1.5 disabled:opacity-50"
+                className="px-4 py-2 text-sm font-medium bg-violet-500 hover:bg-violet-600 text-white rounded-lg flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Archive size={14} /> {togglingId === archiveConfirm.id ? "Archiving..." : "Archive"}
               </button>

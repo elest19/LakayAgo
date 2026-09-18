@@ -1,16 +1,17 @@
 'use client'
-import { useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import {
   Users, UserCheck, AlertTriangle, Clock, TrendingUp, TrendingDown,
-  ArrowRight, CheckCircle2, Circle, FileText, Activity, DollarSign, ReceiptText
+  ArrowRight, CheckCircle2, Circle, FileText, Activity,
+  Eye, HeartPulse
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
+  Tooltip, ResponsiveContainer
 } from 'recharts'
-import { useEffect, useState } from 'react'
+import DateFilter, { defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n)
@@ -20,41 +21,133 @@ const StatCard = ({
 }: {
   label: string; value: string; sub?: string; icon: React.ReactNode
   color: string; trend?: { dir: 'up' | 'down'; text: string }
-}) => (
-  <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow">
-    <div className="flex items-start justify-between mb-3">
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}>
-        {icon}
+}) => {
+  const isMobile = useIsMobile()
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}>
+          {icon}
+        </div>
+        {trend && (
+          <span className={`flex items-center gap-1 text-xs font-medium ${trend.dir === 'up' ? 'text-emerald-600' : 'text-red-500'}`}>
+          </span>
+        )}
       </div>
-      {trend && (
-        <span className={`flex items-center gap-1 text-xs font-medium ${trend.dir === 'up' ? 'text-emerald-600' : 'text-red-500'}`}>
-          {trend.dir === 'up' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-          {trend.text}
-        </span>
+      {isMobile ? (
+        <p className="text-md font-bold text-slate-800 font-display">{value}</p>
+      ) : (
+        <p className="text-xl font-bold text-slate-800 font-display">{value}</p>
       )}
+      <p className="text-xs text-slate-500 mt-0.5">{label}</p>
     </div>
-    <p className="text-xl font-bold text-slate-800 font-display">{value}</p>
-    <p className="text-xs text-slate-500 mt-0.5">{label}</p>
-    {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
-  </div>
-)
+  )
+}
 
-const steps = [
-  { label: 'Attendance Imported', done: true },
-  { label: 'Attendance Validated', done: true },
-  { label: 'Payroll Calculation', active: true },
-  { label: 'Payroll Review', done: false },
-  { label: 'Payroll Approval', done: false },
-  { label: 'Payslips', done: false },
-]
+const formatDateRange = (start: string | null | undefined, end: string | null | undefined) => {
+  if (!start || !end) return 'No active period'
 
-const recentActivity = [
-  { icon: <FileText size={14} />, msg: 'Attendance file imported', sub: 'attendance_aug_1_15_2026.xlsx — 245 records', time: '10 min ago', color: 'bg-indigo-100 text-indigo-600' },
-  { icon: <CheckCircle2 size={14} />, msg: 'Payroll calculation completed', sub: 'July 16–31, 2026 — ₱435,260.00 net', time: '1 hr ago', color: 'bg-emerald-100 text-emerald-600' },
-  { icon: <Users size={14} />, msg: 'Employee salary updated', sub: 'Juan Dela Cruz — ₱20,000 → ₱25,000', time: '1 day ago', color: 'bg-blue-100 text-blue-600' },
-  { icon: <UserCheck size={14} />, msg: 'Leave request approved', sub: 'Mark Villanueva — Sick Leave, Aug 1–5', time: '1 day ago', color: 'bg-violet-100 text-violet-600' },
-  { icon: <Activity size={14} />, msg: 'Payroll period created', sub: 'August 16–31, 2026', time: '2 days ago', color: 'bg-amber-100 text-amber-600' },
-]
+  try {
+    const startDate = new Date(start)
+    const endDate = new Date(end)
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 'No active period'
+
+    const formatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    return `${formatter.format(startDate)} – ${formatter.format(endDate)}`
+  } catch {
+    return 'No active period'
+  }
+}
+
+const isTrueLike = (value: any) => value === true || value === 'true' || value === 'TRUE' || value === 1 || value === '1'
+
+const RECENT_ACTIVITY_LIMIT = 5
+
+// --- Dashboard loading skeleton (mirrors the real layout: cards, panels, charts) ---
+
+function SkeletonBlock({ className = '', style }: { className?: string; style?: React.CSSProperties }) {
+  return <div className={`bg-slate-200 animate-pulse rounded-md ${className}`} style={style} />
+}
+
+function SkeletonStatCard() {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+      <div className="flex items-start justify-between mb-3">
+        <SkeletonBlock className="w-10 h-10 rounded-lg" />
+      </div>
+      <SkeletonBlock className="h-6 w-24 mb-2" />
+      <SkeletonBlock className="h-3 w-20" />
+    </div>
+  )
+}
+
+function SkeletonPanelCard({ rows = 5, className = '' }: { rows?: number; className?: string }) {
+  const widths = ['w-full', 'w-5/6', 'w-4/5', 'w-11/12', 'w-3/4', 'w-2/3']
+  return (
+    <div className={`bg-white rounded-xl border border-slate-200 p-5 shadow-sm ${className}`}>
+      <SkeletonBlock className="h-4 w-36 mb-5" />
+      <div className="space-y-3.5">
+        {Array.from({ length: rows }, (_, i) => (
+          <div key={i} className="flex items-center gap-3">
+            <SkeletonBlock className="w-7 h-7 rounded-lg shrink-0" />
+            <SkeletonBlock className={`h-3.5 ${widths[i % widths.length]}`} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SkeletonChartCard({ height = 180, bars = 8 }: { height?: number; bars?: number }) {
+  const heights = [45, 70, 55, 85, 60, 90, 50, 75, 65, 40]
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+      <SkeletonBlock className="h-4 w-40 mb-1.5" />
+      <SkeletonBlock className="h-3 w-56 mb-4" />
+      <div className="flex items-end gap-2" style={{ height }}>
+        {Array.from({ length: bars }, (_, i) => (
+          <SkeletonBlock key={i} className="flex-1 rounded-t-md" style={{ height: `${heights[i % heights.length]}%` }} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DashboardSkeleton({ isMobile }: { isMobile: boolean }) {
+  return (
+    <div className="space-y-6">
+      {/* Stat cards */}
+      {isMobile ? (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }, (_, i) => <SkeletonStatCard key={i} />)}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }, (_, i) => <SkeletonStatCard key={i} />)}
+          </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
+          {Array.from({ length: 8 }, (_, i) => <SkeletonStatCard key={i} />)}
+        </div>
+      )}
+
+      {/* Payroll Period Progress + Recent Activity panels */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <SkeletonPanelCard rows={6} />
+        <div className="lg:col-span-2">
+          <SkeletonPanelCard rows={5} />
+        </div>
+      </div>
+
+      {/* Attendance + Overtime charts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <SkeletonChartCard height={180} bars={8} />
+        <SkeletonChartCard height={120} bars={8} />
+      </div>
+    </div>
+  )
+}
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null
@@ -73,222 +166,587 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   )
 }
 
-// --- date helpers (current month window, used for the Sales & Expense summary) ---
-const toStartOfDay = (date: Date) => {
-  const next = new Date(date)
-  next.setHours(0, 0, 0, 0)
-  return next
-}
-
-const toEndOfDay = (date: Date) => {
-  const next = new Date(date)
-  next.setHours(23, 59, 59, 999)
-  return next
-}
-
-const isWithinRange = (value: string, start: Date, end: Date) => {
-  const parsed = new Date(value)
-  return parsed >= start && parsed <= end
-}
-
-const EXPENSE_COLORS = ['#14b8a6', '#0ea5e9', '#8b5cf6', '#f59e0b', '#ef4444', '#10b981']
-
 export default function Dashboard() {
-  const { navigate, inventoryItems, salesRecords, expenses } = useApp()
+  const { navigate, appMode } = useApp()
   const isMobile = useIsMobile()
+  const currentRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
 
-  const [monthlyPayrollData, setMonthlyPayrollData] = useState<Array<any>>([])
-  const [deptPayrollData, setDeptPayrollData] = useState<Array<any>>([])
-  const [overtimeData, setOvertimeData] = useState<Array<any>>([])
+  const [attendanceRows, setAttendanceRows] = useState<Array<any>>([])
+  const [employeeCount, setEmployeeCount] = useState(0)
+  const [expectedPresent, setExpectedPresent] = useState(0)
+  const [presentToday, setPresentToday] = useState(0)
+  const [absentToday, setAbsentToday] = useState(0)
+  const [pendingLeaveRequests, setPendingLeaveRequests] = useState(0)
+  const [latestPeriod, setLatestPeriod] = useState<any | null>(null)
+  const [recentActivity, setRecentActivity] = useState<Array<any>>([])
+  const [reportPeriods, setReportPeriods] = useState<Array<any>>([])
+  const [payslips, setPayslips] = useState<Array<any>>([])
+  const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurant)
+  const [selectedPeriodId, setSelectedPeriodId] = useState('all')
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>(defaultDateFilterValue())
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => { setSelectedRestaurant(currentRestaurant) }, [currentRestaurant])
+
+  const renderActivityRows = (list: Array<any>) =>
+    list.length > 0 ? list.map((item, i) => (
+      <div key={`${item.msg}-${i}`} className="flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 cursor-pointer">
+        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${item.color}`}>
+          {item.icon}
+        </div>
+        <div className="flex-1 min-w-0 lg:col-span-2">
+          <p className="text-sm font-medium text-slate-700 font-display">{item.msg}</p>
+          <p className="text-xs text-slate-400 truncate">{item.sub}</p>
+        </div>
+        <span className="text-xs text-slate-400 shrink-0">{item.time}</span>
+      </div>
+    )) : (
+      <div className="px-5 py-6 text-sm text-slate-500">No recent activity found in the database yet.</div>
+    )
+
+
+  const dateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
+  const selectedPeriod = useMemo(
+    () => reportPeriods.find((period: any) => String(period.report_period_id) === selectedPeriodId) ?? null,
+    [reportPeriods, selectedPeriodId],
+  )
 
   useEffect(() => {
     let mounted = true
-    fetch('/api/dashboard/summary')
-      .then(r => r.json())
-      .then(d => {
-        if (!mounted) return
-        setMonthlyPayrollData(d.monthlyPayrollData || [])
-        setDeptPayrollData(d.deptPayrollData || [])
-        setOvertimeData(d.overtimeData || [])
+
+    const params = new URLSearchParams()
+    params.set('restaurant', selectedRestaurant)
+    const reportPeriodsUrl = `/api/report_periods?${params.toString()}`
+
+    fetch(reportPeriodsUrl)
+      .then(async (res) => {
+        if (!res.ok) return []
+        const data = await res.json()
+        return Array.isArray(data.periods) ? data.periods : []
       })
-      .catch(() => {})
+      .then((periods) => {
+        if (!mounted) return
+        setReportPeriods(periods)
+        if (selectedPeriodId !== 'all' && !periods.some((period: any) => String(period.report_period_id) === selectedPeriodId)) {
+          setSelectedPeriodId('all')
+        }
+      })
+      .catch(() => {
+        if (mounted) setReportPeriods([])
+      })
+
     return () => { mounted = false }
-  }, [])
+  }, [selectedRestaurant, selectedPeriodId])
 
-  const monthStart = useMemo(() => toStartOfDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), [])
-  const monthEnd = useMemo(() => toEndOfDay(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)), [])
+  useEffect(() => {
+    let mounted = true
 
-  const filteredSales = useMemo(
-    () => salesRecords.filter(sale => isWithinRange(sale.createdAt, monthStart, monthEnd)),
-    [salesRecords, monthStart, monthEnd],
-  )
+    const employeeParams = new URLSearchParams()
+    employeeParams.set('restaurant', selectedRestaurant)
+    const employeeUrl = `/api/employees?${employeeParams.toString()}`
 
-  const filteredExpenses = useMemo(
-    () => expenses.filter(expense => isWithinRange(expense.createdAt, monthStart, monthEnd)),
-    [expenses, monthStart, monthEnd],
-  )
+    const attendanceParams = new URLSearchParams()
+    attendanceParams.set('restaurant', selectedRestaurant)
+    const effectiveRange = selectedPeriod ? { start: selectedPeriod.period_start, end: selectedPeriod.period_end } : dateRange
+    if (effectiveRange) {
+      attendanceParams.set('from', effectiveRange.start)
+      attendanceParams.set('to', effectiveRange.end)
+    }
+    const attendanceUrl = attendanceParams.toString() ? `/api/attendance?${attendanceParams.toString()}` : '/api/attendance'
 
-  const itemSummary = useMemo(() => {
-    return inventoryItems.map(item => {
-      const matches = filteredSales.filter(sale => sale.item === item.item)
-      const grandTotalSale = matches.reduce((sum, sale) => sum + sale.cost * sale.numberOfSales, 0)
-      const orderDiscount = matches.reduce((sum, sale) => sum + sale.discount, 0)
-      const netSale = Math.max(grandTotalSale - orderDiscount, 0)
+    const payslipsParams = new URLSearchParams()
+    payslipsParams.set('restaurant', selectedRestaurant)
+    if (selectedPeriodId !== 'all') payslipsParams.set('period_id', String(selectedPeriodId))
+    const payslipsUrl = `/api/payslips?${payslipsParams.toString()}`
 
-      return { item: item.item, grandTotalSale, netSale, orderDiscount }
-    })
-  }, [filteredSales, inventoryItems])
+    Promise.all([
+      fetch(employeeUrl),
+      fetch('/api/leave_requests'),
+      fetch(attendanceUrl),
+      fetch(payslipsUrl),
+    ])
+      .then(async ([employeesRes, leaveRes, attendanceRes, payslipsRes]) => {
+        if (!mounted) return
 
-  const totalGrandSales = useMemo(
-    () => itemSummary.reduce((sum, item) => sum + item.grandTotalSale, 0),
-    [itemSummary],
-  )
+        const employeePayload = employeesRes.ok ? await employeesRes.json() : { employees: [] }
+        const leavePayload = leaveRes.ok ? await leaveRes.json() : { leaveRequests: [] }
+        const attendancePayload = attendanceRes.ok ? await attendanceRes.json() : { attendance: [] }
+        const payslipPayload = payslipsRes.ok ? await payslipsRes.json() : { payslips: [] }
 
-  const totalNetSales = useMemo(
-    () => itemSummary.reduce((sum, item) => sum + item.netSale, 0),
-    [itemSummary],
-  )
+        const employees = Array.isArray(employeePayload.employees) ? employeePayload.employees : []
+        const leaveRequests = Array.isArray(leavePayload.leaveRequests) ? leavePayload.leaveRequests : []
+        const attendance = Array.isArray(attendancePayload.attendance) ? attendancePayload.attendance : []
+        const payslipRows = Array.isArray(payslipPayload.payslips) ? payslipPayload.payslips : []
 
-  const totalOrderDiscount = useMemo(
-    () => itemSummary.reduce((sum, item) => sum + item.orderDiscount, 0),
-    [itemSummary],
-  )
+        const filteredAttendance = attendance.filter((row: any) => {
+          const workDate = String(row.work_date ?? row.date ?? '').slice(0, 10)
+          return effectiveRange ? workDate >= effectiveRange.start && workDate <= effectiveRange.end : true
+        })
 
-  const totalExpenses = useMemo(
-    () => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0),
-    [filteredExpenses],
-  )
+        const presentNow = filteredAttendance.filter((row: any) => !isTrueLike(row.is_absent)).length
+        const absentCountFromAttendance = filteredAttendance.filter((row: any) => isTrueLike(row.is_absent)).length
 
-    const salesChartData = useMemo(
-    () => itemSummary.map(item => ({ name: item.item, grandTotalSale: item.grandTotalSale, netSale: item.netSale, orderDiscount: item.orderDiscount })),
-    [itemSummary],
-  )
+        const pendingLeaveCount = leaveRequests.filter((entry: any) => String(entry.status ?? '').toLowerCase() === 'pending').length
+        const latest = reportPeriods.find((period: any) => String(period.restaurant || '') === selectedRestaurant)
+          ?? reportPeriods[0] ?? null
 
-  const expenseBreakdown = useMemo(() => {
-    const grouped = filteredExpenses.reduce<Record<string, number>>((acc, expense) => {
-      acc[expense.expense] = (acc[expense.expense] ?? 0) + expense.amount
-      return acc
-    }, {})
+        const activity = [
+          ...(leaveRequests.slice(0, 3).map((item: any) => ({
+            icon: <FileText size={14} />,
+            msg: `Leave request: ${String(item.status ?? 'Pending')}`,
+            sub: `${item.employeeName || 'Employee'} • ${item.leaveType || 'Leave'} • ${item.status || 'Pending'}`,
+            time: item.startDate || 'Recently',
+            color: 'bg-violet-100 text-violet-600',
+          }))),
+          ...(latest ? [{
+            icon: <CheckCircle2 size={14} />,
+            msg: 'Latest payroll period available',
+            sub: `${formatDateRange(latest.period_start, latest.period_end)} • ${latest.status || 'Open'}`,
+            time: 'Current',
+            color: 'bg-emerald-100 text-emerald-600',
+          }] : []),
+        ].slice(0, RECENT_ACTIVITY_LIMIT)
 
-    return Object.entries(grouped)
-      .map(([expense, amount]) => ({ name: expense, amount }))
-      .sort((a, b) => b.amount - a.amount)
-  }, [filteredExpenses])
+        setAttendanceRows(filteredAttendance)
+        setEmployeeCount(employees.filter((emp: any) => {
+          const status = String(emp.status ?? 'Active').toLowerCase()
+          return status !== 'inactive' && status !== 'fired'
+        }).length)
+        setExpectedPresent(employees.filter((emp: any) => {
+          const status = String(emp.status ?? 'Active').toLowerCase()
+          return status !== 'inactive' && status !== 'fired'
+        }).length)
+        setPresentToday(presentNow)
+        setAbsentToday(absentCountFromAttendance)
+        setPendingLeaveRequests(pendingLeaveCount)
+        setPayslips(payslipRows)
+        setLatestPeriod(latest)
+        setRecentActivity(activity)
+        setLoading(false)
+      })
+      .catch(() => {
+        setAttendanceRows([])
+        setEmployeeCount(0)
+        setExpectedPresent(0)
+        setPresentToday(0)
+        setAbsentToday(0)
+        setPendingLeaveRequests(0)
+        setPayslips([])
+        setLatestPeriod(null)
+        setRecentActivity([])
+        setLoading(false)
+      })
 
-    const summaryCards = [
-    { label: 'Grand Total Sale', value: fmt(totalGrandSales), icon: <DollarSign size={18} className="text-indigo-600" />, color: 'bg-indigo-50' },
-    { label: 'Net Sale', value: fmt(totalNetSales), icon: <TrendingUp size={18} className="text-emerald-600" />, color: 'bg-emerald-50' },
-    { label: 'Order Discount', value: fmt(totalOrderDiscount), icon: <ReceiptText size={18} className="text-amber-600" />, color: 'bg-amber-50' },
-    { label: 'Expense Total', value: fmt(totalExpenses), icon: <TrendingDown size={18} className="text-red-500" />, color: 'bg-red-50' },
+    return () => { mounted = false }
+  }, [selectedRestaurant, selectedPeriodId, dateRange, reportPeriods])
+
+  const currentAttendanceRate = expectedPresent > 0 ? ((presentToday / expectedPresent) * 100) : 0
+  const absentCount = Math.max(absentToday, 0)
+
+  const payrollStatusPeriod = useMemo(() => {
+    const rows = reportPeriods.filter((period: any) => !period.restaurant || String(period.restaurant) === selectedRestaurant)
+    const normalizeStatus = (value: any) => String(value ?? '').trim().toLowerCase()
+
+    const pending = rows.filter((period: any) => normalizeStatus(period.status) === 'pending')
+    if (pending.length > 0) {
+      return pending.reduce((oldest: any, period: any) =>
+        !oldest || new Date(period.period_start) < new Date(oldest.period_start) ? period : oldest,
+      null)
+    }
+
+    const underReview = rows.filter((period: any) => normalizeStatus(period.status) === 'under review')
+    if (underReview.length > 0) {
+      return underReview.reduce((latest: any, period: any) =>
+        !latest || new Date(period.period_start) > new Date(latest.period_start) ? period : latest,
+      null)
+    }
+
+    const reviewed = rows.filter((period: any) => normalizeStatus(period.status) === 'reviewed')
+    if (reviewed.length > 0) {
+      return reviewed.reduce((latest: any, period: any) =>
+        !latest || new Date(period.period_start) > new Date(latest.period_start) ? period : latest,
+      null)
+    }
+
+    const released = rows.filter((period: any) => normalizeStatus(period.status) === 'released')
+    if (released.length > 0) {
+      return released.reduce((latest: any, period: any) =>
+        !latest || new Date(period.period_start) > new Date(latest.period_start) ? period : latest,
+      null)
+    }
+
+    return rows.length > 0
+      ? rows.reduce((latest: any, period: any) =>
+          !latest || new Date(period.period_start) > new Date(latest.period_start) ? period : latest,
+        null)
+      : null
+  }, [reportPeriods, selectedRestaurant])
+
+  const payrollTotals = useMemo(() => {
+    const totals = payslips.reduce((sum, row) => {
+      sum.gross += Number(row.gross_pay ?? 0)
+      sum.net += Number(row.net_pay ?? 0)
+      sum.deductions += Number(row.total_deduction ?? 0)
+      sum.health += Number(row.sss_deduction ?? 0)
+        + Number(row.philhealth_deduction ?? 0)
+        + Number(row.pagibig_deduction ?? 0)
+      return sum
+    }, { gross: 0, net: 0, deductions: 0, health: 0 })
+
+    return totals
+  }, [payslips])
+
+  const payrollGross = payrollTotals.gross
+  const payrollNet = payrollTotals.net
+  const payrollDeductions = payrollTotals.deductions
+  const healthDeductions = payrollTotals.health
+  const payrollPeriodLabel = payrollStatusPeriod ? formatDateRange(payrollStatusPeriod.period_start, payrollStatusPeriod.period_end) : 'No period available'
+  const payrollStatus = payrollStatusPeriod?.status ? String(payrollStatusPeriod.status) : 'Open'
+
+  const payrollProgressState = useMemo(() => {
+    const status = String(payrollStatusPeriod?.status ?? '').trim().toLowerCase()
+
+    if (status === 'pending') {
+      return {
+        attendanceImported: false,
+        attendanceValidated: false,
+        payrollCalculation: false,
+        payrollReview: false,
+        payrollApproval: false,
+        payslips: false,
+      }
+    }
+
+    if (status === 'under review') {
+      return {
+        attendanceImported: presentToday > 0,
+        attendanceValidated: employeeCount > 0,
+        payrollCalculation: false,
+        payrollReview: false,
+        payrollApproval: false,
+        payslips: false,
+      }
+    }
+
+    if (status === 'reviewed') {
+      return {
+        attendanceImported: presentToday > 0,
+        attendanceValidated: employeeCount > 0,
+        payrollCalculation: payrollNet > 0,
+        payrollReview: false,
+        payrollApproval: false,
+        payslips: false,
+      }
+    }
+
+    if (status === 'released') {
+      return {
+        attendanceImported: presentToday > 0,
+        attendanceValidated: employeeCount > 0,
+        payrollCalculation: payrollNet > 0,
+        payrollReview: true,
+        payrollApproval: true,
+        payslips: true,
+      }
+    }
+
+    return {
+      attendanceImported: false,
+      attendanceValidated: false,
+      payrollCalculation: false,
+      payrollReview: false,
+      payrollApproval: false,
+      payslips: false,
+    }
+  }, [payrollStatusPeriod, presentToday, employeeCount, payrollNet])
+
+  // The stage the payroll period is currently in — derived from its status.
+  // 'Pending' means nothing has started yet, so no step is active.
+  const activeStepLabel: string | null = (() => {
+    const s = String(payrollStatusPeriod?.status ?? '').trim().toLowerCase()
+    if (s === 'attendance imported' || s === 'validation required') return 'Attendance Validated'
+    if (s === 'under review' || s === 'ready for payroll') return 'Payroll Calculation'
+    if (s === 'reviewed') return 'Payroll Review'
+    if (s === 'approved') return 'Payslips'
+    return null // Pending, Released, Finalized, unknown — no step in progress
+  })()
+
+  const payrollSteps = [
+    { label: 'Attendance Imported', done: payrollProgressState.attendanceImported, active: activeStepLabel === 'Attendance Imported' },
+    { label: 'Attendance Validated', done: payrollProgressState.attendanceValidated, active: activeStepLabel === 'Attendance Validated' },
+    { label: 'Payroll Calculation', done: payrollProgressState.payrollCalculation, active: activeStepLabel === 'Payroll Calculation' },
+    { label: 'Payroll Review', done: payrollProgressState.payrollReview, active: activeStepLabel === 'Payroll Review' },
+    { label: 'Payroll Approval', done: payrollProgressState.payrollApproval, active: activeStepLabel === 'Payroll Approval' },
+    { label: 'Payslips', done: payrollProgressState.payslips, active: activeStepLabel === 'Payslips' },
   ]
+
+  // Charts driven by the selected payroll period: per-day breakdown of attendance rows.
+  const attendanceChartData = useMemo(() => {
+    const byDate = new Map<string, { present: number; absent: number }>()
+    attendanceRows.forEach((row: any) => {
+      const day = String(row.work_date ?? row.date ?? '').slice(0, 10)
+      if (!day) return
+
+      // Present requires an actual Time In + Time Out pair (weekend work is
+      // optional but those employees still count as Present when they clock in).
+      const timeIn = String(row.first_on_duty ?? row.timeIn ?? '').trim()
+      const timeOut = String(row.first_off_duty ?? row.timeOut ?? '').trim()
+      const hasTimeInOut = timeIn !== '' && timeOut !== ''
+
+      // 0 = Sunday, 6 = Saturday — rest days. Parsed from parts to avoid
+      // timezone shifts from UTC date parsing.
+      const [year, month, dateNum] = day.split('-').map(Number)
+      const dayOfWeek = new Date(year, (month || 1) - 1, dateNum || 1).getDay()
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+
+      const entry = byDate.get(day) ?? { present: 0, absent: 0 }
+
+      if (hasTimeInOut) {
+        entry.present += 1
+        byDate.set(day, entry)
+        return
+      }
+
+      // Rest days are neither Present nor Absent unless the employee worked.
+      if (isWeekend) return
+
+      if (isTrueLike(row.is_absent)) {
+        entry.absent += 1
+        byDate.set(day, entry)
+      }
+    })
+
+    const days = Array.from(byDate.keys()).sort()
+    const sameMonth = days.length > 0 && days.every(d => d.slice(0, 7) === days[0].slice(0, 7))
+    return days.map(day => {
+      const entry = byDate.get(day)!
+      return {
+        day: sameMonth ? String(Number(day.slice(8, 10))) : `${Number(day.slice(5, 7))}/${Number(day.slice(8, 10))}`,
+        present: entry.present,
+        absent: entry.absent,
+      }
+    })
+  }, [attendanceRows])
+
+  const overtimeData = useMemo(() => {
+    const byDate = new Map<string, number>()
+    attendanceRows.forEach((row: any) => {
+      const day = String(row.work_date ?? row.date ?? '').slice(0, 10)
+      if (!day) return
+      byDate.set(day, (byDate.get(day) ?? 0) + Math.max(0, Number(row.overtime_minutes ?? 0) || 0))
+    })
+
+    const days = Array.from(byDate.keys()).sort()
+    const sameMonth = days.length > 0 && days.every(d => d.slice(0, 7) === days[0].slice(0, 7))
+    return days.map(day => ({
+      day: sameMonth ? String(Number(day.slice(8, 10))) : `${Number(day.slice(5, 7))}/${Number(day.slice(8, 10))}`,
+      hours: Math.round((byDate.get(day) ?? 0) / 60),
+    }))
+  }, [attendanceRows])
+
+  const highestOvertime = overtimeData.reduce((max, item) => Number(item.hours ?? 0) > Number(max.hours ?? 0) ? item : max, { day: 'N/A', hours: 0 })
+  const overtimeHighlight = highestOvertime && highestOvertime.day !== 'N/A'
+    ? `Day ${highestOvertime.day}: ${Number(highestOvertime.hours).toFixed(0)} hrs — highest in the selected period`
+    : 'No overtime data available yet'
 
   return (
     <div className="p-6 space-y-6">
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Employees" value="45" icon={<Users size={18} className="text-indigo-600" />} color="bg-indigo-50" />
-        <StatCard label="Present Today" value="42" sub="93.3% attendance rate" icon={<UserCheck size={18} className="text-emerald-600" />} color="bg-emerald-50" />
-        <StatCard label="Missing Attendance" value="2" icon={<AlertTriangle size={18} className="text-amber-600" />} color="bg-amber-50" />
-        <StatCard label="Pending Leave Requests" value="4" icon={<Clock size={18} className="text-violet-600" />} color="bg-violet-50" />
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Gross Payroll" value="₱512,350" sub="August 1–15, 2026" icon={<TrendingUp size={18} className="text-blue-600" />} color="bg-blue-50" trend={{ dir: 'up', text: '+0.7%' }} />
-        <StatCard label="Total Deductions" value="₱74,820" icon={<TrendingDown size={18} className="text-red-500" />} color="bg-red-50" />
-        <StatCard label="Net Payroll" value="₱437,530" icon={<CheckCircle2 size={18} className="text-emerald-600" />} color="bg-emerald-50" />
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Payroll Status</p>
-          <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-700 text-sm font-medium px-3 py-1 rounded-full font-display">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-            Calculation
-          </span>
-          <p className="text-sm text-slate-400 mt-2">Aug 1-15, 2026</p>
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm font-semibold text-slate-800 font-display">Filters</p>
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedPeriodId}
+              onChange={(event) => setSelectedPeriodId(event.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+            >
+              <option value="all">All Periods</option>
+              {reportPeriods
+                .filter((period: any) => !period.restaurant || String(period.restaurant) === selectedRestaurant)
+                .map((period: any) => (
+                  <option key={period.report_period_id} value={String(period.report_period_id)}>
+                    {period.period_start} – {period.period_end}
+                  </option>
+                ))}
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Sales & Expense Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Payroll Period Progress */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Current Payroll Period</p>
-              <p className="text-lg font-bold text-slate-800 mt-0.5 font-display">August 1–15, 2026</p>
-              <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full mt-1">
-                Attendance Imported
-              </span>
+      {loading ? (
+        <DashboardSkeleton isMobile={isMobile} />
+      ) : (
+        <>
+      {isMobile ? (
+        <>
+          {/* Stat cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard label="Total Employees" value={String(employeeCount)} icon={<Users size={18} className="text-indigo-600" />} color="bg-indigo-50" />
+            <StatCard label="Present" value={`${presentToday}`} sub={`${currentAttendanceRate.toFixed(1)}% attendance rate`} icon={<UserCheck size={18} className="text-emerald-600" />} color="bg-emerald-50" />
+            <StatCard label="Absent" value={`${absentCount}`} icon={<AlertTriangle size={18} className="text-amber-600" />} color="bg-amber-50" />
+            <StatCard label="Pending Leave Requests" value={String(pendingLeaveRequests)} icon={<Clock size={18} className="text-violet-600" />} color="bg-violet-50" />
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard label="Gross Payroll" value={fmt(payrollGross)} sub={payrollPeriodLabel} icon={<TrendingUp size={18} className="text-blue-600" />} color="bg-blue-50" trend={{ dir: 'up', text: '+0.7%' }} />
+            <StatCard label="Total Deductions" value={fmt(payrollDeductions)} icon={<TrendingDown size={18} className="text-red-500" />} color="bg-red-50" />
+            <StatCard label="Net Payroll" value={fmt(payrollNet)} icon={<CheckCircle2 size={18} className="text-emerald-600" />} color="bg-emerald-50" />
+            <StatCard label="Health Deductions" value={fmt(healthDeductions)} sub={payrollPeriodLabel} icon={<HeartPulse size={18} className="text-rose-600" />} color="bg-rose-50" />
+          </div>
+
+          {/* Payroll Period Progress + Recent Activity */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Payroll Period Progress */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Current Payroll Period</p>
+                  <p className="text-lg font-bold text-slate-800 mt-0.5 font-display">{payrollPeriodLabel}</p>
+                  <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full mt-1">
+                    {payrollStatus || 'Open'}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2.5">
+                {payrollSteps.map((step, i) => (
+                  <div key={i} className="flex items-center gap-2.5">
+                    {step.done ? (
+                      <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                    ) : step.active ? (
+                      <div className="w-4 h-4 rounded-full border-2 border-indigo-600 flex items-center justify-center shrink-0">
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                      </div>
+                    ) : (
+                      <Circle size={16} className="text-slate-300 shrink-0" />
+                    )}
+                    <span className={`text-sm font-display ${step.done ? 'text-slate-600' : step.active ? 'text-indigo-600 font-semibold' : 'text-slate-400'}`}>
+                      {step.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => navigate('process-payroll')}
+                className="mt-5 w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg font-display flex items-center justify-center gap-2"
+              >
+                Continue Payroll <ArrowRight size={14} />
+              </button>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate-800 font-display">Recent Activity</p>
+                <button
+                  onClick={() => navigate('audit-logs')}
+                  className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:underline font-display"
+                >
+                  <Eye size={14} /> View more...
+                </button>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {renderActivityRows(recentActivity.slice(0, RECENT_ACTIVITY_LIMIT))}
+              </div>
             </div>
           </div>
-          <div className="space-y-2.5">
-            {steps.map((step, i) => (
-              <div key={i} className="flex items-center gap-2.5">
-                {step.done ? (
-                  <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-                ) : step.active ? (
-                  <div className="w-4 h-4 rounded-full border-2 border-indigo-600 flex items-center justify-center shrink-0">
-                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
-                  </div>
-                ) : (
-                  <Circle size={16} className="text-slate-300 shrink-0" />
-                )}
-                <span className={`text-sm font-display ${step.done ? 'text-slate-600' : step.active ? 'text-indigo-600 font-semibold' : 'text-slate-400'}`}>
-                  {step.label}
-                </span>
-              </div>
-            ))}
+        </>
+      ) : (
+        <>
+        <div className="grid grid-cols-2 gap-2"> 
+          {/* Stat cards */}
+          <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
+            <StatCard label="Total Employees" value={String(employeeCount)} icon={<Users size={18} className="text-indigo-600" />} color="bg-indigo-50" />
+            <StatCard label="Present" value={`${presentToday}`} sub={`${currentAttendanceRate.toFixed(1)}% attendance rate`} icon={<UserCheck size={18} className="text-emerald-600" />} color="bg-emerald-50" />
+            <StatCard label="Absent" value={`${absentCount}`} icon={<AlertTriangle size={18} className="text-amber-600" />} color="bg-amber-50" />
+            <StatCard label="Pending Leave Requests" value={String(pendingLeaveRequests)} icon={<Clock size={18} className="text-violet-600" />} color="bg-violet-50" />
+            <StatCard label="Gross Payroll" value={fmt(payrollGross)} sub={payrollPeriodLabel} icon={<TrendingUp size={18} className="text-blue-600" />} color="bg-blue-50" trend={{ dir: 'up', text: '+0.7%' }} />
+            <StatCard label="Net Payroll" value={fmt(payrollNet)} icon={<CheckCircle2 size={18} className="text-emerald-600" />} color="bg-emerald-50" />
+            <StatCard label="Total Deductions" value={fmt(payrollDeductions)} icon={<TrendingDown size={18} className="text-red-500" />} color="bg-red-50" />
+            <StatCard label="Health Deductions" value={fmt(healthDeductions)} sub={payrollPeriodLabel} icon={<HeartPulse size={18} className="text-rose-600" />} color="bg-rose-50" />
           </div>
-          <button
-            onClick={() => navigate('process-payroll')}
-            className="mt-5 w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg font-display flex items-center justify-center gap-2"
-          >
-            Continue Payroll <ArrowRight size={14} />
-          </button>
-        </div>
 
-        {/* Recent Activity */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
-          <div className="px-5 py-4 border-b border-slate-100">
-            <p className="text-sm font-semibold text-slate-800 font-display">Recent Activity</p>
-          </div>
-          <div className="divide-y divide-slate-50">
-            {recentActivity.map((item, i) => (
-              <div key={i} className="flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 cursor-pointer">
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${item.color}`}>
-                  {item.icon}
-                </div>
-                <div className="flex-1 min-w-0 lg:col-span-2">
-                  <p className="text-sm font-medium text-slate-700 font-display">{item.msg}</p>
-                  <p className="text-xs text-slate-400 truncate">{item.sub}</p>
-                </div>
-                <span className="text-xs text-slate-400 shrink-0">{item.time}</span>
+        
+          <div className="grid grid-cols-1 gap-2 items">
+            {/* Recent Activity */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm ">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate-800 font-display">Recent Activity</p>
+                <button
+                  onClick={() => navigate('audit-logs')}
+                  className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:underline font-display"
+                >
+                  <Eye size={14} /> View more...
+                </button>
               </div>
-            ))}
+              <div className="divide-y divide-slate-50">
+                {renderActivityRows(recentActivity.slice(0, RECENT_ACTIVITY_LIMIT))}
+              </div>
+            </div>
+            {/* Payroll Period Progress */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Current Payroll Period</p>
+                  <p className="text-lg font-bold text-slate-800 mt-0.5 font-display">{payrollPeriodLabel}</p>
+                  <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full mt-1">
+                    {payrollStatus || 'Open'}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2.5">
+                {payrollSteps.map((step, i) => (
+                  <div key={i} className="flex items-center gap-2.5">
+                    {step.done ? (
+                      <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                    ) : step.active ? (
+                      <div className="w-4 h-4 rounded-full border-2 border-indigo-600 flex items-center justify-center shrink-0">
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                      </div>
+                    ) : (
+                      <Circle size={16} className="text-slate-300 shrink-0" />
+                    )}
+                    <span className={`text-sm font-display ${step.done ? 'text-slate-600' : step.active ? 'text-indigo-600 font-semibold' : 'text-slate-400'}`}>
+                      {step.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => navigate('process-payroll')}
+                className="mt-5 w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg font-display flex items-center justify-center gap-2"
+              >
+                Continue Payroll <ArrowRight size={14} />
+              </button>
+            </div>
+            
+
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Middle row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Monthly Payroll Chart */}
+        {/* Attendance Chart */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <p className="text-sm font-semibold text-slate-800 font-display">Monthly Payroll Expenses</p>
-                <p className="text-xs text-slate-400">Last 6 periods</p>
+                <p className="text-sm font-semibold text-slate-800 font-display">Attendance</p>
+                <p className="text-xs text-slate-400">Present vs Absent per day (selected payroll period)</p>
               </div>
               <div className="flex items-center gap-4 text-xs text-slate-500">
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-500 inline-block" />Gross</span>
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400 inline-block" />Net</span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" />Present</span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400 inline-block" />Absent</span>
               </div>
             </div>
             <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={monthlyPayrollData} barSize={14} barGap={4}>
+              <BarChart data={attendanceChartData} barSize={14} barGap={4}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `₱${(v / 1000).toFixed(0)}k`} />
+                <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="gross" name="gross" fill="#6366f1" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="net" name="net" fill="#34d399" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="present" name="present" fill="#10b981" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="absent" name="absent" fill="#f87171" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -296,110 +754,21 @@ export default function Dashboard() {
         {/* Overtime Hours */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
           <p className="text-sm font-semibold text-slate-800 font-display mb-1">Overtime Hours</p>
-          <p className="text-xs text-slate-400 mb-3">Monthly trend</p>
+          <p className="text-xs text-slate-400 mb-3">Total overtime hours per day (selected payroll period)</p>
           <ResponsiveContainer width="100%" height={120}>
             <LineChart data={overtimeData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
               <Line type="monotone" dataKey="hours" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b' }} />
             </LineChart>
           </ResponsiveContainer>
-          <p className="text-xs text-slate-500 mt-2">Aug: <span className="font-semibold text-amber-600 font-display">164 hrs</span> — highest this year</p>
-        </div>
-      </div>  
-      
-
-      {/* Bottom row */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-        <div className="mb-4">
-          <h3 className="text-lg font-semibold text-slate-800 font-display">Sales &amp; Expense Summary</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Current month overview</p>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {summaryCards.map(card => (
-            <StatCard key={card.label} label={card.label} value={card.value} icon={card.icon} color={card.color} />
-          ))}
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Grand Total Sales by Item</p>
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={salesChartData} barSize={20}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
-                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={value => `₱${(value / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value) => [`${Number(value).toLocaleString()} sales`, 'Sales']} labelFormatter={(label) => `${label}`} />
-                  <Bar dataKey="grandTotalSale" name="Sales" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Net Sales by Item</p>
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={salesChartData} barSize={20}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
-                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={value => `₱${(value / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value) => [`${Number(value).toLocaleString()} sales`, 'Sales']} labelFormatter={(label) => `Item: ${label}`} />
-                  <Bar dataKey="netSale" fill="#10b981" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Order Discount by Item</p>
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={salesChartData} barSize={20}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={52} hide={isMobile} />
-                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={value => `₱${(value / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value) => fmt(Number(Array.isArray(value) ? value[0] : value))} />
-                  <Bar dataKey="orderDiscount" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 font-display">Expense Distribution</p>
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={expenseBreakdown}
-                    dataKey="amount"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={38}
-                    outerRadius={68}
-                    paddingAngle={2}
-                  >
-                    {expenseBreakdown.map((entry, index) => (
-                      <Cell
-                        key={`${entry.name}-${index}`}
-                        fill={EXPENSE_COLORS[index % EXPENSE_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => fmt(Number(Array.isArray(value) ? value[0] : value))} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} formatter={(value) => <span className="text-xs text-slate-600">{value}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          <p className="text-xs text-slate-500 mt-2">{overtimeHighlight}</p>
         </div>
       </div>
+        </>
+      )}
     </div>
   )
 }
