@@ -145,7 +145,7 @@ const navItems: NavEntry[] = [
       { id: 'services', label: 'Services', icon: <FileText size={16} /> },
       { id: 'food-and-beverage-catalog', label: 'Food & Beverage / Kitchen Catalog', icon: <CookingPot size={16} /> },
       { id: 'food-packages', label: 'Food Packages', icon: <Package2 size={16} /> },
-      { id: 'assets-catalog', label: 'Assets', icon: <Package2 size={16} /> },
+      { id: 'assets-catalog', label: 'Assets List', icon: <Package2 size={16} /> },
       { id: 'production-catalog', label: 'Ingredients / Production Catalog', icon: <Factory size={16} /> },
       { id: 'expenses', label: 'Expenses', icon: <CreditCard size={16} /> },
     ],
