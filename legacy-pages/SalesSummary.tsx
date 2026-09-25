@@ -481,7 +481,6 @@ export default function SalesSummary() {
   )
 
   const serviceNet = serviceSales - (serviceDiscount + serviceExpenses + servicePenalty + assetPenalty)
-  const totalNetSales = itemBundleNet + serviceNet
   const grossSales = totalItemSales + totalBundleSales + serviceSales
   const totalOrderDiscount = totalItemDiscount + totalBundleDiscount + serviceDiscount
   // Everything that is deducted from the gross totals to arrive at the net total, in the
@@ -525,6 +524,14 @@ export default function SalesSummary() {
     [expenseBreakdown],
   )
 
+  const fixedExpenses = totalExpenses - (ingredientExpenses + serviceExpenses)
+
+  // Net sale follows the canonical formula requested by the user:
+  // sum_of_sales = totalItemSales + totalBundleSales + serviceSales
+  // sum_of_expenses = totalExpenses
+  // net_pay = sum_of_sales - (totalOrderDiscount + sum_of_expenses)
+  const totalNetSales = (totalItemSales + totalBundleSales + serviceSales) - (totalOrderDiscount + totalExpenses)
+
   const isSpecificRestaurantSelected = restaurantFilter !== 'All Restaurants'
   const isSpecificDateRangeSelected = dateFilter.mode !== 'all' && dateRange !== null
   const canDownloadPdf = !loading && isSpecificRestaurantSelected && isSpecificDateRangeSelected
@@ -555,11 +562,10 @@ export default function SalesSummary() {
 
     setPdfValidationMessage('')
 
-    // Include fixed expenses in the PDF deductions while avoiding double-counting
-    // ingredient and service transaction expenses which are already part of
-    // `netTotalDeductions` (ingredientExpenses + serviceExpenses).
-    const fixedExpensesToAdd = totalExpenses - (ingredientExpenses + serviceExpenses)
-    const deductionsForPdf = netTotalDeductions + (Number.isFinite(fixedExpensesToAdd) ? fixedExpensesToAdd : 0)
+    // PDF deductions show the total expenses (sum_of_expenses). Discounts are
+    // passed separately as `discountAmount` so `deductionsAmount` here is
+    // simply the `totalExpenses` computed above.
+    const deductionsForPdf = totalExpenses
 
     generateSalesSummaryPdf({
       restaurantName: restaurantFilter,
