@@ -234,7 +234,7 @@ function EditAttendanceRowModal({ record, onClose, onSave }: { record: Attendanc
               onChange={e => setDraft(prev => ({ ...prev, status: e.target.value as AttendanceRecord['status'] }))}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display"
             >
-              {(['Present', 'Absent', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete', 'Overtime'] as AttendanceRecord['status'][]).map(option => (
+              {(['Present', 'Absent', 'On Leave', 'Rest Day', 'Holiday', 'Incomplete'] as AttendanceRecord['status'][]).map(option => (
                 <option key={option} value={option}>{option}</option>
               ))}
             </select>

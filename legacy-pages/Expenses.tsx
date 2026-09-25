@@ -426,8 +426,8 @@ export default function Expenses() {
                   >
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{expense.expense}</td>
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{expense.restaurant}</td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(expense.createdAt).toLocaleDateString()}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-right">{formatCurrency(expense.amount)}</td>
+                    <td className="py-3 px-4 font-display text-[11px] text-slate-500 text-center">{new Date(expense.createdAt).toLocaleDateString()}</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-700 text-right">{formatCurrency(expense.amount)}</td>
                     <td className="py-3 px-4 text-center">
                       <div className="flex items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <button
@@ -453,9 +453,9 @@ export default function Expenses() {
                 Array.from({ length: dailyEmptyCount }).map((_, ei) => (
                   <tr key={`empty-${ei}`} className="invisible">
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">2020-01-01</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 text-center">Restaurant</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-right">PHP 0.00</td>
+                     <td className="py-3 px-4 font-display text-[11px] text-slate-500 text-center">2020-01-01</td>
+                     <td className="py-3 px-4 text-sm text-slate-600 text-center">Restaurant</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-700 text-right">PHP 0.00</td>
                     <td className="py-3 px-4 text-center"><div className="invisible">Actions</div></td>
                   </tr>
                 ))
@@ -484,7 +484,7 @@ export default function Expenses() {
                       <div className="text-sm font-semibold text-slate-700 font-display">{expense.expense}</div>
                       <div className="text-xs text-slate-400">{new Date(expense.createdAt).toLocaleDateString()}</div>
                     </div>
-                    <div className="text-sm font-mono text-slate-700">{formatCurrency(expense.amount)}</div>
+                    <div className="text-sm font-display text-slate-700">{formatCurrency(expense.amount)}</div>
                   </button>
                 ))
               )
@@ -611,7 +611,7 @@ export default function Expenses() {
                         <div className="text-sm font-semibold text-slate-700 font-display">{expense.expense}</div>
                         <div className="text-xs text-slate-400">{expense.restaurant} · {new Date(expense.createdAt).toLocaleDateString()}</div>
                       </div>
-                      <div className="text-sm font-mono text-slate-700">{formatCurrency(expense.amount)}</div>
+                      <div className="text-sm font-display text-slate-700">{formatCurrency(expense.amount)}</div>
                     </div>
                   ))
                 )}
@@ -647,8 +647,8 @@ export default function Expenses() {
                     paginatedServiceExpenseRows.map(expense => (
                       <tr key={expense.id} className="hover:bg-slate-50">
                         <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display text-center">{expense.expense}</td>
-                        <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">{formatCurrency(expense.amount)}</td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(expense.createdAt).toLocaleDateString()}</td>
+                        <td className="py-3 px-4 font-display text-xs text-slate-700 text-center">{formatCurrency(expense.amount)}</td>
+                        <td className="py-3 px-4 font-display text-[11px] text-slate-500 text-center">{new Date(expense.createdAt).toLocaleDateString()}</td>
                         <td className="py-3 px-4 text-sm text-slate-600 text-center">{expense.restaurant}</td>
                       </tr>
                     ))
@@ -657,8 +657,8 @@ export default function Expenses() {
                     Array.from({ length: serviceExpenseEmptyCount }).map((_, ei) => (
                       <tr key={`empty-srv-${ei}`} className="invisible">
                         <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display text-center">Placeholder</td>
-                        <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">PHP 0.00</td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">2020-01-01</td>
+                        <td className="py-3 px-4 font-display text-xs text-slate-700 text-center">PHP 0.00</td>
+                        <td className="py-3 px-4 font-display text-[11px] text-slate-500 text-center">2020-01-01</td>
                         <td className="py-3 px-4 text-sm text-slate-600 text-center">Restaurant</td>
                       </tr>
                     ))

@@ -597,11 +597,11 @@ export default function Sales() {
                     }}
                   >
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display ">{sale.item}</td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">{new Date(sale.createdAt).toLocaleDateString()}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 text-center">{sale.numberOfSales}</td>
+                    <td className="py-3 px-4 font-display text-[11px] text-slate-500 text-center">{new Date(sale.createdAt).toLocaleDateString()}</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-600 text-center">{sale.numberOfSales}</td>
                     <td className="py-3 px-4 text-sm text-slate-600 text-center">{sale.category}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 text-right">{formatCurrency(sale.discount)}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-right">{formatCurrency(sale.cost)}</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-600 text-right">{formatCurrency(sale.discount)}</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-700 text-right">{formatCurrency(sale.cost)}</td>
                     <td className="py-3 px-4 text-center whitespace-nowrap">
                       <button
                         type="button"
@@ -619,12 +619,12 @@ export default function Sales() {
                 Array.from({ length: salesEmptyCount }).map((_, ei) => (
                   <tr key={`empty-${ei}`} className="invisible">
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display ">Placeholder</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-center">PHP 0.00</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 text-center">0</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600 text-center">PHP 0.00</td>
-                    <td className="py-3 px-4 text-sm text-slate-600 text-center">Category</td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 text-center">2020-01-01</td>
-                    <td className="py-3 px-4 text-center"><div className="invisible">Actions</div></td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-700 text-center">PHP 0.00</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-600 text-center">0</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-700 text-center">PHP 0.00</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-600 text-center">0</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-600 text-center">PHP 0.00</td>
+                    <td className="py-3 px-4 font-display text-[11px] text-slate-500 text-center">2020-01-01</td>
                   </tr>
                 ))
               )}
@@ -641,7 +641,7 @@ export default function Sales() {
                   <div className="text-sm font-semibold text-slate-700 font-display">{sale.item}</div>
                   <div className="text-xs text-slate-400">{sale.restaurant}</div>
                 </div>
-                <div className="text-sm font-mono text-slate-700">
+                <div className="text-sm font-display text-slate-700">
                   <div>{formatCurrency(sale.cost * sale.numberOfSales)}</div>
                   <div className="text-xs text-slate-400 text-right">Qty: {sale.numberOfSales}</div>
                 </div>

@@ -7,6 +7,7 @@ import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import { AnimatePresence, motion } from 'motion/react'
 import PaginationFooter from '../components/PaginationFooter'
 import DateFilter, { dateInRange, defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
+import { generateSalesSummaryPdf } from '../lib/pdf/generateSalesSummaryPdf'
 
 const ChartPlaceholder = ({ height = 180 }: { height?: number }) => (
   <div
@@ -46,7 +47,7 @@ function CardField({ label, value, mono = false }: { label: string; value: React
   return (
     <div className="min-w-0">
       <p className="text-xs text-slate-400">{label}</p>
-      <p className={`text-sm font-medium text-slate-700 ${mono ? 'font-mono' : ''}`}>{value}</p>
+      <p className={`text-sm font-medium text-slate-700 font-display`}>{value}</p>
     </div>
   )
 }
@@ -65,11 +66,11 @@ const CustomBarTooltip = ({ active, payload, label }: { active?: boolean; payloa
       <div className="mt-1 flex flex-col gap-0.5">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-indigo-500" />
-          <span className="text-slate-600">Sales count: <span className="font-medium text-slate-800">{Number(count).toLocaleString()}</span></span>
+          <span className="text-slate-600">Sales count: <span className="font-medium text-slate-800 font-display">{Number(count).toLocaleString()}</span></span>
         </div>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-500" />
-          <span className="text-slate-600">Total sales: <span className="font-medium text-slate-800">{formatCurrency(totalSale)}</span></span>
+          <span className="text-slate-600">Total sales: <span className="font-medium text-slate-800 font-display">{formatCurrency(totalSale)}</span></span>
         </div>
       </div>
     </div>
@@ -90,11 +91,11 @@ const ServiceBarTooltip = ({ active, payload, label }: { active?: boolean; paylo
       <div className="mt-1 flex flex-col gap-0.5">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-amber-500" />
-          <span className="text-slate-600">Transactions: <span className="font-medium text-slate-800">{Number(count).toLocaleString()}</span></span>
+          <span className="text-slate-600">Transactions: <span className="font-medium text-slate-800 font-display">{Number(count).toLocaleString()}</span></span>
         </div>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-500" />
-          <span className="text-slate-600">Total sales: <span className="font-medium text-slate-800">{formatCurrency(totalPrice)}</span></span>
+          <span className="text-slate-600">Total sales: <span className="font-display text-slate-800">{formatCurrency(totalPrice)}</span></span>
         </div>
       </div>
     </div>
@@ -338,6 +339,7 @@ export default function SalesSummary() {
             service_date: tx.service_date || tx.serviceDate || tx.created_at || tx.createdAt,
             restaurant: tx.restaurant || 'Both',
             status: tx.status || 'Under Reservation',
+            price: Number(tx.price || 0),        
             discount: Number(tx.discount || 0),
             expenses: Number(tx.expenses || 0),
             penalty: Number(tx.penalty || 0),
@@ -453,7 +455,8 @@ export default function SalesSummary() {
   )
 
   const serviceSales = useMemo(
-    () => fullyPaidTransactions.reduce((sum, tx) => sum + Number(tx.downpayment || 0) + Number(tx.balance || 0), 0),
+    // Sum the recorded `price` values only. Penalties are handled separately.
+    () => fullyPaidTransactions.reduce((sum, tx) => sum + Number(tx.price || 0), 0),
     [fullyPaidTransactions],
   )
 
@@ -481,6 +484,11 @@ export default function SalesSummary() {
   const totalNetSales = itemBundleNet + serviceNet
   const grossSales = totalItemSales + totalBundleSales + serviceSales
   const totalOrderDiscount = totalItemDiscount + totalBundleDiscount + serviceDiscount
+  // Everything that is deducted from the gross totals to arrive at the net total, in the
+  // same order the figures are built above: ingredient expenses come off the item/bundle
+  // side, penalties and service expenses off the service side. The PDF prints this as the
+  // left-hand deduction of the "Net Total Amount (...)" formula.
+  const netTotalDeductions = ingredientExpenses + serviceExpenses + servicePenalty + assetPenalty
 
   const expenseBreakdown = useMemo(() => {
     const grouped = new Map<string, { name: string; restaurant: string; amount: number }>()
@@ -516,6 +524,54 @@ export default function SalesSummary() {
     () => expenseBreakdown.reduce((sum, item) => sum + item.amount, 0),
     [expenseBreakdown],
   )
+
+  const isSpecificRestaurantSelected = restaurantFilter !== 'All Restaurants'
+  const isSpecificDateRangeSelected = dateFilter.mode !== 'all' && dateRange !== null
+  const canDownloadPdf = !loading && isSpecificRestaurantSelected && isSpecificDateRangeSelected
+  const [pdfValidationMessage, setPdfValidationMessage] = useState('')
+
+  // The Gross Sales table on the PDF builds its own "Total Amount", "Less Discount" and
+  // "Gross Total Amount" rows from these category rows + `discountAmount`, so only the
+  // per-category figures are passed here (no pre-computed total row).
+  const salesPdfRows = useMemo(
+    () => [
+      { label: 'Menu Item Sales', amount: totalItemSales },
+      { label: 'Food Bundle Sales', amount: totalBundleSales },
+      { label: 'Service Sales', amount: serviceSales },
+    ],
+    [serviceSales, totalBundleSales, totalItemSales],
+  )
+
+  const expensePdfRows = useMemo(
+    () => expenseBreakdown.map((expense) => ({ label: expense.name, amount: expense.amount })),
+    [expenseBreakdown],
+  )
+
+  const handleDownloadPdf = () => {
+    if (!isSpecificRestaurantSelected || !isSpecificDateRangeSelected || !dateRange) {
+      setPdfValidationMessage('Please select a restaurant and date range before downloading.')
+      return
+    }
+
+    setPdfValidationMessage('')
+
+    // Include fixed expenses in the PDF deductions while avoiding double-counting
+    // ingredient and service transaction expenses which are already part of
+    // `netTotalDeductions` (ingredientExpenses + serviceExpenses).
+    const fixedExpensesToAdd = totalExpenses - (ingredientExpenses + serviceExpenses)
+    const deductionsForPdf = netTotalDeductions + (Number.isFinite(fixedExpensesToAdd) ? fixedExpensesToAdd : 0)
+
+    generateSalesSummaryPdf({
+      restaurantName: restaurantFilter,
+      startDate: dateRange.start,
+      endDate: dateRange.end,
+      expenseRows: expensePdfRows,
+      salesRows: salesPdfRows,
+      discountAmount: totalOrderDiscount,
+      deductionsAmount: deductionsForPdf,
+      netTotalAmount: totalNetSales,
+    })
+  }
 
   const [salesSummaryVisible, setSalesSummaryVisible] = useState(true)
   const PAGE_SIZE = 10
@@ -556,7 +612,8 @@ export default function SalesSummary() {
       const name = String(tx.serviceType || 'Service')
       const current = grouped.get(name) ?? { name, count: 0, totalPrice: 0 }
       current.count += 1
-      current.totalPrice += Number(tx.downpayment || 0) + Number(tx.balance || 0)
+        // Use the recorded `price` only; do not include penalties or fallback sums.
+        current.totalPrice += Number(tx.price || 0)
       grouped.set(name, current)
     }
 
@@ -619,15 +676,15 @@ export default function SalesSummary() {
             {itemPageData.map((item) => (
               <tr key={item.name} className="hover:bg-slate-50">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.name}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(item.totalSale)}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(item.totalDiscount)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-700">{formatCurrency(item.totalSale)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-600">{formatCurrency(item.totalDiscount)}</td>
               </tr>
             ))}
             {itemEmptyCount > 0 && Array.from({ length: itemEmptyCount }).map((_, index) => (
               <tr key={`item-filler-${index}`} className="invisible">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(0)}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(0)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-700">{formatCurrency(0)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-600">{formatCurrency(0)}</td>
               </tr>
             ))}
           </tbody>
@@ -679,15 +736,15 @@ export default function SalesSummary() {
             {bundlePageData.map((bundle) => (
               <tr key={bundle.name} className="hover:bg-slate-50">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{bundle.name}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(bundle.totalSale)}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(bundle.totalDiscount)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-700">{formatCurrency(bundle.totalSale)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-600">{formatCurrency(bundle.totalDiscount)}</td>
               </tr>
             ))}
             {bundleEmptyCount > 0 && Array.from({ length: bundleEmptyCount }).map((_, index) => (
               <tr key={`bundle-filler-${index}`} className="invisible">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(0)}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(0)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-700">{formatCurrency(0)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-600">{formatCurrency(0)}</td>
               </tr>
             ))}
           </tbody>
@@ -705,14 +762,14 @@ export default function SalesSummary() {
             <div className="p-4 text-sm text-slate-400">No service sales found.</div>
           ) : (
             servicePageData.map((transaction) => {
-              const downpaymentPlusBalance = Number(transaction.downpayment || 0) + Number(transaction.balance || 0)
+              const priceOnly = Number(transaction.price || 0)
 
               return (
                 <div key={transaction.service_transaction_id} className="border-b border-slate-200 p-3 last:border-b-0">
                   <p className="truncate text-sm font-semibold text-slate-700 font-display">{transaction.serviceType || 'Service'}</p>
                   <div className="mt-2 grid grid-cols-2 gap-3">
-                    <CardField label="Total Sale" value={formatCurrency(downpaymentPlusBalance)} mono />
-                    <CardField label="Order Discount" value={formatCurrency(Number(transaction.discount || 0))} mono />
+                    <CardField label="Total Sale" value={formatCurrency(priceOnly)} />
+                    <CardField label="Order Discount" value={formatCurrency(Number(transaction.discount || 0))} />
                   </div>
                 </div>
               )
@@ -743,7 +800,7 @@ export default function SalesSummary() {
               </tr>
             )}
             {servicePageData.map((transaction) => {
-              const downpaymentPlusBalance = Number(transaction.downpayment || 0) + Number(transaction.balance || 0)
+              const priceOnly = Number(transaction.price || 0)
 
               return (
                 <tr key={transaction.service_transaction_id} className="hover:bg-slate-50">
@@ -751,8 +808,8 @@ export default function SalesSummary() {
                   <td className="py-3 px-4 text-sm text-slate-700">
                     {transaction.service_date ? new Date(transaction.service_date).toLocaleDateString() : '—'}
                   </td>
-                  <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(downpaymentPlusBalance)}</td>
-                  <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(Number(transaction.discount || 0))}</td>
+                  <td className="py-3 px-4 font-display text-xs text-slate-700">{formatCurrency(priceOnly)}</td>
+                  <td className="py-3 px-4 font-display text-xs text-slate-600">{formatCurrency(Number(transaction.discount || 0))}</td>
                 </tr>
               )
             })}
@@ -760,8 +817,8 @@ export default function SalesSummary() {
               <tr key={`service-filler-${index}`} className="invisible">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
                 <td className="py-3 px-4 text-sm text-slate-700">—</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(0)}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-600">{formatCurrency(0)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-700">{formatCurrency(0)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-600">{formatCurrency(0)}</td>
               </tr>
             ))}
           </tbody>
@@ -812,7 +869,7 @@ export default function SalesSummary() {
               <tr key={`${expense.name}-${expense.restaurant}`} className="hover:bg-slate-50">
                 <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{expense.name}</td>
                 <td className="py-3 px-4 text-sm text-slate-600">{expense.restaurant}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(expense.amount)}</td>
+                <td className="py-3 px-4 font-display text-xs text-slate-700">{formatCurrency(expense.amount)}</td>
               </tr>
             ))}
           </tbody>
@@ -832,7 +889,10 @@ export default function SalesSummary() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <select
               value={restaurantFilter}
-              onChange={(event) => setRestaurantFilter(event.target.value as RestaurantFilterValue)}
+              onChange={(event) => {
+                setPdfValidationMessage('')
+                setRestaurantFilter(event.target.value as RestaurantFilterValue)
+              }}
               className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none font-display text-slate-600"
             >
               {RESTAURANT_OPTIONS.map((option) => (
@@ -840,13 +900,38 @@ export default function SalesSummary() {
               ))}
             </select>
           <div>
-          <div>
-            <DateFilter value={dateFilter} onChange={setDateFilter} allLabel="All Sales" className="justify-end"/>
+            <div>
+              <DateFilter
+                value={dateFilter}
+                onChange={(nextValue) => {
+                  setPdfValidationMessage('')
+                  setDateFilter(nextValue)
+                }}
+                allLabel="All Sales"
+                className="justify-end"
+              />
+            </div>
           </div>
-            
-          </div>
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={!canDownloadPdf}
+            className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              canDownloadPdf
+                ? 'bg-slate-800 text-white hover:bg-slate-700'
+                : 'cursor-not-allowed bg-slate-100 text-slate-400'
+            }`}
+          >
+            Download PDF
+          </button>
         </div>
       </div>
+
+      {pdfValidationMessage && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {pdfValidationMessage}
+        </div>
+      )}
 
         <div className="space-y-6">
           <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
