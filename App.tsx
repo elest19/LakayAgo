@@ -1160,51 +1160,6 @@ export default function App() {
                   <div className="flex items-center gap-3">
                     <RealtimeStatusPill />
 
-                    <div className="relative">
-                      <button
-                        onClick={() => { setNotifOpen(!notifOpen); setProfileOpen(false) }}
-                        className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 cursor-pointer"
-                      >
-                        <Bell size={18} />
-                        {notifications.filter(n => !n.read).length > 0 ? (
-                          <span className="absolute -top-1 -right-1 min-w-[18px] h-5 px-1.5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">{notifications.filter(n => !n.read).length}</span>
-                        ) : (
-                          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full opacity-0" />
-                        )}
-                      </button>
-
-                      {notifMounted && (
-                        <div className={`absolute right-0 top-11 w-[min(82vw,20rem)] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown ${notifVisible ? 'show' : 'closing'}`}>
-                          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                            <span className="font-semibold text-sm font-display text-slate-800">Notifications</span>
-                            <button
-                              onClick={() => setNotifications(prev => prev.map(n => ({ ...n, read: true })))}
-                              className="text-xs text-slate-500 hover:text-slate-700"
-                            >
-                              Mark all read
-                            </button>
-                          </div>
-
-                          {notifications.length === 0 ? (
-                            <div className="px-4 py-4 text-sm text-slate-500">No notifications</div>
-                          ) : (
-                            notifications.map((n) => (
-                              <div
-                                key={n.id}
-                                onClick={() => {
-                                  setNotifications(prev => prev.map(p => p.id === n.id ? { ...p, read: true } : p))
-                                  if (n.href) { try { navigate((n.href as unknown) as any); } catch {} }
-                                }}
-                                className={`px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 cursor-pointer ${n.read ? 'opacity-60' : ''}`}>
-                                <p className="text-sm text-slate-700">{n.msg}</p>
-                                <p className="text-xs text-slate-400 mt-0.5">{n.time || 'now'}</p>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-
                     {!isMobileView && (
                       <div className="relative">
                         <button
