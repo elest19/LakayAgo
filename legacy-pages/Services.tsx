@@ -56,6 +56,23 @@ const getErrors = (f: ServiceForm) => {
   return e
 }
 
+const formatMoney = (value: number | string | null | undefined) => {
+  const amount = Number(value)
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    minimumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0)
+}
+
+const formatNumber = (value: number | string | null | undefined) => {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '0'
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
+
 const sanitizeMoneyInput = (value: string) => {
   if (value === '') return ''
 
@@ -1298,7 +1315,7 @@ export default function Services() {
       const j = await res.json()
       setTxBalance(Number(j.transaction.balance || 0))
       setTransactions(prev => prev.map(t => t.service_transaction_id === editingTxId ? j.transaction : t))
-      showToast({ type: 'success', message: `Payment of ₱${amount.toFixed(2)} added` })
+      showToast({ type: 'success', message: `Payment of ${formatMoney(amount)} added` })
       setAddPaymentAmount('')
     } catch (e) {
       showToast({ type: 'error', message: 'Failed to add payment' })
@@ -1388,7 +1405,7 @@ export default function Services() {
                       <div className="text-xs text-slate-500">{i.restaurant}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="font-mono text-sm text-slate-700">{i.price}</div>
+                      <div className="font-display text-sm text-slate-700">{formatMoney(i.price)}</div>
                     </div>
                   </button>
                 ))}
@@ -1455,15 +1472,19 @@ export default function Services() {
                       const activeSubServices = allSubServices.filter((sub) => !sub.is_archived)
                       const archivedSubServices = allSubServices.filter((sub) => sub.is_archived)
                       const expanded = expandedServiceIds.includes(i.service_id)
+                      const assetNames = (i.assets || []).map((a: any) => a.name).filter(Boolean)
+                      const visibleAssetNames = assetNames.slice(0, 5)
+                      const remainingAssetCount = Math.max(assetNames.length - visibleAssetNames.length, 0)
+                      const formattedAssetPreview = assetNames.length === 0 ? 'None' : remainingAssetCount > 0 ? `${visibleAssetNames.join(', ')}, ... ${remainingAssetCount} more` : visibleAssetNames.join(', ')
 
                       return (
                         <Fragment key={i.service_id}>
                           <tr className="hover:bg-slate-50 cursor-pointer border-b border-slate-200 focus:outline-none focus-visible:bg-slate-100" onClick={() => setSelectedService(i)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedService(i) } }}>
                             <td className="py-3 px-4 font-medium">{i.service_type}</td>
-                            <td className="py-3 px-4 text-center font-mono">{i.price}</td>
+                            <td className="py-3 px-4 text-center font-display text-sm text-slate-700">{formatMoney(i.price)}</td>
                             <td className="py-3 px-4 text-center text-sm text-slate-600">{i.restaurant}</td>
                             <td className="py-3 px-4 text-sm text-slate-600">
-                              {(i.assets || []).length > 0 ? i.assets.map((a: any) => a.name).join(', ') : 'None'}
+                              {formattedAssetPreview}
                             </td>
                             <td className="py-3 px-4 text-center text-sm" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-2 flex-wrap">
@@ -1566,7 +1587,7 @@ export default function Services() {
                   <button type="button" key={s.sub_service_id} className="w-full p-3 border-b border-slate-200 bg-white flex justify-between items-center text-left transition-colors duration-150 hover:bg-slate-50" onClick={() => setSelectedSubService(s)}>
                     <div>
                       <div className="font-medium">{s.name}</div>
-                      <div className="text-xs text-slate-500">{s.restaurant} · ₱{Number(s.price || 0).toFixed(2)}</div>
+                      <div className="text-xs text-slate-500">{s.restaurant} · {formatMoney(s.price || 0)}</div>
                     </div>
                   </button>
                 ))
@@ -1609,7 +1630,7 @@ export default function Services() {
                 <thead className="text-xs uppercase border-b border-slate-200 text-white bg-indigo-600">
                   <tr>
                     <th className="py-3 px-4 text-left">Name</th>
-                    <th className="py-3 px-4 text-center font-mono">Price</th>
+                    <th className="py-3 px-4 text-center font-display">Price</th>
                     <th className="py-3 px-4 text-center">Restaurant</th>
                     <th className="py-3 px-4 text-center">Food Package</th>
                     <th className="py-3 px-4 text-center">Actions</th>
@@ -1645,9 +1666,8 @@ export default function Services() {
                         >
                           <td className="py-3 px-4 text-left">
                             <div className="text-sm font-medium">{s.name}</div>
-                            <div className="text-xs text-slate-500">{s.food_package_name ? `(${s.food_package_name})` : ''}</div>
                           </td>
-                          <td className="py-3 px-4 text-center font-mono">₱{Number(s.price || 0).toFixed(2)}</td>
+                          <td className="py-3 px-4 text-center font-display text-sm text-slate-700">{formatMoney(s.price || 0)}</td>
                           <td className="py-3 px-4 text-center text-sm text-slate-600">{s.restaurant}</td>
                           <td className="py-3 px-4 text-center text-sm text-slate-500">{s.food_package_name || 'None'}</td>
                           <td className="py-3 px-4 text-center text-sm" onClick={(e) => e.stopPropagation()}>
@@ -1798,10 +1818,10 @@ export default function Services() {
                         <tr key={tx.service_transaction_id} className="hover:bg-slate-50 cursor-pointer border-b border-slate-200 focus:outline-none focus-visible:bg-slate-100" onClick={() => setSelectedTransaction(tx)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedTransaction(tx) } }}>
                           <td className="py-2 px-3">{tx.service_date?.slice(0,10)}</td>
                           <td className="py-2 px-3">{tx.service_id ? (items.find(s => s.service_id === tx.service_id)?.service_type || `#${tx.service_id}`) : '-'}</td>
-                          <td className="py-2 px-3 text-right font-mono">{getTxExpenses(tx).toFixed(2)}</td>
-                          <td className="py-2 px-3 text-right font-mono">{Number(tx.price || 0).toFixed(2)}</td>
-                          <td className="py-2 px-3 text-right font-mono text-red-500">{Number((Number(tx.penalty || 0) + assetPenaltyApplied)).toFixed(2)}</td>
-                          <td className="py-2 px-3 text-right font-mono">{unpaidBalance.toFixed(2)}</td>
+                          <td className="py-2 px-3 text-right font-display text-sm text-slate-700">{formatMoney(getTxExpenses(tx))}</td>
+                          <td className="py-2 px-3 text-right font-display text-sm text-slate-700">{formatMoney(tx.price || 0)}</td>
+                          <td className="py-2 px-3 text-right font-display text-sm text-red-500">{formatMoney(Number(tx.penalty || 0) + assetPenaltyApplied)}</td>
+                          <td className="py-2 px-3 text-right font-display text-sm text-slate-700">{formatMoney(unpaidBalance)}</td>
                           <td className="py-2 px-3 text-center">
                             <div className="flex items-center justify-center gap-2">
                               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium font-display whitespace-nowrap ${statusColor[tx.status] || 'bg-slate-50 text-slate-700'}`}>
@@ -1926,7 +1946,7 @@ export default function Services() {
                             disabled={alreadySelected}
                             style={{ color: alreadySelected ? '#94a3b8' : undefined }}
                           >
-                            {s.name} · {s.restaurant} · ₱{Number(s.price || 0).toFixed(2)}
+                            {s.name} · {s.restaurant} · {formatMoney(s.price || 0)}
                           </option>
                         )
                       })}
@@ -1942,7 +1962,7 @@ export default function Services() {
                       <div key={s.sub_service_id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                         <div className="text-sm text-slate-700">
                           <span className="font-medium">{s.name}</span>
-                          <span className="text-xs text-slate-500 ml-2">{s.restaurant} · ₱{Number(s.price || 0).toFixed(2)}</span>
+                          <span className="text-xs text-slate-500 ml-2 font-display">{s.restaurant} · {formatMoney(s.price || 0)}</span>
                         </div>
                         <button type="button" onClick={() => removeAttachedSubService(Number(s.sub_service_id))} className="text-red-600 text-xs">Remove</button>
                       </div>
@@ -2153,7 +2173,7 @@ export default function Services() {
                     {(subServicesByService[txForm.service_id] || []).filter(s => !s.is_archived).map(sub => (
                       <div key={sub.sub_service_id} className="flex items-center justify-between text-xs px-2 py-1 bg-white rounded border border-slate-200">
                         <span className="text-slate-700">{sub.name}</span>
-                        <span className="text-slate-500">₱{Number(sub.price || 0).toFixed(2)}</span>
+                        <span className="text-slate-500 font-display">{formatMoney(sub.price || 0)}</span>
                       </div>
                     ))}
                     {(subServicesByService[txForm.service_id] || []).filter(s => !s.is_archived).length === 0 && (
@@ -2241,7 +2261,7 @@ export default function Services() {
             {(txForm.status === 'Finalized' || txForm.status === 'Fully Paid') && (
               <div>
                 <label className="block text-xs text-slate-600 mb-1">Asset Penalty</label>
-                <input value={assetTotalPenalty.toFixed(2)} readOnly className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-700 focus:outline-none cursor-default caret-transparent" />
+                <input value={formatNumber(assetTotalPenalty)} readOnly className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-700 focus:outline-none cursor-default caret-transparent font-display" />
               </div>
             )}
           </div>
@@ -2282,20 +2302,20 @@ export default function Services() {
                       <div>
                         <div className="mb-2">
                           <p className="text-xs text-slate-500">Total Price</p>
-                          <p className="font-semibold text-slate-800 font-mono">
-                            ₱{totalPrice.toFixed(2)}
+                          <p className="font-semibold text-slate-800 font-display">
+                            {formatMoney(totalPrice)}
                           </p>
                         </div>
                         <div className="mb-2">
                           <p className="text-xs text-slate-500">Paid Amount</p>
-                          <p className="font-semibold text-green-600 font-mono">
-                            ₱{paidAmount.toFixed(2)}
+                          <p className="font-semibold text-green-600 font-display">
+                            {formatMoney(paidAmount)}
                           </p>
                         </div>
                         <div className="mb-2">
                           <p className="text-xs text-slate-500">Unpaid Balance</p>
-                          <p className="font-bold text-lg text-red-600 font-mono">
-                            ₱{unpaidBalance.toFixed(2)}
+                          <p className="font-bold text-lg text-red-600 font-display">
+                            {formatMoney(unpaidBalance)}
                           </p>
                         </div>
                       </div>
@@ -2378,8 +2398,8 @@ export default function Services() {
                           </td>
                         </>
                       )}
-                      <td className="py-2 text-right text-sm">
-                        {currentTxStatus === 'Finalized' ? Number(line.penalty_amount || 0).toFixed(2) : currentTxStatus === 'Fully Paid' ? Number(line.penalty_amount || 0).toFixed(2) : Number(line.calculated_penalty || 0).toFixed(2)}
+                      <td className="py-2 text-right text-sm font-display">
+                        {formatMoney(currentTxStatus === 'Finalized' || currentTxStatus === 'Fully Paid' ? Number(line.penalty_amount || 0) : Number(line.calculated_penalty || 0))}
                       </td>
                     </tr>
                   ))}
@@ -2410,7 +2430,7 @@ export default function Services() {
               </div>
               <div>
                 <p className="text-xs text-slate-400">Price</p>
-                <p className="text-sm font-medium">₱{Number(selectedSubService.price || 0).toFixed(2)}</p>
+                <p className="text-sm font-medium font-display">{formatMoney(selectedSubService.price || 0)}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Restaurant</p>
@@ -2440,7 +2460,7 @@ export default function Services() {
               </div>
               <div>
                 <p className="text-xs text-slate-400">Price</p>
-                <p className="text-sm font-medium">₱{Number(selectedService.price || 0).toFixed(2)}</p>
+                <p className="text-sm font-medium font-display">{formatMoney(selectedService.price || 0)}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Restaurant</p>
@@ -2513,19 +2533,19 @@ export default function Services() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Price</p>
-                  <p className="text-sm font-medium">₱{Number(tx.price || 0).toFixed(2)}</p>
+                  <p className="text-sm font-medium font-display">{formatMoney(tx.price || 0)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Expenses</p>
-                  <p className="text-sm font-medium">₱{getTxExpenses(tx).toFixed(2)}</p>
+                  <p className="text-sm font-medium font-display">{formatMoney(getTxExpenses(tx))}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Penalty</p>
-                  <p className="text-sm font-medium">₱{Number(Number(tx.penalty || 0) + txAssetPenaltyApplied).toFixed(2)}</p>
+                  <p className="text-sm font-medium font-display">{formatMoney(Number(tx.penalty || 0) + txAssetPenaltyApplied)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Unpaid Balance</p>
-                  <p className="text-sm font-medium">₱{txUnpaidBalance.toFixed(2)}</p>
+                  <p className="text-sm font-medium font-display">{formatMoney(txUnpaidBalance)}</p>
                 </div>
                 <div>
                   <button type="button" onClick={() => { setSelectedTransaction(null); void openExpenseModal(tx) }} className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 font-display flex items-center gap-2">
@@ -2606,7 +2626,7 @@ export default function Services() {
                     <div key={`${row.service_transaction_expense_id ?? 'new'}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                       <div>
                         <div className="text-sm font-medium text-slate-700">{row.name}</div>
-                        <div className="text-xs text-slate-500">₱{Number(row.amount || 0).toFixed(2)}</div>
+                        <div className="text-xs text-slate-500 font-display">{formatMoney(row.amount || 0)}</div>
                       </div>
                       {!expenseModalReadOnly && (
                         <button type="button" onClick={() => removeExpenseRow(row)} className="text-red-600 text-xs">Remove</button>
@@ -2618,7 +2638,7 @@ export default function Services() {
 
               <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                 <span className="text-sm font-medium text-slate-600">Total</span>
-                <span className="text-sm font-mono text-slate-800">₱{expenseTotal.toFixed(2)}</span>
+                <span className="text-sm font-display text-slate-800">{formatMoney(expenseTotal)}</span>
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">

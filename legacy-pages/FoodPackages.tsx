@@ -23,6 +23,23 @@ const emptyForm = (type: PackageType = 'catering_package'): PackForm => ({
   type,
 })
 
+const formatCurrency = (value: number | string | null | undefined) => {
+  const amount = Number(value)
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    minimumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0)
+}
+
+const formatNumber = (value: number | string | null | undefined) => {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '0'
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
+
 const getErrors = (f: PackForm) => {
   const e: Partial<Record<keyof PackForm, string>> = {}
   if (!f.name.trim()) e.name = 'Name is required.'
@@ -273,7 +290,7 @@ export default function FoodPackages() {
                   }}
                 >
                   <td className="py-3 px-4 font-medium text-slate-800">{pkg.name}</td>
-                  <td className="py-3 px-4 text-center font-mono text-sm text-slate-700">{new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(pkg.price || 0))}</td>
+                  <td className="py-3 px-4 text-center font-display text-sm text-slate-700">{formatCurrency(pkg.price || 0)}</td>
                   <td className="py-3 px-4 text-center text-sm text-slate-600">{pkg.item_count ?? (Array.isArray(pkg.items) ? pkg.items.length : 0)}</td>
                   <td className="py-3 px-4 text-center text-sm" onClick={(event) => event.stopPropagation()}>
                     <div className="flex items-center justify-center gap-2">
@@ -293,7 +310,7 @@ export default function FoodPackages() {
                 Array.from({ length: emptyCount }).map((_, i) => (
                   <tr key={`empty-${i}`} className="invisible">
                     <td className="py-3 px-4 font-medium text-slate-800">Placeholder</td>
-                    <td className="py-3 px-4 text-center font-mono text-sm text-slate-700">PHP 0.00</td>
+                    <td className="py-3 px-4 text-center font-display text-sm text-slate-700">{formatCurrency(0)}</td>
                     <td className="py-3 px-4 text-center text-sm text-slate-600">0</td>
                     <td className="py-3 px-4 text-center text-sm">
                       <div className="flex items-center justify-center gap-2">
@@ -337,7 +354,7 @@ export default function FoodPackages() {
                 
               </div>
               <div className="flex flex-col items-end gap-1 text-xs">
-                <div className="mt-1 text-xs font-mono text-slate-600">{new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(pkg.price || 0))}</div>
+                <div className="mt-1 text-xs font-display text-slate-600">{formatCurrency(pkg.price || 0)}</div>
               </div>
             </button>
           ))}
@@ -927,8 +944,8 @@ export default function FoodPackages() {
           <div className="w-full p-2">
             <div className="mb-4">
               <h3 className="text-base font-semibold text-slate-800 font-display">{viewItem.name}</h3>
-              <div className="text-sm font-mono text-slate-600 mt-0.5">
-                {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(viewItem.price || 0))}
+              <div className="text-sm font-display text-slate-600 mt-0.5">
+                {formatCurrency(viewItem.price || 0)}
               </div>
             </div>
 

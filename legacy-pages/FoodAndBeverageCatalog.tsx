@@ -50,6 +50,15 @@ const formatCurrency = (value: number | string | null | undefined) => {
   return pesoFormatter.format(Number.isFinite(amount) ? amount : 0)
 }
 
+const formatNumber = (value: number | string | null | undefined, maximumFractionDigits = 2) => {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '0'
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+  }).format(amount)
+}
+
 const ensureFractionLabel = (value?: string) => {
   if (value && FRACTION_OPTIONS.some(option => option.label === value)) return value
   return '1/2'
@@ -917,7 +926,7 @@ export default function FoodAndBeverageCatalog() {
                   </td>
                   <td className="py-3 px-4 text-center text-sm text-slate-600">{Array.isArray(i.recipe) ? i.recipe.length : 0}</td>
                   <td className="py-3 px-4 text-center text-sm text-slate-600">{i.servings ?? 1}</td>
-                  <td className="py-3 px-4 text-right font-mono">{formatCurrency(i.price)}</td>
+                  <td className="py-3 px-4 text-right font-display text-sm text-slate-700">{formatCurrency(i.price)}</td>
                   <td className="py-3 px-4 text-center text-sm" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-center gap-x-3 gap-y-1 flex-wrap">
                       <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(i) }} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 whitespace-nowrap"><Pencil size={14} /> Edit</button>
@@ -937,7 +946,7 @@ export default function FoodAndBeverageCatalog() {
                   <tr key={`empty-${ii}`} className="invisible border-slate-200">
                     <td className="py-3 px-4 font-medium"><div className="flex items-center gap-2 flex-wrap"><span>Placeholder</span></div></td>
                     <td className="py-3 px-4 text-center text-sm"><span className="inline-flex rounded-full px-2 py-1 text-[10px] font-medium">Menu Item</span></td>
-                    <td className="py-3 px-4 text-center font-mono">{formatCurrency(0)}</td>
+                    <td className="py-3 px-4 text-center font-display text-sm text-slate-700">{formatCurrency(0)}</td>
                     <td className="py-3 px-4 text-center text-sm text-slate-600">0</td>
                     <td className="py-3 px-4 text-center text-sm text-slate-600">0</td>
                     <td className="py-3 px-4 text-center text-sm"><div className="flex items-center justify-center gap-2"><button className="invisible">Edit</button></div></td>
@@ -965,7 +974,7 @@ export default function FoodAndBeverageCatalog() {
               <div className="font-medium">{i.name}</div>
               <div className="text-xs text-slate-500">{i.restaurant}</div>
             </div>
-            <div className="font-mono">{formatCurrency(i.price)}</div>
+            <div className="font-display text-sm text-slate-700">{formatCurrency(i.price)}</div>
           </button>
         ))}
         </div>
@@ -1471,7 +1480,7 @@ export default function FoodAndBeverageCatalog() {
                               ) : mode === 'whole+fraction' ? (
                                 <span className="text-xs font-medium text-indigo-700">{r.quantity_required ?? '0'} + {ensureFractionLabel(r.fractionValue)}</span>
                               ) : (
-                                <span className="text-xs">{Number(r.quantity_required ?? 0)}</span>
+                                <span className="text-xs font-display">{formatNumber(r.quantity_required ?? 0, 2)}</span>
                               )}
                               <span className="text-xs"> {(() => {
                                   const opt = productionOptions.find(p => String(p.production_inventory_id) === String(r.production_inventory_id));

@@ -19,6 +19,14 @@ const emptyForm: AssetForm = { name: '', quantity: '0', restaurant: 'Lakay Ago',
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(Number.isFinite(value) ? value : 0)
 
+const formatNumber = (value: number | string | null | undefined) => {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '0'
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
+
 const getErrors = (f: AssetForm) => {
   const e: Partial<Record<keyof AssetForm, string>> = {}
   if (!f.name.trim()) e.name = 'Name is required.'
@@ -338,8 +346,8 @@ export default function AssetsCatalog() {
                     }}
                   >
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.name}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700">{item.quantity}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700">{formatCurrency(Number(item.penalty_amount || 0))}</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-700">{formatNumber(item.quantity)}</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-700">{formatCurrency(Number(item.penalty_amount || 0))}</td>
                     <td className="py-3 px-4 text-sm text-slate-700" onClick={e => e.stopPropagation()}>
                       {addQuantityId === item.asset_id ? (
                         <div className="flex items-center gap-2 justify-center">
@@ -374,8 +382,8 @@ export default function AssetsCatalog() {
                 Array.from({ length: emptyCount }).map((_, ii) => (
                   <tr key={`empty-${ii}`} className="invisible">
                     <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700">0</td>
-                    <td className="py-3 px-4 text-sm text-slate-700">PHP 0.00</td>
+                    <td className="py-3 px-4 font-display text-xs text-slate-700">{formatNumber(0)}</td>
+                    <td className="py-3 px-4 text-sm font-display text-slate-700">{formatCurrency(0)}</td>
                     <td className="py-3 px-4 text-sm text-slate-700"><div className="invisible">Actions</div></td>
                   </tr>
                 ))
@@ -413,7 +421,7 @@ export default function AssetsCatalog() {
                   <div className="text-xs text-slate-400">{formatCurrency(Number(item.penalty_amount || 0))}</div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="text-sm font-mono text-slate-700">Qty: {item.quantity}</div>
+                  <div className="text-sm font-display text-slate-700">Qty: {formatNumber(item.quantity)}</div>
                 </div>
               </div>
             ))
@@ -521,7 +529,7 @@ export default function AssetsCatalog() {
             <div className="grid grid-cols-2 gap-3 w-md">
               <div>
                 <p className="text-xs text-slate-400">Quantity</p>
-                <p className="text-sm font-medium">{selectedItem.quantity}</p>
+                <p className="text-sm font-medium font-display">{formatNumber(selectedItem.quantity)}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Restaurant</p>

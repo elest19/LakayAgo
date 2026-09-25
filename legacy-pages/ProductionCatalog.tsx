@@ -33,6 +33,14 @@ const getFractionKey = (decimal: number): string | null => {
 // use shared display formatter for stock
 const formatStock = (stock: number, unit?: string | null) => formatStockReadable(stock, unit || undefined)
 
+const formatNumber = (value: number | string | null | undefined) => {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '0'
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
+
 const unitAbbrev = (unit?: string | null) => {
   if (!unit) return ''
   const match = unit.match(/\(([^)]*)\)$/)
@@ -510,8 +518,8 @@ export default function ProductionCatalog() {
                           <tr key={item.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-100'} hover:bg-slate-50 group cursor-pointer`} onClick={() => setSelectedItem(item)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedItem(item) } }}>
                             <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{item.name}</td>
                             <td className="py-3 px-4 text-sm text-slate-600">{(() => { const cat = (item as any).ingredient_category; if (cat === 'quantity') return unitAbbrev(item.unit); return unitAbbrev((item as any).recipe_unit || item.unit); })()}</td>
-                            <td className="py-3 px-4 font-mono text-xs text-slate-700">{Math.floor(item.stock)} {unitAbbrev(item.unit)}</td>
-                            <td className="py-3 px-4 font-mono text-xs text-slate-700">{(Math.floor((item.stock - Math.floor(item.stock)) * 100) / 100).toFixed(2)} {unitAbbrev(item.unit)}</td>
+                            <td className="py-3 px-4 font-display text-xs text-slate-700">{formatNumber(item.stock)} {unitAbbrev(item.unit)}</td>
+                            <td className="py-3 px-4 font-display text-xs text-slate-700">{formatNumber(item.stock)} {unitAbbrev(item.unit)}</td>
                             <td className="py-3 px-4 text-sm text-slate-600">{item.isArchived ? 'Archived' : 'Active'}</td>
                             <td className="py-3 px-4" onClick={e => e.stopPropagation()}>
                               {addStockId === item.id ? (
@@ -547,8 +555,8 @@ export default function ProductionCatalog() {
                             <tr key={`empty-${ei}`} className="invisible">
                               <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
                               <td className="py-3 px-4 text-sm text-slate-600">Unit</td>
-                              <td className="py-3 px-4 font-mono text-xs text-slate-700">0</td>
-                              <td className="py-3 px-4 font-mono text-xs text-slate-700">0.00</td>
+                              <td className="py-3 px-4 font-display text-xs text-slate-700">{formatNumber(0)}</td>
+                              <td className="py-3 px-4 font-display text-xs text-slate-700">{formatNumber(0)}</td>
                               <td className="py-3 px-4 text-sm text-slate-600">Status</td>
                               <td className="py-3 px-4"><div className="invisible">Actions</div></td>
                             </tr>
@@ -589,7 +597,7 @@ export default function ProductionCatalog() {
                     >
                       <div>
                         <div className="text-sm font-semibold text-slate-700 font-display">{item.name}</div>
-                        <div className="text-xs text-slate-400">{item.stock} {item.unit}</div>
+                        <div className="text-xs text-slate-400">{formatNumber(item.stock)} {item.unit}</div>
                       </div>
                       {addStockId === item.id ? (
                         <div onClick={e => e.stopPropagation()}>
@@ -1013,7 +1021,7 @@ export default function ProductionCatalog() {
             <div className="grid grid-cols-2 gap-3 w-md">
               <div>
                 <p className="text-xs text-slate-400">Stock</p>
-                <p className="text-sm font-medium">{selectedItem.stock} {selectedItem.unit}</p>
+                <p className="text-sm font-medium font-display">{formatNumber(selectedItem.stock)} {selectedItem.unit}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Recipe Unit</p>
