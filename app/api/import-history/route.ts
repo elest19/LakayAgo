@@ -31,9 +31,16 @@ export async function GET(req: Request) {
     `
     const params: any[] = []
 
-    if (session.role === 'SuperAdmin') {
-      if (qRestaurant) {
-        params.push(qRestaurant)
+    if (session.role === 'Admin') {
+      // Admins are scoped to the active restaurant as well: every app request carries the
+      // X-App-Mode header, so session.restaurant is already resolved to a single restaurant
+      // (Lakay Ago / Aroo) for users assigned to 'Both'. This mirrors /api/report_periods.
+      const requestedRestaurant = qRestaurant && ALL_RESTAURANTS.includes(qRestaurant) ? qRestaurant : null
+      const scopedRestaurant = requestedRestaurant
+        ?? (session.restaurant && session.restaurant !== 'Both' ? session.restaurant : null)
+
+      if (scopedRestaurant) {
+        params.push(scopedRestaurant)
         text += ` where rp.restaurant = $${params.length}`
       }
     } else {

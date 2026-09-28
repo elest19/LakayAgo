@@ -622,7 +622,7 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD CONSTRAINT users_pkey PRIMARY KEY (user_id);
 ALTER TABLE users ADD CONSTRAINT users_email_key UNIQUE (email);
 ALTER TABLE users ADD CONSTRAINT users_username_key UNIQUE (username);
-ALTER TABLE users ADD CONSTRAINT users_role_check CHECK ((role = ANY (ARRAY['Admin'::text, 'SuperAdmin'::text, 'Staff'::text])));
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK ((role = ANY (ARRAY['Admin'::text, 'Staff'::text])));
 CREATE UNIQUE INDEX users_username_key ON public.users USING btree (username);
 CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email);
 CREATE UNIQUE INDEX users_pkey ON public.users USING btree (user_id);

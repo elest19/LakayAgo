@@ -7,7 +7,7 @@ async function ensureServiceAccess(session: any, serviceId: number) {
   const serviceRes = await query('SELECT service_id, restaurant FROM services WHERE service_id = $1 LIMIT 1', [serviceId])
   const service = serviceRes.rows[0]
   if (!service) throw new Error('Service not found')
-  if (session.role !== 'SuperAdmin' && service.restaurant !== session.restaurant) {
+  if (session.role !== 'Admin' && service.restaurant !== session.restaurant) {
     throw new Error('Forbidden')
   }
   return service
@@ -97,7 +97,7 @@ export async function POST(req: Request, { params }: { params: any }) {
     const subServiceRes = await query('SELECT * FROM sub_services WHERE sub_service_id = $1 LIMIT 1', [sub_service_id])
     const subService = subServiceRes.rows[0]
     if (!subService) return NextResponse.json({ error: 'Sub-service not found' }, { status: 404 })
-    if (session.role !== 'SuperAdmin' && subService.restaurant !== session.restaurant) {
+    if (session.role !== 'Admin' && subService.restaurant !== session.restaurant) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

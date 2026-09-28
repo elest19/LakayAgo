@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server'
 import { query } from '../../../lib/db'
 import getSessionFromRequest from '../../../lib/session'
 import { auth } from '../../../lib/auth'
+import { requireRole } from '../../../lib/permissions'
 
 export async function GET(req: Request) {
   try {
     const session = await getSessionFromRequest(req)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const guard = requireRole(session, ['Admin'])
+    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
 
     const res = await query('SELECT user_id, name, username, email, role, restaurant, is_archived FROM users ORDER BY name')
     // The `restaurants` table may not exist in all deployments; avoid joining it here.
@@ -32,8 +33,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = await getSessionFromRequest(req)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const guard = requireRole(session, ['Admin'])
+    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
 
     const body = await req.json()
     const { username, name, email, password, role, restaurant } = body || {}
@@ -41,8 +42,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
     }
 
-    // normalize role values expected by DB (SuperAdmin vs "Super Admin")
-    const dbRole = role === 'Super Admin' ? 'SuperAdmin' : role
+    if (role !== 'Admin' && role !== 'Staff') {
+      return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+    }
+
+    const dbRole = role
 
     // Use Better Auth to create the user and credential atomically
     try {

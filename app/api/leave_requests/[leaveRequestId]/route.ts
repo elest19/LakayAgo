@@ -38,7 +38,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ leaveRequ
         return NextResponse.json({ error: 'Leave request not found' }, { status: 404 })
       }
 
-      if (session.role !== 'SuperAdmin' && session.restaurant && session.restaurant !== 'Both' && leaveRequest.restaurant !== session.restaurant) {
+      if (session.role !== 'Admin' && session.restaurant && session.restaurant !== 'Both' && leaveRequest.restaurant !== session.restaurant) {
         await client.query('ROLLBACK')
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
       }
@@ -46,32 +46,8 @@ export async function PATCH(req: Request, context: { params: Promise<{ leaveRequ
       const finalStatus = String(normalizedStatus)
       let balanceUpdate: any = null
 
-      if (finalStatus === 'Approved' && leaveRequest.status !== 'Approved') {
-        const maybeLeaveTypeId = leaveRequest.leave_type_id
-        const maybeBalanceRow = maybeLeaveTypeId
-          ? await client.query(
-              `select * from employee_leave_balances where employee_id = $1 and leave_type_id = $2 limit 1`,
-              [Number(leaveRequest.employee_id), Number(maybeLeaveTypeId)]
-            )
-          : { rows: [] }
-
-        if (maybeBalanceRow.rows[0]) {
-          const available = Number(maybeBalanceRow.rows[0].available_leave ?? 0)
-          const days = Number(leaveRequest.days ?? 0)
-          const nextAvailable = Math.max(0, available - days)
-
-          const { rows: updatedBalRows } = await client.query(
-            `update employee_leave_balances
-             set available_leave = $1, updated_at = now()
-             where leave_bal_id = $2
-             returning *`,
-            [nextAvailable, maybeBalanceRow.rows[0].leave_bal_id]
-          )
-
-          balanceUpdate = updatedBalRows[0]
-        }
-      }
-
+      // Rely on DB triggers to refund/deduct balances when status changes.
+      // The trigger will raise 'Insufficient leave balance' if approval cannot be applied.
       const { rows: updatedRequestRows } = await client.query(
         `update leave_requests
          set status = $1, updated_at = now()
@@ -89,6 +65,14 @@ export async function PATCH(req: Request, context: { params: Promise<{ leaveRequ
       })
     } catch (error) {
       await client.query('ROLLBACK')
+      // Map DB trigger messages to friendly API errors
+      const msg = String(error instanceof Error ? error.message : error)
+      if (msg.includes('Insufficient leave balance')) {
+        return NextResponse.json({ error: 'Insufficient leave balance' }, { status: 400 })
+      }
+      if (msg.includes('This leave type is not assigned to the employee')) {
+        return NextResponse.json({ error: msg }, { status: 400 })
+      }
       throw error
     } finally {
       client.release()

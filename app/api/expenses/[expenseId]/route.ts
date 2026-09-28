@@ -22,7 +22,7 @@ export async function GET(req: Request, { params }: { params: any }) {
     const row = rows[0]
     if (!row) return NextResponse.json({ error: 'Expense not found' }, { status: 404 })
 
-    if (session.role !== 'SuperAdmin' && row.restaurant !== session.restaurant) {
+    if (session.role !== 'Admin' && row.restaurant !== session.restaurant) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -50,7 +50,7 @@ export async function PUT(req: Request, { params }: { params: any }) {
     const existing = existingResult.rows[0]
     if (!existing) return NextResponse.json({ error: 'Expense not found' }, { status: 404 })
 
-    if (session.role !== 'SuperAdmin' && existing.restaurant !== session.restaurant) {
+    if (session.role !== 'Admin' && existing.restaurant !== session.restaurant) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -114,7 +114,7 @@ export async function DELETE(req: Request, { params }: { params: any }) {
     const existing = existingResult.rows[0]
     if (!existing) return NextResponse.json({ error: 'Expense not found' }, { status: 404 })
 
-    if (session.role !== 'SuperAdmin' && existing.restaurant !== session.restaurant) {
+    if (session.role !== 'Admin' && existing.restaurant !== session.restaurant) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

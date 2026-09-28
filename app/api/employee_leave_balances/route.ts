@@ -12,11 +12,14 @@ export async function GET(req: Request) {
 
     const ALL_RESTAURANTS = ['Lakay Ago', 'Aroo']
     const params: any[] = []
-    let text = `select elb.employee_id, elb.leave_type_id, lt.name as leave_type_name, coalesce(lt.leave_number,0) as leave_number, coalesce(elb.available_leave,0) as available_leave, (coalesce(lt.leave_number,0) - coalesce(elb.available_leave,0)) as used_leave
+    // The balance columns are `numeric`, which node-postgres hands back as a string that keeps the
+    // column scale ("105.0"). The cast sends plain numbers, so clients never have to trim a
+    // trailing zero themselves.
+    let text = `select elb.leave_bal_id, elb.employee_id, elb.leave_type_id, lt.name as leave_type_name, coalesce(lt.is_paid,false) as is_paid, coalesce(elb.total_leave,0)::float8 as total_leave, coalesce(elb.available_leave,0)::float8 as available_leave, (coalesce(elb.total_leave,0) - coalesce(elb.available_leave,0))::float8 as used
       from employee_leave_balances elb
       join leave_types lt on lt.leave_type_id = elb.leave_type_id`
 
-    if (session.role === 'SuperAdmin') {
+    if (session.role === 'Admin') {
       if (qRestaurant) {
         params.push(qRestaurant)
         text += ` where elb.restaurant = $${params.length}`
@@ -43,15 +46,25 @@ export async function PATCH(req: Request) {
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const body = await req.json()
-    const { employee_id, leave_type_id, available_leave } = body
-    if (!employee_id || !leave_type_id || available_leave == null) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+    const { leave_bal_id, total_leave } = body
+    if (!leave_bal_id || total_leave == null) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
     // Only admins may update balances
-    if (session.role !== 'SuperAdmin' && !session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin' && !session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-    const res = await query(`update employee_leave_balances set available_leave = $1, updated_at = now() where employee_id = $2 and leave_type_id = $3 returning *`, [Number(available_leave), Number(employee_id), Number(leave_type_id)])
-    if (!res.rows || res.rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    return NextResponse.json(res.rows[0])
+    // Only allow editing total_leave via this endpoint. The DB trigger will adjust available_leave.
+    try {
+      const res = await query(`update employee_leave_balances set total_leave = $1, updated_at = now() where leave_bal_id = $2 returning *`, [Number(total_leave), Number(leave_bal_id)])
+      if (!res.rows || res.rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      return NextResponse.json(res.rows[0])
+    } catch (err: any) {
+      // If the DB check/trigger rejected the change (e.g., total < used), return friendly message
+      const msg = String(err?.message || err)
+      if (msg.toLowerCase().includes('total leave cannot') || msg.toLowerCase().includes('cannot') || msg.toLowerCase().includes('check')) {
+        return NextResponse.json({ error: 'Total leave cannot be lower than leave already used' }, { status: 400 })
+      }
+      throw err
+    }
   } catch (err) {
     console.error('employee_leave_balances PATCH error', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

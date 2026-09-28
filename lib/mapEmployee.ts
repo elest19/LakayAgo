@@ -1,6 +1,8 @@
 import type { Employee } from "../types"
 
-const formatEmployeeStatus = (status?: string | null): Employee["status"] => {
+// Exported so routes that build their own employee payloads (e.g. GET /api/leave_requests)
+// normalise status exactly the way GET /api/employees does.
+export const formatEmployeeStatus = (status?: string | null): Employee["status"] => {
   const normalized = String(status ?? '').trim().toLowerCase()
 
   if (normalized === 'inactive') return 'Inactive'

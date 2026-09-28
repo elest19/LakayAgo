@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import PaginationFooter from '../components/PaginationFooter'
 import DateFilter, { dateInRange, defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
 import { generateSalesSummaryPdf } from '../lib/pdf/generateSalesSummaryPdf'
+import { useApp } from '../App'
 
 const ChartPlaceholder = ({ height = 180 }: { height?: number }) => (
   <div
@@ -250,6 +251,8 @@ function PieChartSkeleton() {
 
 export default function SalesSummary() {
   const isMobile = useIsMobile()
+  const { appMode } = useApp()
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
   const [inventoryItems, setInventoryItems] = useState<any[]>([])
   const [bundlePackages, setBundlePackages] = useState<any[]>([])
   const [salesRecords, setSalesRecords] = useState<any[]>([])
@@ -258,7 +261,7 @@ export default function SalesSummary() {
   // Keep the report's original default of showing the current month; swap the spread
   // for a plain `defaultDateFilterValue` to match the other pages ("All Sales").
   const [dateFilter, setDateFilter] = useState<DateFilterValue>(() => ({ ...defaultDateFilterValue(), mode: 'month' }))
-  const [restaurantFilter, setRestaurantFilter] = useState<RestaurantFilterValue>('All Restaurants')
+  const [restaurantFilter, setRestaurantFilter] = useState<RestaurantFilterValue>(activeRestaurant)
   const [realtimeRefreshTick, setRealtimeRefreshTick] = useState(0)
   const [loading, setLoading] = useState(true)
 
@@ -362,31 +365,32 @@ export default function SalesSummary() {
   }, [realtimeRefreshTick])
 
   const dateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
+  const effectiveRestaurantFilter: RestaurantFilterValue = activeRestaurant
 
   const filteredSales = useMemo(
     () =>
       salesRecords.filter(
-        (sale) => matchesRestaurantScope(sale.restaurant, restaurantFilter) && dateInRange(sale.createdAt, dateRange),
+        (sale) => matchesRestaurantScope(sale.restaurant, effectiveRestaurantFilter) && dateInRange(sale.createdAt, dateRange),
       ),
-    [dateRange, restaurantFilter, salesRecords],
+    [dateRange, effectiveRestaurantFilter, salesRecords],
   )
 
   const filteredExpenses = useMemo(
     () =>
       expenses.filter(
-        (expense) => matchesRestaurantScope(expense.restaurant, restaurantFilter) && dateInRange(expense.createdAt, dateRange),
+        (expense) => matchesRestaurantScope(expense.restaurant, effectiveRestaurantFilter) && dateInRange(expense.createdAt, dateRange),
       ),
-    [dateRange, expenses, restaurantFilter],
+    [dateRange, effectiveRestaurantFilter, expenses],
   )
 
   const filteredServiceTransactions = useMemo(
     () =>
       serviceTransactions.filter(
         (transaction) =>
-          matchesRestaurantScope(transaction.restaurant, restaurantFilter) &&
+          matchesRestaurantScope(transaction.restaurant, effectiveRestaurantFilter) &&
           dateInRange(transaction.service_date, dateRange),
       ),
-    [dateRange, restaurantFilter, serviceTransactions],
+    [dateRange, effectiveRestaurantFilter, serviceTransactions],
   )
 
   const bundleIds = useMemo(() => {
@@ -532,7 +536,7 @@ export default function SalesSummary() {
   // net_pay = sum_of_sales - (totalOrderDiscount + sum_of_expenses)
   const totalNetSales = (totalItemSales + totalBundleSales + serviceSales) - (totalOrderDiscount + totalExpenses)
 
-  const isSpecificRestaurantSelected = restaurantFilter !== 'All Restaurants'
+  const isSpecificRestaurantSelected = true
   const isSpecificDateRangeSelected = dateFilter.mode !== 'all' && dateRange !== null
   const canDownloadPdf = !loading && isSpecificRestaurantSelected && isSpecificDateRangeSelected
   const [pdfValidationMessage, setPdfValidationMessage] = useState('')
@@ -568,7 +572,7 @@ export default function SalesSummary() {
     const deductionsForPdf = totalExpenses
 
     generateSalesSummaryPdf({
-      restaurantName: restaurantFilter,
+      restaurantName: effectiveRestaurantFilter,
       startDate: dateRange.start,
       endDate: dateRange.end,
       expenseRows: expensePdfRows,
@@ -893,18 +897,9 @@ export default function SalesSummary() {
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <select
-              value={restaurantFilter}
-              onChange={(event) => {
-                setPdfValidationMessage('')
-                setRestaurantFilter(event.target.value as RestaurantFilterValue)
-              }}
-              className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none font-display text-slate-600"
-            >
-              {RESTAURANT_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
+          <div className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 font-display text-slate-600 min-w-[160px]">
+            {effectiveRestaurantFilter}
+          </div>
           <div>
             <div>
               <DateFilter

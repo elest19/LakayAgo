@@ -70,7 +70,7 @@ async function listPackages(session: any, restaurantFilter?: string | null, incl
   const params: any[] = []
   const filters: string[] = []
 
-  if (session.role !== 'SuperAdmin') {
+  if (session.role !== 'Admin') {
     filters.push(`fp.restaurant = $${params.length + 1}`)
     params.push(session.restaurant)
   } else if (restaurantFilter) {

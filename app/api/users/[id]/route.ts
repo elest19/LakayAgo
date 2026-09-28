@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server'
 import { hashPassword } from 'better-auth/crypto'
 import { query } from '../../../../lib/db'
 import getSessionFromRequest from '../../../../lib/session'
+import { requireRole } from '../../../../lib/permissions'
 
 export async function PUT(req: Request, { params }: { params: any }) {
   try {
     const session = await getSessionFromRequest(req)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const guard = requireRole(session, ['Admin'])
+    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
 
     const body = await req.json()
     const { name, username, email, password, role, restaurant, is_archived } = body || {}
@@ -29,8 +30,11 @@ export async function PUT(req: Request, { params }: { params: any }) {
       values.push(email)
     }
     if (role !== undefined) {
+      if (role !== 'Admin' && role !== 'Staff') {
+        return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+      }
       updates.push(`role = $${values.length + 1}`)
-      values.push(role === 'Super Admin' ? 'SuperAdmin' : role)
+      values.push(role)
     }
     if (restaurant !== undefined) {
       updates.push(`restaurant = $${values.length + 1}`)
@@ -43,6 +47,13 @@ export async function PUT(req: Request, { params }: { params: any }) {
 
     if (updates.length === 1) {
       return NextResponse.json({ error: 'No update fields provided' }, { status: 400 })
+    }
+
+    const adminCountRes = await query('SELECT COUNT(*)::int AS count FROM users WHERE role = $1 AND (is_archived IS NOT TRUE)', ['Admin'])
+    const adminCount = Number(adminCountRes.rows[0]?.count ?? 0)
+    const isDemotingLastAdmin = role === 'Staff' && adminCount <= 1
+    if (isDemotingLastAdmin) {
+      return NextResponse.json({ error: 'At least one Admin must remain' }, { status: 400 })
     }
 
     const queryText = `UPDATE users SET ${updates.join(', ')} WHERE user_id = $${values.length + 1} RETURNING user_id, name, username, email, role, restaurant, is_archived`
@@ -78,10 +89,18 @@ export async function PUT(req: Request, { params }: { params: any }) {
 export async function DELETE(req: Request, { params }: { params: any }) {
   try {
     const session = await getSessionFromRequest(req)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const guard = requireRole(session, ['Admin'])
+    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
 
     const { id: userId } = await params
+    const userRes = await query('SELECT role FROM users WHERE user_id = $1', [userId])
+    const targetRole = userRes.rows[0]?.role
+    if (targetRole === 'Admin') {
+      const adminCountRes = await query('SELECT COUNT(*)::int AS count FROM users WHERE role = $1 AND user_id <> $2 AND (is_archived IS NOT TRUE)', ['Admin', userId])
+      if (Number(adminCountRes.rows[0]?.count ?? 0) === 0) {
+        return NextResponse.json({ error: 'At least one Admin must remain' }, { status: 400 })
+      }
+    }
     await query('DELETE FROM users WHERE user_id = $1', [userId])
     return NextResponse.json({ ok: true })
   } catch (err) {

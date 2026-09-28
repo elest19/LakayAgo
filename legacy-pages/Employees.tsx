@@ -850,12 +850,14 @@ const StatusBadge = ({ status }: { status: Employee["status"] }) => {
 }
 
 function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () => void; onSave: (employee: Employee) => void; existingEmployees: Employee[] }) {
-  const { showToast } = useApp()
+  const { showToast, appMode } = useApp()
   const [formData, setFormData] = useState({
     source_employee_id: "",
     name: "",
     department: "",
-    restaurant: "Lakay Ago",
+    // Default to the restaurant of the active app mode so a new hire lands in the mode
+    // the user is currently working in.
+    restaurant: appMode === "aroo" ? "Aroo" : "Lakay Ago",
     pay_per_day: 0,
     status: "Active" as Employee["status"],
     address: "",
@@ -1072,8 +1074,11 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
 }
 
 export default function Employees() {
-  const { showToast } = useApp()
+  const { showToast, appMode } = useApp()
   const isMobile = useIsMobile()
+  // Employees are scoped server-side from the X-App-Mode header, so the page has to follow the
+  // active app mode for both its fetch and its realtime subscription.
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
 
   const normalizeEmployeeStatus = useCallback((status?: string | null) => {
     const normalized = String(status ?? '').trim().toLowerCase()
@@ -1137,7 +1142,7 @@ export default function Employees() {
   }, [normalizeRealtimeEmployeeRow])
 
   useRealtimeEntity('employees', {
-    restaurant: 'Both',
+    restaurant: activeRestaurant,
     onChange: mergeEmployeeRealtime,
   })
 
@@ -1177,12 +1182,16 @@ export default function Employees() {
   useEffect(() => {
     let mounted = true
     ;(async () => {
-      if (mounted) await loadEmployees()
+      if (!mounted) return
+      // Drop rows from the previous app mode so the table never shows another restaurant's
+      // employees while the scoped refetch is in flight.
+      setEmployees([])
+      await loadEmployees()
     })()
     return () => {
       mounted = false
     }
-  }, [loadEmployees])
+  }, [loadEmployees, activeRestaurant])
 
   const restaurants = Array.from(new Set(employees.map(e => e.restaurant).filter(Boolean)))
 
@@ -1363,27 +1372,17 @@ export default function Employees() {
         </div>
         {isMobile ? (
           <>
-          <select value={restaurantFilter} onChange={(e) => { setRestaurantFilter(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer">
-            <option value="All">All Restaurants</option>
-            {restaurants.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
           <div className="w-full flex items-center gap-1 border border-slate-200 rounded-lg overflow-hidden">
-            <label className="px-2 py-2 text-slate-500 font-display">Name :</label>
             <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}  title={sortDir === "asc" ? "Ascending" : "Descending"} className="px-3 py-2 text-sm text-slate-600  hover:bg-slate-50 font-display">
-              {sortDir === "asc" ? `Sort by Ascending ` : `Sort by Descending `}
+              {sortDir === "asc" ? `Sort Name by Ascending ` : `Sort Name by Descending `}
             </button>
           </div>
           </>
         ) : (
           <>
-          <select value={restaurantFilter} onChange={(e) => { setRestaurantFilter(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display cursor-pointer">
-            <option value="All">All Restaurants</option>
-            {restaurants.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
           <div className="flex items-center gap-1 border border-slate-200 rounded-lg overflow-hidden">
-            <label className="px-2 py-2 text-slate-500 font-display">Name :</label>
             <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}  title={sortDir === "asc" ? "Ascending" : "Descending"} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 font-display">
-              {sortDir === "asc" ? `Sort by Ascending ` : `Sort by Descending `}
+              {sortDir === "asc" ? `Sort Name by Ascending ` : `Sort Name by Descending `}
             </button>
           </div>
           </>

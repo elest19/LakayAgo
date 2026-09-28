@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     const qRestaurant = url.searchParams.get('restaurant')
 
     let restaurantFilter = qRestaurant
-    if (!restaurantFilter && session.role === 'SuperAdmin') {
+    if (!restaurantFilter && session.role === 'Admin') {
       restaurantFilter = null
     }
 

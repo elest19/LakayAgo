@@ -168,7 +168,8 @@ const tabs = [
 
 export default function Services() {
   const isMobile = useIsMobile()
-  const { showToast } = useApp()
+  const { showToast, appMode } = useApp()
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
   const [search, setSearch] = useState('')
   const [items, setItems] = useState<any[]>([])
   const [showModal, setShowModal] = useState(false)
@@ -232,12 +233,12 @@ export default function Services() {
   const [subServicesPage, setSubServicesPage] = useState(1)
   const [transactionsPage, setTransactionsPage] = useState(1)
   const [txDateFilter, setTxDateFilter] = useState<DateFilterValue>(defaultDateFilterValue)
-  const [serviceRestaurantFilter, setServiceRestaurantFilter] = useState('All Restaurants')
+  const [serviceRestaurantFilter, setServiceRestaurantFilter] = useState(activeRestaurant)
   // Archive visibility filters for the Services and Sub Services tables.
   const [serviceArchiveFilter, setServiceArchiveFilter] = useState('Not Archived')
   const [subServiceArchiveFilter, setSubServiceArchiveFilter] = useState('Not Archived')
-  const [subServiceRestaurantFilter, setSubServiceRestaurantFilter] = useState('All Restaurants')
-  const [txRestaurantFilter, setTxRestaurantFilter] = useState('All Restaurants')
+  const [subServiceRestaurantFilter, setSubServiceRestaurantFilter] = useState(activeRestaurant)
+  const [txRestaurantFilter, setTxRestaurantFilter] = useState(activeRestaurant)
   const [selectedService, setSelectedService] = useState<any | null>(null)
   // Service whose assets are being viewed via the Assets action; separate from
   // selectedService so the Assets button does not open the Selected Service modal.
@@ -274,14 +275,14 @@ export default function Services() {
     return () => window.removeEventListener('resize', measureTabIndicator)
   }, [activeTab])
 
-  const serviceRestaurantOptions = useMemo(() => Array.from(new Set(items.map((i: any) => i.restaurant).filter(Boolean))) as string[], [items])
-  const txRestaurantOptions = useMemo(() => Array.from(new Set(transactions.map((tx: any) => tx.restaurant || tx.service?.restaurant).filter(Boolean))) as string[], [transactions])
+  const serviceRestaurantOptions = useMemo(() => [activeRestaurant], [activeRestaurant])
+  const txRestaurantOptions = useMemo(() => [activeRestaurant], [activeRestaurant])
 
   const filtered = useMemo(() => items.filter(i =>
     i.service_type.toLowerCase().includes(search.toLowerCase()) &&
-    (serviceRestaurantFilter === 'All Restaurants' || i.restaurant === serviceRestaurantFilter) &&
+    i.restaurant === activeRestaurant &&
     (serviceArchiveFilter === 'All' || (serviceArchiveFilter === 'Archived' ? Boolean(i.is_archived) : !i.is_archived))
-  ), [items, search, serviceRestaurantFilter, serviceArchiveFilter])
+  ), [items, search, serviceArchiveFilter, activeRestaurant])
   const servicesPageSize = 10
   const paginatedServices = useMemo(
     () => filtered.slice((servicesPage - 1) * servicesPageSize, servicesPage * servicesPageSize),
@@ -294,10 +295,10 @@ export default function Services() {
   const filteredSubServices = useMemo(
     () => allSubServices.filter(s =>
       (subServiceArchiveFilter === 'All' || (subServiceArchiveFilter === 'Archived' ? Boolean(s.is_archived) : !s.is_archived)) &&
-      (subServiceRestaurantFilter === 'All Restaurants' || s.restaurant === subServiceRestaurantFilter) &&
+      s.restaurant === activeRestaurant &&
       (s.name.toLowerCase().includes(subServiceSearch.toLowerCase()) || s.restaurant.toLowerCase().includes(subServiceSearch.toLowerCase()))
     ),
-    [allSubServices, subServiceSearch, subServiceArchiveFilter, subServiceRestaurantFilter],
+    [allSubServices, subServiceSearch, subServiceArchiveFilter, activeRestaurant],
   )
   const paginatedSubServices = useMemo(
     () => filteredSubServices.slice((subServicesPage - 1) * servicesPageSize, subServicesPage * servicesPageSize),
@@ -310,10 +311,9 @@ export default function Services() {
   const filteredTransactions = useMemo(
     () => transactions.filter(tx => {
       const txRestaurant = tx.restaurant || tx.service?.restaurant || ''
-      const matchesRestaurant = txRestaurantFilter === 'All Restaurants' || txRestaurant === txRestaurantFilter
-      return matchesRestaurant && dateInRange(tx.service_date, txDateRange)
+      return txRestaurant === activeRestaurant && dateInRange(tx.service_date, txDateRange)
     }),
-    [transactions, txDateRange, txRestaurantFilter],
+    [transactions, txDateRange, activeRestaurant],
   )
 
   const paginatedTransactions = useMemo(
@@ -1377,18 +1377,12 @@ export default function Services() {
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-200 bg-indigo-600 text-white flex items-center justify-between gap-3 flex-wrap">
                 <h3 className="text-sm font-semibold">Services</h3>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
                   <div className="w-full flex items-center gap-2 border border-slate-200 bg-white rounded-lg px-3 py-2 focus-within:border-indigo-400">
                   <Search size={14} className="text-slate-400" />
                   <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search services..." className="w-full outline-none text-sm text-black" />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <select value={serviceRestaurantFilter} onChange={e => setServiceRestaurantFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
-                    <option value="All Restaurants">All Restaurants</option>
-                    {serviceRestaurantOptions.map(restaurant => (
-                      <option key={restaurant} value={restaurant}>{restaurant}</option>
-                    ))}
-                  </select>
+                <div>
                   <select value={serviceArchiveFilter} onChange={e => setServiceArchiveFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
                     <option value="Not Archived">Active</option>
                     <option value="Archived">Archived</option>
@@ -1417,12 +1411,6 @@ export default function Services() {
               <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
                 <h3 className="text-sm font-semibold">Services</h3>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <select value={serviceRestaurantFilter} onChange={e => setServiceRestaurantFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
-                    <option value="All Restaurants">All Restaurants</option>
-                    {serviceRestaurantOptions.map(restaurant => (
-                      <option key={restaurant} value={restaurant}>{restaurant}</option>
-                    ))}
-                  </select>
                   <select value={serviceArchiveFilter} onChange={e => setServiceArchiveFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
                     <option value="Not Archived">Active</option>
                     <option value="Archived">Archived</option>
@@ -1542,28 +1530,18 @@ export default function Services() {
               <div className="flex items-center mb-2">
                 <h3 className="text-sm font-semibold">Sub Services</h3>
               </div>
-              <div className="mb-2">
+              <div className="grid grid-cols-2 gap-2 mb-2">
                 <div className="flex items-center gap-2 border border-slate-200 bg-white rounded-lg px-2 py-1.5">
                   <Search size={13} className="text-slate-400 shrink-0" />
                   <input value={subServiceSearch} onChange={e => setSubServiceSearch(e.target.value)} placeholder="Search..." className="bg-transparent text-sm outline-none text-slate-700 w-full min-w-0" />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <select value={subServiceRestaurantFilter} onChange={e => setSubServiceRestaurantFilter(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2 py-2 text-xs bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
-                    <option value="All Restaurants">All Restaurants</option>
-                    {subServiceRestaurantOptions.map(restaurant => (
-                      <option key={restaurant} value={restaurant}>{restaurant}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <select value={subServiceArchiveFilter} onChange={e => setSubServiceArchiveFilter(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2 py-2 text-xs bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
-                    <option value="Not Archived">Active</option>
+                <select value={subServiceArchiveFilter} onChange={e => setSubServiceArchiveFilter(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2 py-2 text-xs bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
+                  <option value="Not Archived">Active</option>
                     <option value="Archived">Archived</option>
                     <option value="All">All</option>
                   </select>
-                </div>
+                  </div>
               </div>
             </div>
             {subServicesTableLoading ? (
@@ -1600,12 +1578,6 @@ export default function Services() {
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold">Sub Services</h3>
                 <div className="flex items-center gap-2">
-                  <select value={subServiceRestaurantFilter} onChange={e => setSubServiceRestaurantFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
-                    <option value="All Restaurants">All Restaurants</option>
-                    {subServiceRestaurantOptions.map(restaurant => (
-                      <option key={restaurant} value={restaurant}>{restaurant}</option>
-                    ))}
-                  </select>
                   <select value={subServiceArchiveFilter} onChange={e => setSubServiceArchiveFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
                     <option value="Not Archived">Active</option>
                     <option value="Archived">Archived</option>
@@ -1709,17 +1681,7 @@ export default function Services() {
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-4 py-2 border-b bg-indigo-600 text-white flex items-center justify-between gap-3 flex-wrap">
               <h3 className="text-sm font-semibold">Transactions</h3>
-              <div className="flex items-center gap-3 flex-wrap">
-                <select value={txRestaurantFilter} onChange={e => setTxRestaurantFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
-                  <option value="All Restaurants">All Restaurants</option>
-                  {txRestaurantOptions.map(restaurant => (
-                    <option key={restaurant} value={restaurant}>{restaurant}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="w-full">
-                <DateFilter value={txDateFilter} onChange={setTxDateFilter} allLabel="All Date" className="justify-end" />
-              </div>
+              <DateFilter value={txDateFilter} onChange={setTxDateFilter} allLabel="All Date" className="justify-end" />
             </div>
             <div className="space-y-3">
               {txLoading ? (
@@ -1770,12 +1732,6 @@ export default function Services() {
             <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
               <h3 className="text-sm font-semibold">Service Transactions</h3>
               <div className="flex items-center gap-3 flex-wrap">
-                <select value={txRestaurantFilter} onChange={e => setTxRestaurantFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 font-display text-slate-600">
-                  <option value="All Restaurants">All Restaurants</option>
-                  {txRestaurantOptions.map(restaurant => (
-                    <option key={restaurant} value={restaurant}>{restaurant}</option>
-                  ))}
-                </select>
                 <DateFilter value={txDateFilter} onChange={setTxDateFilter} allLabel="All Date" className="justify-end" />
                 <div className="text-xs text-slate-500">{txLoading ? 'Loading...' : `${filteredTransactions.length} transactions`}</div>
               </div>

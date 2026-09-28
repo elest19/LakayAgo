@@ -8,17 +8,14 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const periodId = url.searchParams.get('period_id')
-  const qRestaurant = url.searchParams.get('restaurant')
 
   // join employees to provide display fields (employees.name => employee_name)
   let text = `select p.*, e.name as employee_name, e.department from payslips p left join employees e on e.employee_id = p.employee_id`
   const params: any[] = []
   const where: string[] = []
 
-  // Determine restaurant filter: explicit query param wins; otherwise restrict by session.restaurant unless it's 'Both'
-  const restaurantToFilter = qRestaurant || session.restaurant
-  if (restaurantToFilter && restaurantToFilter !== 'Both') {
-    params.push(restaurantToFilter)
+  if (session.restaurant && session.restaurant !== 'Both') {
+    params.push(session.restaurant)
     where.push(`p.restaurant = $${params.length}`)
   }
 

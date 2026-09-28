@@ -19,7 +19,7 @@ export async function PUT(req: Request, context: any) {
     const { rows: existingRows } = await query('select * from attendance where attendance_id = $1 limit 1', [attendanceId])
     const existing = existingRows[0]
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    if (session.role !== 'SuperAdmin' && existing.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin' && existing.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const normalizeTime = (value: unknown) => {
       if (value === null || value === undefined || value === '') return null

@@ -13,6 +13,30 @@ const statusColor: Record<LeaveRequest['status'], string> = {
   Rejected: 'bg-red-100 text-red-700',
 }
 
+// The Leave Balances tab only lists employees who are still employed. The status arrives as the
+// mapped "Active" / "Inactive" label, but raw database values ("active" / "inactive" / "fired")
+// can reach the client as well, so compare case-insensitively. A missing status counts as active
+// so older payloads keep listing their staff, and "On Leave" stays visible: those employees are
+// still employed and their balances still need managing.
+const isEmployeeActive = (employee: any) => {
+  const status = String(employee?.status ?? 'Active').trim().toLowerCase()
+  return status !== 'inactive' && status !== 'fired' && status !== 'archived'
+}
+
+// Employees are tagged with the branch they report to. Staff marked "Both" work at either
+// branch, so they match every restaurant filter and every restaurant-scoped leave type.
+const employeeMatchesRestaurant = (employee: any, restaurant: string) =>
+  employee?.restaurant === restaurant || employee?.restaurant === 'Both'
+
+// Balances are stored as Postgres `numeric`, which reaches the client as a string that keeps the
+// column scale, so a 105 day allotment arrives as "105.0". Trim a trailing decimal zero without
+// touching the significant digits, and leave real fractions such as 0.5 alone.
+const formatLeaveDays = (value: any): string => {
+  const text = String(value ?? 0)
+  if (!/^-?\d+\.\d+$/.test(text)) return text
+  return text.replace(/0+$/, '').replace(/\.$/, '')
+}
+
 const formatDate = (dateStr: string) => {
   if (!dateStr) return ''
   const date = new Date(dateStr)
@@ -58,9 +82,37 @@ interface SkeletonTableRowsProps {
   columns: number
   rows?: number
   columnConfig?: { width?: string; pill?: boolean }[]
+  // `as="div"` is for call sites outside a <table> (e.g. the Manage Leave modal's card list) —
+  // a <tr> inside a <div> is invalid HTML and triggers a hydration error.
+  as?: 'tr' | 'div'
 }
 
-function SkeletonTableRows({ columns, rows = 6, columnConfig }: SkeletonTableRowsProps) {
+function SkeletonTableRows({ columns, rows = 6, columnConfig, as = 'tr' }: SkeletonTableRowsProps) {
+  if (as === 'div') {
+    return (
+      <div className="space-y-2 mt-2">
+        {Array.from({ length: rows }, (_, rowIdx) => (
+          <div key={rowIdx} className="bg-slate-50 p-3 rounded-md">
+            <div className="space-y-2">
+              {Array.from({ length: columns }, (_, colIdx) => {
+                const config = columnConfig?.[colIdx]
+                return (
+                  <div key={colIdx} className="w-full">
+                    <SkeletonBar
+                      width={config?.width ?? '80%'}
+                      height={config?.pill ? '1.1rem' : '0.85rem'}
+                      rounded={config?.pill ? 'rounded-full' : 'rounded-md'}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {Array.from({ length: rows }, (_, rowIdx) => (
@@ -99,7 +151,7 @@ function ApproveRejectModal({ leave, action, onClose, onConfirm }: {
           <p className="text-sm font-semibold text-slate-700 mt-1 italic">{leave.reason}</p>
         </div>
         <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 font-display">Cancel</button>
           <button
             onClick={onConfirm}
             className={`px-4 py-2 text-sm font-medium text-white rounded-lg font-display ${action === 'Approve' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}`}
@@ -112,9 +164,10 @@ function ApproveRejectModal({ leave, action, onClose, onConfirm }: {
   )
 }
 
-function AddLeaveModal({ employees, leaveTypesList, onClose, onSave }: {
+function AddLeaveModal({ employees, leaveTypesList, leaveBalances, onClose, onSave }: {
   employees: any[]
   leaveTypesList: any[]
+  leaveBalances: any[]
   onClose: () => void
   onSave: () => void
 }) {
@@ -130,14 +183,38 @@ function AddLeaveModal({ employees, leaveTypesList, onClose, onSave }: {
   })
   const [loading, setLoading] = useState(false)
 
+  // Only currently employed staff can file a request — same rule as the Leave Balances tab.
+  const activeEmployees = employees.filter(isEmployeeActive)
   const filteredEmployeesByRestaurant = form.employee_restaurant
-    ? employees.filter(emp => (emp.restaurant || '').toLowerCase() === form.employee_restaurant.toLowerCase())
-    : employees
+    ? activeEmployees.filter(emp => (emp.restaurant || '').toLowerCase() === form.employee_restaurant.toLowerCase())
+    : activeEmployees
+
+  // The dropdown lists only what is actually assigned to the selected employee
+  // (employee_leave_balances), joined against the active leave-type list so archived
+  // types are never offered. The backend rejects unassigned types anyway.
+  const assignedBalances = form.employee_id
+    ? (leaveBalances || []).filter((b: any) => String(b.employee_id) === String(form.employee_id))
+    : []
+  const employeeLeaveTypes = assignedBalances
+    .map((b: any) => ({ balance: b, type: leaveTypesList.find((t: any) => String(t.leave_type_id) === String(b.leave_type_id)) }))
+    .filter((x: any) => Boolean(x.type))
+  const selectedBalance = form.leave_type_id
+    ? (employeeLeaveTypes.find((x: any) => String(x.balance.leave_type_id) === form.leave_type_id)?.balance ?? null)
+    : null
+  const selectedUsed = selectedBalance
+    ? Math.max(0, Number(selectedBalance.total_leave || 0) - Number(selectedBalance.available_leave || 0))
+    : 0
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.employee_id || !form.leave_type_name || !form.start_date || !form.end_date) {
       showToast({ type: 'error', message: 'Missing required fields', description: 'Employee, leave type, start and end date are required.' })
+      return
+    }
+    // Safety net: the dropdown only offers assigned types, but re-validate in case the
+    // selection went stale (the API returns the same 400 for this).
+    if (!employeeLeaveTypes.some((x: any) => String(x.balance.leave_type_id) === String(form.leave_type_id))) {
+      showToast({ type: 'error', message: 'Leave type not assigned', description: 'Choose a leave type that is assigned to this employee.' })
       return
     }
     const start = new Date(form.start_date)
@@ -148,12 +225,7 @@ function AddLeaveModal({ employees, leaveTypesList, onClose, onSave }: {
     }
     const diffMs = end.getTime() - start.getTime()
     const calcDays = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1
-    const selectedLt = leaveTypesList.find((t: any) => String(t.name || t.leave_type_name) === form.leave_type_name)
-    const leaveNumber = Number(selectedLt?.leave_number ?? 0)
-    if (leaveNumber > 0 && calcDays > leaveNumber) {
-      showToast({ type: 'error', message: 'Exceeds leave entitlement', description: `${form.leave_type_name} only allows ${leaveNumber} day(s). You requested ${calcDays} day(s).` })
-      return
-    }
+    // Do not block creation if requested days exceed allotment; approval enforces balance.
     setLoading(true)
     try {
       const emp = employees.find((x: any) => String(x.id) === String(form.employee_id))
@@ -195,7 +267,7 @@ function AddLeaveModal({ employees, leaveTypesList, onClose, onSave }: {
               <label className="block text-xs text-slate-500 mb-1 font-display">Employee Name *</label>
               <select
                 value={form.employee_id}
-                onChange={e => setForm(prev => ({ ...prev, employee_id: e.target.value }))}
+                onChange={e => setForm(prev => ({ ...prev, employee_id: e.target.value, leave_type_id: '', leave_type_name: '' }))}
                 disabled={!form.employee_restaurant}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                 required
@@ -218,12 +290,14 @@ function AddLeaveModal({ employees, leaveTypesList, onClose, onSave }: {
                     ...prev,
                     employee_restaurant: selectedRestaurant,
                     employee_id: selectedRestaurant ? prev.employee_id : '',
+                    leave_type_id: selectedRestaurant ? prev.leave_type_id : '',
+                    leave_type_name: selectedRestaurant ? prev.leave_type_name : '',
                   }))
                 }}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display"
               >
                 <option value="">Select Restaurant</option>
-                {Array.from(new Set((employees || []).map(emp => emp.restaurant).filter(Boolean))).map((restaurant) => (
+                {Array.from(new Set(activeEmployees.map(emp => emp.restaurant).filter(Boolean))).map((restaurant) => (
                   <option key={restaurant} value={restaurant}>{restaurant}</option>
                 ))}
               </select>
@@ -232,21 +306,36 @@ function AddLeaveModal({ employees, leaveTypesList, onClose, onSave }: {
           <div>
             <label className="block text-xs text-slate-500 mb-1 font-display">Leave Type *</label>
             <select
-              value={form.leave_type_name}
+              value={form.leave_type_id}
               onChange={e => {
-                const lt = leaveTypesList.find((t: any) => String(t.name || t.leave_type_name) === e.target.value)
-                setForm(prev => ({ ...prev, leave_type_name: e.target.value, leave_type_id: lt ? String(lt.leave_type_id) : '' }))
+                const entry = employeeLeaveTypes.find((x: any) => String(x.balance.leave_type_id) === e.target.value)
+                setForm(prev => ({
+                  ...prev,
+                  leave_type_id: e.target.value,
+                  leave_type_name: entry ? String(entry.type.name || entry.type.leave_type_name) : '',
+                }))
               }}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display"
+              disabled={!form.employee_id || employeeLeaveTypes.length === 0}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
               required
             >
-              <option value="">Select Leave Type</option>
-              {leaveTypesList.map((lt, i) => (
-                <option key={`${lt.leave_type_id || i}-${lt.name || lt.leave_type_name}`} value={lt.name || lt.leave_type_name}>
-                  {lt.name || lt.leave_type_name}
+              <option value="">
+                {!form.employee_id ? 'Select Employee First' : employeeLeaveTypes.length === 0 ? 'No leave types assigned' : 'Select Leave Type'}
+              </option>
+              {employeeLeaveTypes.map(({ balance, type }: any) => (
+                <option key={String(balance.leave_type_id)} value={String(balance.leave_type_id)}>
+                  {type.name || type.leave_type_name}
                 </option>
               ))}
             </select>
+            {selectedBalance && (
+              <p className="mt-1.5 text-xs text-slate-500 font-display">
+                Leave balance: <span className="font-semibold text-slate-700">{formatLeaveDays(selectedBalance.available_leave)}</span> of {formatLeaveDays(selectedBalance.total_leave)} days remaining{selectedUsed > 0 ? ` • ${formatLeaveDays(selectedUsed)} used` : ''}
+              </p>
+            )}
+            {form.employee_id && employeeLeaveTypes.length === 0 && (
+              <p className="mt-1.5 text-xs text-slate-400 font-display">Assign a leave type to this employee before filing a request.</p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -278,7 +367,7 @@ function AddLeaveModal({ employees, leaveTypesList, onClose, onSave }: {
           </div>
         </div>
         <div className="px-4 py-3 border-t border-slate-100 flex justify-end gap-2">
-          <button type="button" onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display">Cancel</button>
+          <button type="button" onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 disabled:hover:bg-white font-display">Cancel</button>
           <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display">{loading ? 'Creating...' : 'Submit Request'}</button>
         </div>
       </form>
@@ -296,7 +385,6 @@ function LeaveTypeModal({ onClose, onSave, defaultRestaurant, leaveType }: {
   const isEdit = Boolean(leaveType?.leave_type_id)
   const [form, setForm] = useState({
     name: leaveType?.name ?? '',
-    leave_number: Number(leaveType?.leave_number ?? 0),
     restaurant: leaveType?.restaurant || defaultRestaurant || 'Both',
     is_paid: leaveType ? Boolean(leaveType.is_paid) : true,
   })
@@ -352,20 +440,373 @@ function LeaveTypeModal({ onClose, onSave, defaultRestaurant, leaveType }: {
               <option value="Aroo">Aroo</option>
             </select>
           </div>
-          <div>
-            <label className="block text-xs text-slate-500 mb-1 font-display">Leave Number per Employee</label>
-            <input type="number" min={0} value={form.leave_number} onChange={e => setForm(prev => ({ ...prev, leave_number: Number(e.target.value || 0) }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400" />
-          </div>
+          {/* Leave number per-employee removed: per-employee totals live in assignments */}
           <label className="flex items-center gap-2 text-sm text-slate-700 font-display">
             <input type="checkbox" checked={Boolean(form.is_paid)} onChange={e => setForm(prev => ({ ...prev, is_paid: e.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
             Paid leave type
           </label>
         </div>
         <div className="px-4 py-3 border-t border-slate-100 flex justify-end gap-2">
-          <button type="button" onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-          <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">{loading ? 'Saving...' : isEdit ? 'Save Changes' : 'Create'}</button>
+          <button type="button" onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 disabled:hover:bg-white">Cancel</button>
+          <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg disabled:hover:bg-indigo-600">{loading ? 'Saving...' : isEdit ? 'Save Changes' : 'Create'}</button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+function ManageEmployeeLeaveModal({ employee, onClose, onSaved, employees, leaveTypesList }: { employee: any; onClose: () => void; onSaved: () => void; employees: any[]; leaveTypesList: any[] }) {
+  const { showToast } = useApp()
+  const [loading, setLoading] = useState(false)
+  const [balances, setBalances] = useState<any[] | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [newAssign, setNewAssign] = useState({ leave_type_id: '', total_leave: 0 })
+  // Existing assignments are edited one row at a time: Edit turns that row's value into an input
+  // with Save / Cancel, and the in-flight request is tracked per row so only the clicked button
+  // shows its loading state.
+  const [editingBalId, setEditingBalId] = useState<number | null>(null)
+  const [editTotal, setEditTotal] = useState('')
+  const [savingBalId, setSavingBalId] = useState<number | null>(null)
+  const [removingBalId, setRemovingBalId] = useState<number | null>(null)
+  // Remove is destructive, so the row button stages the target here and a confirmation modal
+  // does the actual delete — nothing is sent until the user confirms.
+  const [removeTarget, setRemoveTarget] = useState<any | null>(null)
+
+  const load = async () => {
+    try {
+      setLoading(true)
+      const res = await fetch(`/api/employees/${employee.id}/leave-balances`)
+      if (!res.ok) throw new Error('Failed to load')
+      const body = await res.json()
+      setBalances(body.balances || body || [])
+    } catch (err) {
+      console.error('load balances', err)
+    } finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (adding) return
+    if (!newAssign.leave_type_id || newAssign.total_leave == null) { showToast({ type: 'error', message: 'Missing fields' }); return }
+    try {
+      setAdding(true)
+      const res = await fetch(`/api/employees/${employee.id}/leave-balances`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leave_type_id: newAssign.leave_type_id, total_leave: Number(newAssign.total_leave) })
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || 'Assign failed')
+      showToast({ type: 'success', message: 'Assigned' })
+      await load()
+      onSaved()
+      setNewAssign({ leave_type_id: '', total_leave: 0 })
+    } catch (err: any) {
+      showToast({ type: 'error', message: 'Assign failed', description: err.message })
+    } finally { setAdding(false) }
+  }
+
+  // Persists a new total. Returns whether it landed so the caller can close the editor on success
+  // and keep the row open, with the user's value intact, when the server rejects it.
+  const handleUpdate = async (balId: number, total: number): Promise<boolean> => {
+    setSavingBalId(balId)
+    try {
+      const res = await fetch(`/api/employee_leave_balances/${balId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ total_leave: Number(total) }) })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || 'Update failed')
+      showToast({ type: 'success', message: 'Updated' })
+      await load(); onSaved()
+      return true
+    } catch (err: any) {
+      showToast({ type: 'error', message: 'Update failed', description: err.message })
+      return false
+    } finally {
+      setSavingBalId(null)
+    }
+  }
+
+  // Only called from the confirmation modal; the modal stays open on failure so the user can
+  // retry or cancel, and closes itself on success.
+  const handleDelete = async (balId: number) => {
+    setRemovingBalId(balId)
+    try {
+      const res = await fetch(`/api/employee_leave_balances/${balId}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || 'Delete failed')
+      showToast({ type: 'success', message: 'Removed' })
+      await load(); onSaved()
+      setRemoveTarget(null)
+    } catch (err: any) {
+      showToast({ type: 'error', message: 'Remove failed', description: err.message })
+    } finally {
+      setRemovingBalId(null)
+    }
+  }
+
+  // Row editing: Edit copies the current total into the input, Save persists it, Cancel throws the
+  // draft away.
+  const startEdit = (balance: any) => {
+    setEditingBalId(balance.leave_bal_id)
+    setEditTotal(formatLeaveDays(balance.total_leave))
+  }
+
+  const cancelEdit = () => {
+    setEditingBalId(null)
+    setEditTotal('')
+  }
+
+  const saveEdit = async (balance: any) => {
+    if (savingBalId != null || removingBalId != null) return
+    const next = Number(editTotal)
+    if (editTotal.trim() === '' || !Number.isFinite(next) || next < 0) {
+      showToast({ type: 'error', message: 'Enter a valid total', description: 'Total leave must be 0 or more.' })
+      return
+    }
+    // Nothing to persist: close the editor rather than firing a request and an audit entry.
+    if (next === Number(balance.total_leave)) { cancelEdit(); return }
+    if (await handleUpdate(balance.leave_bal_id, next)) cancelEdit()
+  }
+
+  return (
+    <>
+    <Modal open={true} title={`Manage Leave — ${employee.firstName} ${employee.lastName}`} onClose={() => { if (!removeTarget) onClose() }}>
+      <div className="p-3 max-h-[70vh] overflow-y-auto">
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm text-slate-500">Existing assignments</p>
+            {loading ? <SkeletonTableRows as="div" columns={3} rows={3} /> : (
+              <div className="space-y-2 mt-2">
+                {(balances || []).map(b => {
+                  const isEditing = editingBalId === b.leave_bal_id
+                  const isSaving = savingBalId === b.leave_bal_id
+                  const isRemoving = removingBalId === b.leave_bal_id
+                  // Only the row that is mid-request locks up, so its own buttons cannot double-fire.
+                  const busy = isSaving || isRemoving
+
+                  return (
+                    <div key={b.leave_bal_id} className="bg-slate-50 p-3 rounded-md flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">{b.leave_type_name}</div>
+                        <div className="text-xs text-slate-400">Remaining: {formatLeaveDays(b.available_leave)} • Total: {formatLeaveDays(b.total_leave)}</div>
+                      </div>
+                      <div className="flex items-center gap-2 ml-auto">
+                        {isEditing ? (
+                          <>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.5"
+                              autoFocus
+                              value={editTotal}
+                              disabled={isSaving}
+                              onChange={e => setEditTotal(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); void saveEdit(b) }
+                                if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
+                              }}
+                              className="w-20 border rounded px-2 py-1 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+                            />
+                            <button type="button" onClick={() => void saveEdit(b)} disabled={busy}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">
+                              {isSaving ? (<><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving...</>) : (<>Save</>)}
+                            </button>
+                            <button type="button" onClick={cancelEdit} disabled={busy}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs border border-slate-200 bg-white text-slate-600 rounded hover:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-white">
+                              <X size={13} /> Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button type="button" onClick={() => startEdit(b)} disabled={busy}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">
+                              <Pencil size={13} /> Edit
+                            </button>
+                            <button type="button" onClick={() => setRemoveTarget(b)} disabled={busy}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-red-600">
+                              {isRemoving ? (<><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Removing...</>) : (<><Trash2 size={13} /> Remove</>)}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+                {(balances || []).length === 0 && <p className="text-sm text-slate-400">No assignments</p>}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t pt-3">
+            <p className="text-sm text-slate-500">Assign new leave type</p>
+            <form onSubmit={handleAdd} className="mt-2 flex gap-2 items-center">
+              <select value={newAssign.leave_type_id} disabled={adding} onChange={e => setNewAssign(prev => ({ ...prev, leave_type_id: e.target.value }))} className="border rounded px-2 py-1 text-sm disabled:bg-slate-50 disabled:text-slate-400">
+                <option value="">Select leave type</option>
+                {leaveTypesList.filter((t:any)=>!t.is_archived && (t.restaurant==='Both' || t.restaurant===employee.restaurant)).map((lt:any)=> (
+                  <option key={lt.leave_type_id} value={lt.leave_type_id}>{lt.name}</option>
+                ))}
+              </select>
+              <input type="number" value={newAssign.total_leave} disabled={adding} onChange={e => setNewAssign(prev => ({ ...prev, total_leave: Number(e.target.value) }))} min={0} step="0.5" className="w-28 border rounded px-2 py-1 text-sm disabled:bg-slate-50 disabled:text-slate-400" />
+              <button type="submit" disabled={adding} className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">
+                {adding ? (<><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Assigning...</>) : (<><Plus size={14} /> Assign</>)}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </Modal>
+
+    {/* Removal confirmation: staged by the row's Remove button, dismissed by Cancel / Escape,
+        and only this modal's Remove actually sends the DELETE. */}
+    {removeTarget && (
+      <Modal open={!!removeTarget} title="Confirm removal" onClose={() => { if (!removingBalId) setRemoveTarget(null) }}>
+        <div className="p-2">
+          <p className="text-sm text-slate-600 mb-1">
+            Are you sure you want to remove <span className="font-semibold text-slate-700">{removeTarget.leave_type_name}</span> from <span className="font-semibold text-slate-700">{employee.firstName} {employee.lastName}</span>?
+          </p>
+          <p className="text-xs text-slate-500 mb-5">The assignment and its balance are deleted permanently. This cannot be undone.</p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => { if (!removingBalId) setRemoveTarget(null) }}
+              disabled={Boolean(removingBalId)}
+              className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 font-display ${removingBalId ? 'opacity-40 cursor-not-allowed' : ''}`}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDelete(removeTarget.leave_bal_id)}
+              disabled={Boolean(removingBalId)}
+              className={`px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-500 text-white rounded-lg font-display flex items-center justify-center gap-2 ${removingBalId ? 'opacity-40 cursor-not-allowed' : 'disabled:hover:bg-red-600'}`}
+            >
+              {removingBalId === removeTarget.leave_bal_id ? 'Removing...' : <><Trash2 size={14} /> Remove</>}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    )}
+    </>
+  )
+}
+
+function AssignLeaveToEmployeesModal({ leaveType, onClose, onSaved, employees, existingBalances }: { leaveType: any; onClose: () => void; onSaved: () => void; employees: any[]; existingBalances: any[] }) {
+  const { showToast } = useApp()
+
+  // Balances the employees already hold for this leave type, taken from the balances the page has
+  // already loaded. No extra request, and the page refreshes them after every save.
+  const existingAssignments = useMemo(
+    () => (existingBalances || []).filter(b => String(b.leave_type_id) === String(leaveType?.leave_type_id)),
+    [existingBalances, leaveType?.leave_type_id],
+  )
+  const alreadyAssignedIds = useMemo(
+    () => existingAssignments.map(b => String(b.employee_id)),
+    [existingAssignments],
+  )
+
+  // Employees who already hold the type start ticked, so the list mirrors the current state.
+  const [selected, setSelected] = useState<string[]>(() => alreadyAssignedIds)
+  // Prefilled from the current allotment: re-assigning must not silently reset a total to zero.
+  const [total, setTotal] = useState<number>(() => Number(existingAssignments[0]?.total_leave ?? 0))
+  const [submitting, setSubmitting] = useState(false)
+  const [restaurantFilter, setRestaurantFilter] = useState('')
+  const [query, setQuery] = useState('')
+
+  // A leave type owned by a single restaurant can only go to that restaurant's staff, so the list
+  // is scoped and no restaurant filter is needed. A "Both" type is open to everyone, so it keeps
+  // the filter and the search box instead.
+  const leaveTypeRestaurant = String(leaveType?.restaurant || 'Both').trim()
+  const isRestaurantLocked = leaveTypeRestaurant !== 'Both'
+
+  const employeesForType = useMemo(() => {
+    const scoped = isRestaurantLocked
+      ? employees.filter(emp => employeeMatchesRestaurant(emp, leaveTypeRestaurant))
+      : employees
+
+    if (isRestaurantLocked || !restaurantFilter) return scoped
+    return scoped.filter(emp => employeeMatchesRestaurant(emp, restaurantFilter))
+  }, [employees, isRestaurantLocked, leaveTypeRestaurant, restaurantFilter])
+
+  const visibleEmployees = useMemo(() => {
+    const term = query.trim().toLowerCase()
+    if (!term) return employeesForType
+    return employeesForType.filter(emp => `${emp.firstName || ''} ${emp.lastName || ''}`.toLowerCase().includes(term))
+  }, [employeesForType, query])
+
+  const toggle = (id: string) => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (selected.length === 0 || total == null) { showToast({ type: 'error', message: 'Select employees and total' }); return }
+    try {
+      setSubmitting(true)
+      const res = await fetch(`/api/leave_types/${leaveType.leave_type_id}/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ employee_ids: selected.map(id => Number(id)), total_leave: Number(total) }) })
+      const body = await res.json().catch(()=>({}))
+      if (!res.ok) throw new Error(body.error || 'Assign failed')
+      showToast({ type: 'success', message: 'Assigned' })
+      onSaved()
+      onClose()
+    } catch (err:any) { showToast({ type: 'error', message: 'Assign failed', description: err.message }) } finally { setSubmitting(false) }
+  }
+
+  return (
+    <Modal open={true} title={`Assign ${leaveType.name} to employees`} onClose={onClose}>
+      <div className="p-3 max-h-[70vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="text-sm text-slate-500">
+            {isRestaurantLocked
+              ? `Only ${leaveTypeRestaurant} employees can be assigned to this leave type.`
+              : 'Select employees to assign'}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {!isRestaurantLocked && (
+              <select value={restaurantFilter} onChange={e => setRestaurantFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none text-slate-600">
+                <option value="">All Restaurants</option>
+                <option value="Lakay Ago">Lakay Ago</option>
+                <option value="Aroo">Aroo</option>
+              </select>
+            )}
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search employee..."
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400"
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto">
+            {visibleEmployees.map(emp => {
+              const key = String(emp.id)
+              const alreadyAssigned = alreadyAssignedIds.includes(key)
+
+              return (
+                <label
+                  key={emp.id}
+                  title={alreadyAssigned ? 'Already assigned to this employee' : undefined}
+                  className={`flex items-center gap-2 p-2 border rounded ${alreadyAssigned ? 'border-slate-200 bg-slate-50' : 'cursor-pointer'}`}
+                >
+                  <input type="checkbox" checked={selected.includes(key)} disabled={alreadyAssigned} onChange={() => toggle(key)} />
+                  <div className="text-sm">
+                    {emp.firstName} {emp.lastName} <span className="text-xs text-slate-400">{emp.restaurant}</span>
+                    {alreadyAssigned && (
+                      <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-100 rounded-full px-2 py-0.5">Already assigned</span>
+                    )}
+                  </div>
+                </label>
+              )
+            })}
+            {visibleEmployees.length === 0 && (
+              <div className="text-sm text-slate-400 py-4 text-center md:col-span-2">No employees found.</div>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500">Total Leave</label>
+            <input type="number" value={total} onChange={e=>setTotal(Number(e.target.value))} min={0} className="w-28 border rounded px-2 py-1" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="px-3 py-1 border rounded hover:bg-slate-100">Cancel</button>
+            <button type="submit" disabled={submitting} className="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">{submitting ? 'Assigning...' : 'Assign'}</button>
+          </div>
+        </form>
+      </div>
     </Modal>
   )
 }
@@ -391,6 +832,8 @@ export default function LeaveManagement() {
   // Which leave-type action is currently writing to the DB — disables the related buttons
   const [savingTypeAction, setSavingTypeAction] = useState<null | 'archive' | 'restore' | 'delete'>(null)
   const [showAddLeaveRequest, setShowAddLeaveRequest] = useState(false)
+  const [manageEmployeeTarget, setManageEmployeeTarget] = useState<any | null>(null)
+  const [assignTypeTarget, setAssignTypeTarget] = useState<any | null>(null)
   const [balancePage, setBalancePage] = useState(0)
   const [listPage, setListPage] = useState(1)
   const [restaurantFilter, setRestaurantFilter] = useState('')
@@ -411,7 +854,7 @@ export default function LeaveManagement() {
           const b2 = await r2.json()
           setEmployees((b2.employees || []).map((e: any) => {
             const parts = (e.name || '').split(' ')
-            return { id: e.employee_id, firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '', department: e.department, restaurant: e.restaurant }
+            return { id: e.employee_id, firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '', department: e.department, restaurant: e.restaurant, status: e.status }
           }))
         }
       }
@@ -463,9 +906,9 @@ export default function LeaveManagement() {
     return () => { mounted = false }
   }, [loadLeaveRequests, refreshLeaveTypes])
 
-  // Derived leave types and balances fetched from backend. leave_number (total entitlement)
-  // is stored on `leave_types.leave_number`; per-employee remaining is `employee_leave_balances.available_leave`.
-  // used_leave = leave_number - available_leave (computed)
+  // Derived leave types and per-employee balances are fetched from backend.
+  // Per-employee totals are stored on `employee_leave_balances.total_leave` and
+  // remaining is `employee_leave_balances.available_leave` (used = total - available).
 
   function getVisibleLeaveTypes(employeeId: string) {
     const emp = employees.find(e => String(e.id) === String(employeeId))
@@ -481,21 +924,10 @@ export default function LeaveManagement() {
   }
 
   function getLeaveBalances(employeeId: string) {
-    const types = getVisibleLeaveTypes(employeeId)
-
-    return types.map((typeName) => {
-      const lt = (activeLeaveTypes || []).find((t: any) => t.name === typeName)
-      const total = Number(lt?.leave_number ?? 0)
-      const approvedUsed = (leaveRequests || [])
-        .filter((l: any) =>
-          String(l.employeeId ?? l.employee_id) === String(employeeId) &&
-          String(l.leaveType ?? l.leave_type_name) === typeName &&
-          l.status === 'Approved'
-        )
-        .reduce((sum: number, l: any) => sum + Number(l.days ?? 0), 0)
-      const used = Math.max(0, approvedUsed)
-      return { type: typeName, used, total, remaining: Math.max(0, total - used) }
-    })
+    // Return assigned leave balances for the employee from the pre-fetched balances
+    return (leaveBalances || [])
+      .filter((b: any) => String(b.employee_id) === String(employeeId))
+      .map((b: any) => ({ type: b.leave_type_name, used: Number(b.used || 0), total: Number(b.total_leave || 0), remaining: Number(b.available_leave || 0) }))
   }
 
   const getLeaveTypeMeta = (leaveTypeName?: string) => {
@@ -512,10 +944,11 @@ export default function LeaveManagement() {
   // Leave List tab action styling — plain text buttons in the desktop table, pill
   // buttons with larger tap targets inside the mobile cards.
   const leaveTypeTone = {
-    edit: { desktop: 'text-indigo-600 hover:text-indigo-800', mobile: 'border-indigo-200 bg-indigo-50 text-indigo-700' },
-    archive: { desktop: 'text-violet-500 hover:text-violet-600', mobile: 'border-violet-500 bg-violet-500 text-white hover:bg-indigo-700' },
-    restore: { desktop: 'text-emerald-600 hover:text-emerald-800', mobile: 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700' },
-    delete: { desktop: 'text-red-600 hover:text-red-800', mobile: 'border-red-200 bg-red-50 text-red-700' },
+    edit: { desktop: 'text-indigo-600 hover:text-indigo-800', mobile: 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100' },
+    assign: { desktop: 'text-indigo-600 hover:text-indigo-800', mobile: 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100' },
+    archive: { desktop: 'text-violet-500 hover:text-violet-600', mobile: 'border-violet-500 bg-violet-500 text-white hover:bg-violet-400' },
+    restore: { desktop: 'text-emerald-600 hover:text-emerald-800', mobile: 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-500' },
+    delete: { desktop: 'text-red-600 hover:text-red-800', mobile: 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100' },
   }
   const leaveTypeActionClass = (isMobileCard: boolean, tone: keyof typeof leaveTypeTone) =>
     isMobileCard
@@ -810,7 +1243,6 @@ export default function LeaveManagement() {
               <option value="">All Restaurants</option>
               <option value="Lakay Ago">Lakay Ago</option>
               <option value="Aroo">Aroo</option>
-              <option value="Both">Both</option>
             </select>
           </div>
 
@@ -840,8 +1272,11 @@ export default function LeaveManagement() {
                       </div>
                       {renderPaidBadge(Boolean(lt.is_paid))}
                     </div>
-                    <p className="mt-2 text-xs text-slate-500 font-mono">Leave Number: {lt.leave_number}</p>
+                    {/* per-employee totals not shown here; use Manage Leave per employee */}
                     <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      <button type="button" onClick={() => setAssignTypeTarget(lt)} className={leaveTypeActionClass(true, 'assign')}>
+                        <Plus size={13} /> Assign
+                      </button>
                       <button type="button" onClick={() => setDeleteTypeTarget(lt)} className={leaveTypeActionClass(true, 'delete')}>
                         <Trash2 size={13} /> Delete
                       </button>
@@ -873,7 +1308,7 @@ export default function LeaveManagement() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Name', 'Leave Number', 'Restaurant', 'Is Paid', 'Actions'].map(h => (
+                  {['Name', 'Restaurant', 'Is Paid', 'Actions'].map(h => (
                     <th key={h} className={`py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap ${h === 'Actions' ? 'text-center' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
@@ -901,13 +1336,15 @@ export default function LeaveManagement() {
                   listPageData.map((lt: any) => (
                     <tr key={lt.leave_type_id} className="hover:bg-slate-50">
                       <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">{lt.name}</td>
-                      <td className="py-3 px-4 text-sm text-slate-600 font-mono">{lt.leave_number}</td>
                       <td className="py-3 px-4 text-sm text-slate-500">{lt.restaurant}</td>
                       <td className="py-3 px-4 text-sm text-slate-500">{renderPaidBadge(Boolean(lt.is_paid))}</td>
                       <td className="py-3 px-4">
                         <div className="flex items-center justify-center gap-2">
                           <button type="button" onClick={() => setEditLeaveType(lt)} className={leaveTypeActionClass(false, 'edit')}>
                             <Pencil size={14} /> Edit
+                          </button>
+                          <button type="button" onClick={() => setAssignTypeTarget(lt)} className={leaveTypeActionClass(false, 'assign')}>
+                            <Plus size={14} /> Assign
                           </button>
                           {lt.is_archived ? (
                             <button
@@ -943,10 +1380,12 @@ export default function LeaveManagement() {
       {tab === 'balances' && (
         <div>
           {(() => {
-            const totalPages = Math.ceil(employees.length / BALANCE_PAGE_SIZE)
-            let filteredEmployees = employees
+            // Inactive employees are excluded so archived staff never appear in this tab.
+            const activeEmployees = employees.filter(isEmployeeActive)
+            const totalPages = Math.ceil(activeEmployees.length / BALANCE_PAGE_SIZE)
+            let filteredEmployees = activeEmployees
             if (restaurantFilter) {
-              filteredEmployees = employees.filter(e => e.restaurant === restaurantFilter || e.restaurant === 'Both')
+              filteredEmployees = activeEmployees.filter(e => e.restaurant === restaurantFilter || e.restaurant === 'Both')
             }
             const paged = filteredEmployees.slice(balancePage * BALANCE_PAGE_SIZE, (balancePage + 1) * BALANCE_PAGE_SIZE)
             return (
@@ -968,6 +1407,7 @@ export default function LeaveManagement() {
                             <SkeletonBar width="70%" height="0.8rem" />
                             <SkeletonBar width="45%" height="0.7rem" />
                           </div>
+                          <SkeletonBar width={78} height={28} rounded="rounded-lg" />
                         </div>
                         <div className="space-y-3">
                           <SkeletonBar width="100%" height="0.7rem" />
@@ -991,6 +1431,13 @@ export default function LeaveManagement() {
                               <p className="text-xs text-slate-400">{emp.department}</p>
                               <p className="text-xs text-slate-400">{emp.restaurant}</p>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => setManageEmployeeTarget(emp)}
+                              className="ml-auto px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-sm"
+                            >
+                              Manage
+                            </button>
                           </div>
                           <div className="space-y-3">
                             {balances.map(balance => (
@@ -1027,7 +1474,27 @@ export default function LeaveManagement() {
         </div>
       )}
 
-      {selectedLeave && (
+                {manageEmployeeTarget && (
+                  <ManageEmployeeLeaveModal
+                    employee={manageEmployeeTarget}
+                    employees={employees}
+                    leaveTypesList={leaveTypesList}
+                    onClose={() => setManageEmployeeTarget(null)}
+                    onSaved={async () => { await refreshLeaveTypes(); await loadLeaveRequests() }}
+                  />
+                )}
+
+                {assignTypeTarget && (
+                  <AssignLeaveToEmployeesModal
+                    leaveType={assignTypeTarget}
+                    employees={employees}
+                    existingBalances={leaveBalances}
+                    onClose={() => setAssignTypeTarget(null)}
+                    onSaved={async () => { await refreshLeaveTypes() }}
+                  />
+                )}
+
+                {selectedLeave && (
         <Modal open={!!selectedLeave} title={`${selectedLeave.employeeName} — ${selectedLeave.leaveType}`} onClose={() => setSelectedLeave(null)}>
           <div className={`w-full p-3 overflow-y-auto ${isMobile ? 'max-h-[50vh]' : ''}`}>
             <div className="space-y-3">
@@ -1183,7 +1650,7 @@ export default function LeaveManagement() {
                 type="button"
                 onClick={() => { if (!savingTypeAction) setArchiveTypeTarget(null) }}
                 disabled={Boolean(savingTypeAction)}
-                className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
+                className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 font-display ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
                 Cancel
               </button>
@@ -1211,7 +1678,7 @@ export default function LeaveManagement() {
                 type="button"
                 onClick={() => { if (!savingTypeAction) setDeleteTypeTarget(null) }}
                 disabled={Boolean(savingTypeAction)}
-                className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
+                className={`px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 font-display ${savingTypeAction ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
                 Cancel
               </button>
@@ -1231,6 +1698,7 @@ export default function LeaveManagement() {
         <AddLeaveModal
           employees={employees}
           leaveTypesList={activeLeaveTypes}
+          leaveBalances={leaveBalances}
           onClose={() => setShowAddLeaveRequest(false)}
           onSave={async () => {
             await loadLeaveRequests()

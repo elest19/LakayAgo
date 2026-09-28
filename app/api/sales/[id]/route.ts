@@ -51,7 +51,7 @@ export async function PUT(req: Request, { params }: { params: any }) {
         source = 'bundle'
       }
 
-      if (session.role !== 'SuperAdmin' && fb.restaurant !== session.restaurant) return NextResponse.json({ error: 'Mismatched restaurant for food item' }, { status: 403 })
+      if (session.role !== 'Admin' && fb.restaurant !== session.restaurant) return NextResponse.json({ error: 'Mismatched restaurant for food item' }, { status: 403 })
     }
 
     const assignments: string[] = []

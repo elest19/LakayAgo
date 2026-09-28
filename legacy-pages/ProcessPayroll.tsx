@@ -173,14 +173,14 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
   const holidayPay = Number(row.holiday_pay || row.holiday_payment || row.holidayPay || 0)
   const paidLeavePay = Number(row.paid_leave_pay || 0)
   const specialMonthPay = Number(row.special_month ?? 0)
-  const undertimeDeductionValue = Number(row.undertime_deduction_total || 0)
-  const lateDeductionValue = Number(row.sum_late_min || 0)
+  const undertimeMinutes = Number(row.undertime_minutes_total || row.undertime_minutes || 0)
+  const lateMinutes = Number(row.late_minutes_total || row.late_minutes || row.sum_late_min || 0)
+  const lateDeductionValue = 0
+  const undertimeDeductionValue = 0
   const healthDeduction = Number(row.health_deduction || 0)
   const workedMinutes = Number(row.worked_minutes_total || 0)
   const overtimeMinutes = Number(row.overtime_minutes_total || 0)
   const halfdayTotal = Number(row.halfday_total || 0)
-  const undertimeMinutes = Number(row.undertime_minutes_total || 0)
-  const lateMinutes = Number(row.late_minutes_total || 0)
   const requiredHours = Number(row.required_daily_hours || 8)
   const sssAmount = Number(row.sss_deduction || 0)
   const philhealthAmount = Number(row.philhealth_deduction || 0)
@@ -195,7 +195,7 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
         id: 'base-pay',
         label: 'Base Pay',
         amount: basePay,
-        detail: `${fmtMinutes(workedMinutes)} minutes worked ÷ (${requiredHours} hrs × 60) × ${fmt(payPerDay)}/day`,
+        detail: `${Number(row.present_total || 0)} day(s) × ${fmt(payPerDay)}`,
       },
       {
         id: 'overtime-pay',
@@ -225,22 +225,10 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
         id: 'halfday-pay',
         label: 'Halfday Pay',
         amount: halfdayPay,
-        detail: `${halfdayTotal} halfday(s) × (${fmt(payPerDay)} ÷ 2)`,
+        detail: `${halfdayTotal} halfday(s)`,
       },
     ].filter(entry => Number(entry.amount || 0) !== 0),
     deductions: [
-      {
-        id: 'undertime-deductions',
-        label: 'Undertime Deductions',
-        amount: undertimeDeductionValue,
-        detail: `${fmtMinutes(undertimeMinutes)} minutes undertime ÷ ${fmtMinutes(undertimeRateInMinutes)} × ${fmt(Number(row.undertime_deduction || 0))}`,
-      },
-      {
-        id: 'late-deductions',
-        label: 'Late Deductions',
-        amount: lateDeductionValue,
-        detail: `${fmtMinutes(lateMinutes)} minutes late ÷ 15 × ₱50`,
-      },
       {
         id: 'cash-advance',
         label: 'Cash Advance',
@@ -262,7 +250,7 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
     <Modal open={true} title={displayName} onClose={onClose}>
       <div className="w-full max-h-[70vh] overflow-y-auto">
         <div className="w-md px-3 py-2 space-y-5">
-          <div className="bg-slate-50 rounded-xl p-2">
+            <div className="bg-slate-50 rounded-xl p-2">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3 font-display">Attendance Summary</p>
             <div className="grid grid-cols-2 gap-3">
               {[
@@ -270,6 +258,9 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
                 { label: 'Absence', value: `${Number(row.absent_total || 0)} days` },
                 { label: 'Present', value: `${Number(row.present_total || 0)} days` },
                 { label: 'On Leave', value: `${Number(row.on_leave_total || 0)} days` },
+                { label: 'Late', value: `${(lateMinutes / 60).toFixed(2)} hrs` },
+                { label: 'Undertime', value: `${(undertimeMinutes / 60).toFixed(2)} hrs` },
+                { label: 'Half-day', value: `${Number(row.halfday_total ?? row.half_day_count ?? 0)} days` },
               ].map(f => (
                 <div key={f.label}>
                   <p className="text-xs text-slate-400 font-display">{f.label}</p>
@@ -376,6 +367,7 @@ export default function ProcessPayroll() {
   const [search, setSearch] = useState('')
   const [viewRow, setViewRow] = useState<any | null>(null)
   const [approveConfirm, setApproveConfirm] = useState(false)
+  const [reviewConfirm, setReviewConfirm] = useState(false)
   const [payrollRowsState, setPayrollRowsState] = useState<PayrollRow[]>([])
   const [payrollLoading, setPayrollLoading] = useState(true)
   const [payrollLoadError, setPayrollLoadError] = useState<string | null>(null)
@@ -418,6 +410,8 @@ export default function ProcessPayroll() {
   const totalOvertime = payrollRowsState.reduce((sum, row) => sum + Number(row.overtime_pay || 0), 0)
   const totalHolidayPay = payrollRowsState.reduce((sum, row) => sum + Number(row.holiday_pay || 0), 0)
   const totalSpecialMonthPay = payrollRowsState.reduce((sum, row) => sum + Number(row.special_month ?? 0), 0)
+  // 13th Month Pay card is only shown for periods flagged as a 13th month (special) period
+  const show13thMonthCard = Boolean(activePayrollPeriod?.is_special_month)
 
   const activePayrollIndex = stepToIndex[step]
   const maxCarouselIndex = Math.max(0, payrollWorkflowSteps.length - 3)
@@ -798,10 +792,11 @@ export default function ProcessPayroll() {
 
     const merged = payrollRowsState.map(r => {
       const empId = String(r.employee_id)
-      const attendanceDeduction = Number(r.sum_late_min || 0) + Number(r.undertime_deduction_total || 0)
+      // Attendance monetary deductions removed for new payrolls. Keep counters for reference only.
+      const attendanceDeduction = 0
       const cashAdvance = Number(cashAdvanceDeductionsRef.current[empId] || 0)
       const health = Number(r.health_deduction || 0)
-      const totalDeduction = attendanceDeduction + health + cashAdvance
+      const totalDeduction = health + cashAdvance
       const specialMonth = Number(r.special_month ?? 0)
       const gross = Number(r.gross_pay ?? (Number(r.gross_base || 0) + Number(r.overtime_pay || 0) + Number(r.holiday_pay || 0) + Number(r.halfday_payment || 0) + Number(r.paid_leave_pay || 0) + specialMonth))
 
@@ -885,10 +880,11 @@ export default function ProcessPayroll() {
 
       setPayrollRowsState(prev => prev.map(r => {
         if (String(r.employee_id) !== empId) return r
-        const attendanceDeduction = Number(r.sum_late_min || 0) + Number(r.undertime_deduction_total || 0)
+        // Attendance monetary deductions are not applied. Use counters for reference only.
+        const attendanceDeduction = 0
         const health = Number(r.health_deduction || 0)
         const cashAdvance = Number((r.cash_advance_deduction || 0) + amount)
-        const totalDeduction = attendanceDeduction + health + cashAdvance
+        const totalDeduction = health + cashAdvance
         const specialMonth = Number(r.special_month ?? 0)
         const gross = Number(r.gross_pay ?? (Number(r.gross_base || 0) + Number(r.overtime_pay || 0) + Number(r.holiday_pay || 0) + Number(r.halfday_payment || 0) + Number(r.paid_leave_pay || 0) + specialMonth))
         const net = gross - totalDeduction
@@ -999,6 +995,12 @@ export default function ProcessPayroll() {
         Processing: {activePayrollPeriod.period_start} – {activePayrollPeriod.period_end} · {activePayrollPeriod.restaurant}
       </div>
 
+      <div className="mb-4 flex items-center gap-2">
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${activePayrollPeriod?.is_sss_enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>SSS: {activePayrollPeriod?.is_sss_enabled ? 'Enabled' : 'Disabled'}</span>
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${activePayrollPeriod?.is_philhealth_enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>PhilHealth: {activePayrollPeriod?.is_philhealth_enabled ? 'Enabled' : 'Disabled'}</span>
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${activePayrollPeriod?.is_pagibig_enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>Pag-IBIG: {activePayrollPeriod?.is_pagibig_enabled ? 'Enabled' : 'Disabled'}</span>
+      </div>
+
       <div className="mb-6">
         <WorkflowStepper
           steps={payrollWorkflowSteps}
@@ -1014,13 +1016,13 @@ export default function ProcessPayroll() {
       {step === 'calculation' && (
         <div className="space-y-5">
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <div className={`grid grid-cols-2 ${show13thMonthCard ? 'md:grid-cols-6' : 'md:grid-cols-5'} gap-3`}>
             {[
               { label: 'Employees', value: String(totalEmployees), color: 'text-slate-800' },
               { label: 'Total Deductions', value: fmt(totalDeductions), color: 'text-red-600' },
               { label: 'Net Payroll', value: fmt(totalNetPayroll), color: 'text-emerald-600' },
               { label: 'Holiday Pay', value: fmt(totalHolidayPay), color: 'text-purple-600' },
-              { label: '13th Month Pay', value: fmt(totalSpecialMonthPay), color: 'text-indigo-600' },
+              ...(show13thMonthCard ? [{ label: '13th Month Pay', value: fmt(totalSpecialMonthPay), color: 'text-indigo-600' }] : []),
               { label: 'Overtime', value: fmt(totalOvertime), color: 'text-yellow-600' },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">
@@ -1234,21 +1236,10 @@ export default function ProcessPayroll() {
 
                 <div className="flex justify-end gap-3 mt-3">
                   <button
-                    onClick={async () => {
-                      try {
-                        if (!activePayrollPeriod) return
-                        setIsMarkingReview(true)
-                        await updatePayrollPeriodStatus('Reviewed')
-                      } catch (err) {
-                        console.error('Failed to mark review', err)
-                      } finally {
-                        setIsMarkingReview(false)
-                        setStep('review')
-                      }
-                    }}
+                    onClick={() => setReviewConfirm(true)}
                     className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display"
                   >
-                    {isMarkingReview ? 'Marking...' : 'Proceed to Review'} <ChevronRight size={15} />
+                    Proceed to Review <ChevronRight size={15} />
                   </button>
                 </div>
               </div>
@@ -1260,13 +1251,12 @@ export default function ProcessPayroll() {
         <div className="space-y-5">
           {/* Summary */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {[
+              {[
               { label: 'Total Employees', value: String(totalEmployees), color: 'text-slate-600' },
               { label: 'Total Deductions', value: fmt(totalDeductions), color: 'text-red-600' },
               { label: 'Gross Payroll', value: fmt(totalGrossPayroll), color: 'text-green-600' },
               { label: 'Net Payroll', value: fmt(totalNetPayroll), color: 'text-green-600' },
               { label: 'Overtime Cost', value: fmt(totalOvertime), color: 'text-yellow-600' },
-              { label: 'Late Deductions', value: fmt(payrollRowsState.reduce((sum, row) => sum + Number(row.sum_late_min || 0), 0)), color: 'text-red-800' },
             ].map(s => (
               <div key={s.label} className="gap-2 bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">
                 <p className={`font-bold font-display ${s.color} ${isMobile ? 'text-sm' : 'text-lg'}`}>{s.value}</p>
@@ -1502,15 +1492,6 @@ export default function ProcessPayroll() {
 
           <div className="flex justify-end gap-2 mt-3">
             <div className="flex gap-3">
-              <button
-                onClick={async () => {
-                  await updatePayrollPeriodStatus('Under Review')
-                  setStep('calculation')
-                }}
-                className="px-2 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 font-display"
-              >
-                Back to Calculation
-              </button>
               <button onClick={() => setApproveConfirm(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display">
                 Approve Payroll <CheckCircle2 size={15} />
               </button>
@@ -1545,6 +1526,49 @@ export default function ProcessPayroll() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Proceed to Review Confirm Modal */}
+      {reviewConfirm && (
+        <Modal open={true} title="Proceed to Review?" onClose={() => { if (!isMarkingReview) setReviewConfirm(false) }}>
+          <div className="w-full max-w-md p-2">
+            <p className="text-sm text-slate-600 mb-2">
+              The payroll will be marked as Reviewed and moved to the Review step.
+            </p>
+            <div className="bg-slate-50 rounded-xl p-3 mb-5">
+              <p className="text-sm font-medium text-slate-700 font-display">{activePayrollPeriod?.period_start ?? ''} – {activePayrollPeriod?.period_end ?? ''}</p>
+              <p className="text-xs text-slate-400 mt-0.5">Gross Payroll: {fmt(totalGrossPayroll)} · Net Payroll: {fmt(totalNetPayroll)} · {totalEmployees} employees</p>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setReviewConfirm(false)}
+                disabled={isMarkingReview}
+                className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent font-display"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    if (!activePayrollPeriod) return
+                    setIsMarkingReview(true)
+                    await updatePayrollPeriodStatus('Reviewed')
+                  } catch (err) {
+                    console.error('Failed to mark review', err)
+                  } finally {
+                    setIsMarkingReview(false)
+                    setReviewConfirm(false)
+                    setStep('review')
+                  }
+                }}
+                disabled={isMarkingReview}
+                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg font-display disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isMarkingReview ? 'Marking...' : 'Confirm'} <ChevronRight size={15} />
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Approve Confirm Modal */}

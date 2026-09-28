@@ -103,7 +103,8 @@ export function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = fa
 
 export default function AssetsCatalog() {
   const isMobile = useIsMobile()
-  const { showToast } = useApp()
+  const { showToast, appMode } = useApp()
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
   const [search, setSearch] = useState('')
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -112,8 +113,7 @@ export default function AssetsCatalog() {
   const [selectedItem, setSelectedItem] = useState<any | null>(null)
   const [form, setForm] = useState<AssetForm>(emptyForm)
   const [errors, setErrors] = useState<Partial<Record<keyof AssetForm, string>>>({})
-  const [lakayPage, setLakayPage] = useState(1)
-  const [arooPage, setArooPage] = useState(1)
+  const [currentPage, setCurrentPage] = useState(1)
   const [addQuantityId, setAddQuantityId] = useState<string | null>(null)
   const [addQuantityValue, setAddQuantityValue] = useState('')
   const [addQuantityLoading, setAddQuantityLoading] = useState(false)
@@ -125,8 +125,8 @@ export default function AssetsCatalog() {
 
   const filtered = useMemo(() => {
     const base = showArchived ? items.filter(i => i.is_archived) : items.filter(i => !i.is_archived)
-    return base.filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
-  }, [items, search, showArchived])
+    return base.filter(i => i.restaurant === activeRestaurant && i.name.toLowerCase().includes(search.toLowerCase()))
+  }, [items, search, showArchived, activeRestaurant])
 
   const resetForm = () => {
     setForm(emptyForm)
@@ -134,11 +134,11 @@ export default function AssetsCatalog() {
     setEditingItem(null)
   }
 
-  const openCreate = () => { resetForm(); setShowModal(true) }
+  const openCreate = () => { resetForm(); setForm(prev => ({ ...prev, restaurant: activeRestaurant })); setShowModal(true) }
 
   const openEdit = (item: any) => {
     setEditingItem(item)
-    setForm({ name: item.name, quantity: String(item.quantity), restaurant: item.restaurant || 'Lakay Ago', penalty_amount: String(item.penalty_amount ?? '0.00') })
+    setForm({ name: item.name, quantity: String(item.quantity), restaurant: item.restaurant || activeRestaurant, penalty_amount: String(item.penalty_amount ?? '0.00') })
     setErrors({})
     setShowModal(true)
   }
@@ -277,19 +277,12 @@ export default function AssetsCatalog() {
     onChange: loadAssets,
   })
 
-  const lakayAgoItems = filtered.filter(item => item.restaurant === 'Lakay Ago')
-  const arooItems = filtered.filter(item => item.restaurant === 'Aroo')
   const pageSize = 10
-  const lakayPageTotal = Math.max(1, Math.ceil(lakayAgoItems.length / pageSize))
-  const arooPageTotal = Math.max(1, Math.ceil(arooItems.length / pageSize))
-  const paginatedLakayItems = lakayAgoItems.slice((lakayPage - 1) * pageSize, lakayPage * pageSize)
-  const paginatedArooItems = arooItems.slice((arooPage - 1) * pageSize, arooPage * pageSize)
+  const currentPageTotal = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paginatedCurrentItems = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const currentEmptyCount = paginatedCurrentItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedCurrentItems.length)
 
-  const lakayEmptyCount = paginatedLakayItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedLakayItems.length)
-  const arooEmptyCount = paginatedArooItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedArooItems.length)
-
-  useEffect(() => { setLakayPage(1) }, [search, items.length])
-  useEffect(() => { setArooPage(1) }, [search, items.length])
+  useEffect(() => { setCurrentPage(1) }, [search, showArchived, items.length])
 
   const renderRestaurantTable = (title: string, displayItems: typeof filtered, totalItems: typeof filtered, currentPage: number, totalPages: number, setPage: (value: number | ((prev: number) => number)) => void, emptyCount: number) => (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6" style={{ display: loading || totalItems.length > 0 ? 'block' : 'none' }}>
@@ -306,9 +299,9 @@ export default function AssetsCatalog() {
               <col style={{ width: '40%' }} />
             </colgroup>
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50">
+              <tr className="border-b border-slate-100 bg-indigo-600 ">
                 {['Name', 'Quantity', 'Penalty', 'Actions'].map(column => (
-                  <th key={column} className={`${column === 'Actions' ? 'text-center' : 'text-left'} py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap`}>
+                  <th key={column} className={`${column === 'Actions' ? 'text-center' : 'text-left'} py-3 px-4 text-xs font-semibold text-white uppercase tracking-wide font-display whitespace-nowrap`}>
                     {column}
                   </th>
                 ))}
@@ -482,9 +475,8 @@ export default function AssetsCatalog() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {renderRestaurantTable('Lakay Ago', paginatedLakayItems, lakayAgoItems, lakayPage, lakayPageTotal, setLakayPage, lakayEmptyCount)}
-        {renderRestaurantTable('Aroo', paginatedArooItems, arooItems, arooPage, arooPageTotal, setArooPage, arooEmptyCount)}
+      <div className="grid grid-cols-1 gap-6">
+        {renderRestaurantTable(activeRestaurant, paginatedCurrentItems, filtered, currentPage, currentPageTotal, setCurrentPage, currentEmptyCount)}
       </div>
       {!loading && filtered.length === 0 && <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center mt-6"><p className="text-sm text-slate-400">No assets found.</p></div>}
 

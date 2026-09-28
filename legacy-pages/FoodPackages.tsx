@@ -116,7 +116,8 @@ export function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = fa
 
 export default function FoodPackages() {
   const isMobile = useIsMobile()
-  const { showToast } = useApp()
+  const { showToast, appMode } = useApp()
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
   const [activeType, setActiveType] = useState<PackageType>('catering_package')
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
@@ -140,8 +141,7 @@ export default function FoodPackages() {
   const [menuItemsOptionsModal, setMenuItemsOptionsModal] = useState<any[]>([])
   const [menuItemSelect, setMenuItemSelect] = useState('')
   const [menuItemQty, setMenuItemQty] = useState('1')
-  const [lakayPage, setLakayPage] = useState(1)
-  const [arooPage, setArooPage] = useState(1)
+  const [currentPage, setCurrentPage] = useState(1)
 
   const tabContainerRef = useRef<HTMLDivElement>(null)
   const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
@@ -169,11 +169,12 @@ export default function FoodPackages() {
     return items.filter((pkg) => {
       const matchesType = (pkg.type ?? activeType) === activeType
       const matchesSearch = pkg.name.toLowerCase().includes(search.toLowerCase())
+      const matchesRestaurant = pkg.restaurant === activeRestaurant || !pkg.restaurant
       // Exclusive match: Archived view shows ONLY archived rows, Active view shows ONLY non-archived rows.
       const matchesArchive = showArchived ? Boolean(pkg.is_archived) : !pkg.is_archived
-      return matchesType && matchesSearch && matchesArchive
+      return matchesType && matchesSearch && matchesArchive && matchesRestaurant
     })
-  }, [items, search, showArchived, activeType])
+  }, [items, search, showArchived, activeType, activeRestaurant])
 
   const loadPackages = useCallback(async () => {
     setLoading(true)
@@ -224,19 +225,14 @@ export default function FoodPackages() {
     fetchBundleOptions(form.restaurant)
   }, [showModal, form.restaurant])
 
-  const lakayAgoItems = filtered.filter(i => i.restaurant === 'Lakay Ago')
-  const arooItems = filtered.filter(i => i.restaurant === 'Aroo')
+  const currentRestaurantItems = filtered
   const pageSize = 10
-  const lakayPageTotal = Math.max(1, Math.ceil(lakayAgoItems.length / pageSize))
-  const arooPageTotal = Math.max(1, Math.ceil(arooItems.length / pageSize))
-  const paginatedLakayItems = lakayAgoItems.slice((lakayPage - 1) * pageSize, lakayPage * pageSize)
-  const paginatedArooItems = arooItems.slice((arooPage - 1) * pageSize, arooPage * pageSize)
+  const currentPageTotal = Math.max(1, Math.ceil(currentRestaurantItems.length / pageSize))
+  const paginatedCurrentItems = currentRestaurantItems.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-  const lakayEmptyCount = paginatedLakayItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedLakayItems.length)
-  const arooEmptyCount = paginatedArooItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedArooItems.length)
+  const currentEmptyCount = paginatedCurrentItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedCurrentItems.length)
 
-  useEffect(() => { setLakayPage(1) }, [search, showArchived, activeType, items.length])
-  useEffect(() => { setArooPage(1) }, [search, showArchived, activeType, items.length])
+  useEffect(() => { setCurrentPage(1) }, [search, showArchived, activeType, items.length])
 
   const renderRestaurantTable = (title: string, displayItems: typeof filtered, totalItems: typeof filtered, currentPage: number, totalPages: number, setPage: (value: number | ((prev: number) => number)) => void, emptyCount: number) => (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6" style={{ display: loading || totalItems.length > 0 ? 'block' : 'none' }}>
@@ -710,9 +706,8 @@ export default function FoodPackages() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {renderRestaurantTable('Lakay Ago', paginatedLakayItems, lakayAgoItems, lakayPage, lakayPageTotal, setLakayPage, lakayEmptyCount)}
-        {renderRestaurantTable('Aroo', paginatedArooItems, arooItems, arooPage, arooPageTotal, setArooPage, arooEmptyCount)}
+      <div className="grid grid-cols-1 gap-6">
+        {renderRestaurantTable(activeRestaurant, paginatedCurrentItems, currentRestaurantItems, currentPage, currentPageTotal, setCurrentPage, currentEmptyCount)}
       </div>
       {!loading && filtered.length === 0 && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center">

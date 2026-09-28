@@ -98,8 +98,13 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
   const [periodEnd, setPeriodEnd] = useState(existingPeriod?.period_end ?? 'yyyy/mm/dd')
   const [tabulationDate, setTabulationDate] = useState(existingPeriod?.tabulation_date ?? 'yyyy/mm/dd')
   const [isSpecialMonth, setIsSpecialMonth] = useState<boolean>(existingPeriod?.is_special_month ?? false)
+  const [isSssEnabled, setIsSssEnabled] = useState<boolean>(existingPeriod?.is_sss_enabled ?? true)
+  const [isPhilhealthEnabled, setIsPhilhealthEnabled] = useState<boolean>(existingPeriod?.is_philhealth_enabled ?? true)
+  const [isPagibigEnabled, setIsPagibigEnabled] = useState<boolean>(existingPeriod?.is_pagibig_enabled ?? true)
 
   const restaurant = existingPeriod?.restaurant ?? (appMode === 'aroo' ? 'Aroo' : 'Lakay Ago')
+  const editableStatuses = ['Pending','Attendance Imported','Validation Required','Ready for Payroll']
+  const isLocked = existingPeriod && !editableStatuses.includes(String(existingPeriod.status || 'Pending'))
 
   const handleSave = async () => {
     // Check for overlapping periods
@@ -125,7 +130,7 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
 
     try {
       if (existingPeriod) {
-        const payload: any = { tabulation_date: tabulationDate, restaurant, is_special_month: isSpecialMonth }
+        const payload: any = { tabulation_date: tabulationDate, restaurant, is_special_month: isSpecialMonth, is_sss_enabled: isSssEnabled, is_philhealth_enabled: isPhilhealthEnabled, is_pagibig_enabled: isPagibigEnabled }
         const res = await fetch(`/api/report_periods/${existingPeriod.report_period_id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -142,7 +147,7 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
         const res = await fetch('/api/report_periods', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ period_start: periodStart, period_end: periodEnd, tabulation_date: tabulationDate, restaurant, is_special_month: isSpecialMonth }),
+          body: JSON.stringify({ period_start: periodStart, period_end: periodEnd, tabulation_date: tabulationDate, restaurant, is_special_month: isSpecialMonth, is_sss_enabled: isSssEnabled, is_philhealth_enabled: isPhilhealthEnabled, is_pagibig_enabled: isPagibigEnabled }),
         })
         const data = await res.json()
         if (res.ok) {
@@ -194,6 +199,27 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
             <input id="isSpecialMonth" type="checkbox" checked={isSpecialMonth} onChange={e => setIsSpecialMonth(e.target.checked)} className="w-4 h-4" />
             <label htmlFor="isSpecialMonth" className="text-sm text-slate-600">13th Month Pay period</label>
           </div>
+          <div className="border-t border-slate-200 pt-3">
+            <p className="text-md font-bold text-slate-600">Benefit Deductions</p>
+            <p className="text-xs text-slate-500">Toggle the deductions that will be applied for this payroll period.</p>
+          </div>
+          <div className="flex flex-row gap-10 px-2">
+            <div className="flex items-center gap-2">
+              <input id="isSssEnabled" type="checkbox" checked={isSssEnabled} onChange={e => setIsSssEnabled(e.target.checked)} className="w-4 h-4" disabled={!!isLocked} />
+              <label htmlFor="isSssEnabled" className="text-sm text-slate-600">SSS</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="isPhilhealthEnabled" type="checkbox" checked={isPhilhealthEnabled} onChange={e => setIsPhilhealthEnabled(e.target.checked)} className="w-4 h-4" disabled={!!isLocked} />
+              <label htmlFor="isPhilhealthEnabled" className="text-sm text-slate-600">PhilHealth</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="isPagibigEnabled" type="checkbox" checked={isPagibigEnabled} onChange={e => setIsPagibigEnabled(e.target.checked)} className="w-4 h-4" disabled={!!isLocked} />
+              <label htmlFor="isPagibigEnabled" className="text-sm text-slate-600">Pag-IBIG</label>
+            </div>
+            {isLocked && (
+              <p className="text-xs text-slate-500 mt-1">Benefit toggles are locked once payroll processing advances.</p>
+            )}
+          </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1 font-display">Restaurant</label>
             <input
@@ -226,6 +252,7 @@ export default function PayrollPeriods() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [downloadingReport, setDownloadingReport] = useState(false)
+  const [periodTotals, setPeriodTotals] = useState<Record<number, { gross: number; deductions: number }>>({})
 
   const loadPeriods = useCallback(async () => {
     try {
@@ -247,6 +274,9 @@ export default function PayrollPeriods() {
         restaurant: p.restaurant,
         status: p.status,
         is_special_month: p.is_special_month,
+        is_sss_enabled: p.is_sss_enabled === undefined || p.is_sss_enabled === null ? true : p.is_sss_enabled,
+        is_philhealth_enabled: p.is_philhealth_enabled === undefined || p.is_philhealth_enabled === null ? true : p.is_philhealth_enabled,
+        is_pagibig_enabled: p.is_pagibig_enabled === undefined || p.is_pagibig_enabled === null ? true : p.is_pagibig_enabled,
       }))
       setPeriods(transformed)
     } catch (err) {
@@ -267,6 +297,40 @@ export default function PayrollPeriods() {
   useRealtimeEntity('report_periods', {
     onChange: () => {
       void loadPeriods()
+    },
+  })
+
+  // Aggregate gross payroll and total deductions from released payslips per period
+  // (used by the Payroll History tab's Gross Payroll / Total Deductions columns)
+  const loadPeriodTotals = useCallback(async () => {
+    try {
+      const res = await fetch('/api/payslips')
+      if (!res.ok) {
+        console.error('payslips fetch failed', res.status)
+        return
+      }
+      const body = await res.json()
+      const totals: Record<number, { gross: number; deductions: number }> = {}
+      for (const p of body.payslips || []) {
+        const pid = Number(p.report_period_id)
+        if (!Number.isFinite(pid)) continue
+        if (!totals[pid]) totals[pid] = { gross: 0, deductions: 0 }
+        totals[pid].gross += Number(p.gross_pay ?? 0)
+        totals[pid].deductions += Number(p.total_deduction ?? 0)
+      }
+      setPeriodTotals(totals)
+    } catch (err) {
+      console.error('Failed to fetch payroll totals', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadPeriodTotals()
+  }, [loadPeriodTotals])
+
+  useRealtimeEntity('payslips', {
+    onChange: () => {
+      void loadPeriodTotals()
     },
   })
 
@@ -384,16 +448,16 @@ export default function PayrollPeriods() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    {['Period Start', 'Period End', 'Tabulation Date', 'Restaurant', 'Status'].map(h => (
+                    {['Period Start', 'Period End', 'Tabulation Date', 'Restaurant', 'Benefit Deductions', 'Status'].map(h => (
                       <th key={h} className="text-left py-3 px-7 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {periods === null ? (
-                    <SkeletonTableRows columns={5} rows={6} columnConfig={[
+                    <SkeletonTableRows columns={6} rows={6} columnConfig={[
                       { width: "45%" }, { width: "45%" }, { width: "55%" },
-                      { width: "40%" }, { width: "45%", pill: true }
+                      { width: "40%" }, { width: "45%", pill: true }, { width: "45%", pill: true }
                     ]} />
                   ) : (
                   pageData.map((pp, index) => (
@@ -421,6 +485,17 @@ export default function PayrollPeriods() {
                       </td>
                       <td className="py-3.5 px-7">
                         <p className="text-sm text-slate-600">{pp.restaurant}</p>
+                      </td>
+                      <td className="py-3.5 px-7 flex gap-1">
+                        {pp.is_sss_enabled && (
+                          <p className="text-sm text-slate-600 p-1 bg-indigo-200 rounded-md">SSS </p>
+                        )}
+                        {pp.is_pagibig_enabled && (
+                          <p className="text-sm text-slate-600 p-1 bg-indigo-400 rounded-md">Pag-IBIG </p>
+                        )}
+                        {pp.is_philhealth_enabled && (
+                          <p className="text-sm text-slate-600 p-1 bg-yellow-200 rounded-md">PhilHealth </p>
+                        )}
                       </td>
                       <td className="py-3.5 px-7">
                         {(() => {
@@ -476,16 +551,16 @@ export default function PayrollPeriods() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    {['Period Start', 'Period End', 'Tabulation Date', 'Restaurant', 'Status'].map(h => (
+                    {['Period Start', 'Period End', 'Tabulation Date', 'Restaurant', 'Gross Payroll', 'Total Deductions', 'Status'].map(h => (
                       <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {periods === null ? (
-                    <SkeletonTableRows columns={5} rows={6} columnConfig={[
+                    <SkeletonTableRows columns={7} rows={6} columnConfig={[
                       { width: "45%" }, { width: "45%" }, { width: "55%" },
-                      { width: "40%" }, { width: "45%", pill: true }
+                      { width: "40%" }, { width: "55%" }, { width: "55%" }, { width: "45%", pill: true }
                     ]} />
                   ) : (
                   pageData.map((pp, index) => (
@@ -513,6 +588,12 @@ export default function PayrollPeriods() {
                       </td>
                       <td className="py-3.5 px-4">
                         <p className="text-sm text-slate-600">{pp.restaurant}</p>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <p className="text-sm font-mono text-slate-600">{fmt(Number(periodTotals[pp.report_period_id]?.gross ?? 0))}</p>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <p className="text-sm font-mono text-red-600">{fmt(Number(periodTotals[pp.report_period_id]?.deductions ?? 0))}</p>
                       </td>
                       <td className="py-3.5 px-4">
                         {(() => {

@@ -49,13 +49,14 @@ const getValidationErrors = (form: ExpenseFormState) => {
 const PRESET_EXPENSES = ['Salary', 'Internet', 'Electricity', 'Water', 'Rental', 'Parking Fee', 'Ingredients', 'BIR'] as const
 
 export default function Expenses() {
-  const { showToast } = useApp()
+  const { showToast, appMode } = useApp()
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([])
   const isMobile = useIsMobile()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null)
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
   const [selectedExpenseFilter, setSelectedExpenseFilter] = useState('All Expenses')
-  const [selectedRestaurantFilter, setSelectedRestaurantFilter] = useState('All Restaurants')
+  const [selectedRestaurantFilter, setSelectedRestaurantFilter] = useState(activeRestaurant)
   const [dateFilter, setDateFilter] = useState<DateFilterValue>(defaultDateFilterValue)
   const [searchTerm, setSearchTerm] = useState('')
   const [serviceTransactions, setServiceTransactions] = useState<any[]>([])
@@ -70,6 +71,10 @@ export default function Expenses() {
   const [selectedExpense, setSelectedExpense] = useState<ExpenseRecord | null>(null)
   const [deleteExpenseTarget, setDeleteExpenseTarget] = useState<ExpenseRecord | null>(null)
   const [showDropdown, setShowDropdown] = useState(false)
+
+  useEffect(() => {
+    setSelectedRestaurantFilter(activeRestaurant)
+  }, [activeRestaurant])
 
   const allExpenseNames = useMemo(() => {
     const names: string[] = [...PRESET_EXPENSES]
@@ -189,20 +194,14 @@ export default function Expenses() {
   }
 
   const expenseFilterOptions = ['All Expenses', ...expenses.map(expense => expense.expense)]
-  const restaurantOptions = useMemo(
-    () => Array.from(new Set([
-      ...expenses.map(expense => (expense as any).restaurant).filter(Boolean),
-      ...serviceTransactions.map(tx => tx.restaurant).filter(Boolean),
-    ] as string[])).sort(),
-    [expenses, serviceTransactions],
-  )
+  const restaurantOptions = useMemo(() => [activeRestaurant], [activeRestaurant])
 
   const expenseDateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
 
   const filteredExpenses = useMemo(
     () => expenses.filter(expense => {
       const matchesExpense = selectedExpenseFilter === 'All Expenses' || expense.expense === selectedExpenseFilter
-      const matchesRestaurant = selectedRestaurantFilter === 'All Restaurants' || (expense as any).restaurant === selectedRestaurantFilter
+      const matchesRestaurant = (expense as any).restaurant === selectedRestaurantFilter
       const matchesDate = dateInRange(expense.createdAt, expenseDateRange)
       const matchesSearch = !searchTerm || [expense.expense, (expense as any).restaurant, expense.createdBy].join(' ').toLowerCase().includes(searchTerm.toLowerCase())
       return matchesExpense && matchesRestaurant && matchesDate && matchesSearch
@@ -214,7 +213,7 @@ export default function Expenses() {
     () => serviceTransactions
       .filter(tx => {
         const isEligibleStatus = tx.status === 'Finalized' || tx.status === 'Fully Paid'
-        const matchesRestaurant = selectedRestaurantFilter === 'All Restaurants' || tx.restaurant === selectedRestaurantFilter
+        const matchesRestaurant = tx.restaurant === selectedRestaurantFilter
         const matchesDate = dateInRange(tx.service_date, expenseDateRange)
         const matchesSearch = !searchTerm || [
           serviceNameMap[String(tx.service_id)],
@@ -532,7 +531,6 @@ export default function Expenses() {
                 onChange={e => setSelectedRestaurantFilter(e.target.value)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-display text-slate-600"
               >
-                <option value="All Restaurants">All Restaurants</option>
                 {restaurantOptions.map(restaurant => (
                   <option key={restaurant} value={restaurant}>{restaurant}</option>
                 ))}

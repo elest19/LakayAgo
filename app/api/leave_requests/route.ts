@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import getSessionFromRequest from '../../../lib/session'
 import { query } from '../../../lib/db'
+import { formatEmployeeStatus } from '../../../lib/mapEmployee'
 
 const ALL_RESTAURANTS = ['Lakay Ago', 'Aroo']
 
@@ -12,7 +13,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const qRestaurant = url.searchParams.get('restaurant')
 
-    const allowedRestaurants = session.role === 'SuperAdmin'
+    const allowedRestaurants = session.role === 'Admin'
       ? (qRestaurant ? [qRestaurant] : (session.restaurant && session.restaurant !== 'Both' ? [session.restaurant] : ALL_RESTAURANTS))
       : (session.restaurant === 'Both' ? ALL_RESTAURANTS : session.restaurant ? [session.restaurant] : [])
 
@@ -40,7 +41,7 @@ export async function GET(req: Request) {
     }))
 
     const { rows: empRows } = await query(
-    `select employee_id, source_employee_id, name, restaurant from employees where restaurant = ANY($1) order by name`,
+    `select employee_id, source_employee_id, name, restaurant, status from employees where restaurant = ANY($1) order by name`,
     [allowedRestaurants]
     )
     const employees = (empRows || []).map((e: any) => {
@@ -51,6 +52,7 @@ export async function GET(req: Request) {
         firstName: parts[0] || '',
         lastName: parts.slice(1).join(' ') || '',
         restaurant: e.restaurant,
+        status: formatEmployeeStatus(e.status),
       }
     })
 
@@ -79,6 +81,14 @@ export async function POST(req: Request) {
     )
 
     const restaurantValue = employeeRes.rows?.[0]?.restaurant || session.restaurant || 'Both'
+
+    // Friendly pre-check: if a leave_type_id is supplied, ensure the employee has that assignment.
+    if (leave_type_id) {
+      const chk = await query('select 1 from employee_leave_balances where employee_id = $1 and leave_type_id = $2 limit 1', [Number(employee_id), Number(leave_type_id)])
+      if (!chk.rows || chk.rows.length === 0) {
+        return NextResponse.json({ error: 'This leave type is not assigned to the employee' }, { status: 400 })
+      }
+    }
 
     const { rows } = await query(
       `insert into leave_requests (

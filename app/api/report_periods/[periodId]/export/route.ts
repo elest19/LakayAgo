@@ -11,7 +11,7 @@ export async function GET(req: Request, context: any) {
   const { rows: periodRows } = await query('select * from report_periods where report_period_id = $1 limit 1', [Number(periodId)])
   const period = periodRows[0]
   if (!period) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (session.role !== 'SuperAdmin' && period.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (session.role !== 'Admin' && period.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   let rows
   if (period.restaurant && String(period.restaurant).toLowerCase() !== 'both') {
@@ -27,7 +27,8 @@ export async function GET(req: Request, context: any) {
   const headers = [
     'report_period_id', 'restaurant', 'employee_id', 'employee_name',
     'base_pay','overtime_pay','halfday_pay','holiday_pay','gross_pay',
-    'sss_deduction','philhealth_deduction','pagibig_deduction','undertime_deduction','late_deduction','cash_advance_deduction','total_deduction','net_pay','status'
+    'sss_deduction','philhealth_deduction','pagibig_deduction','cash_advance_deduction','total_deduction','net_pay','status',
+    'late_minutes','undertime_minutes','half_day_count'
   ]
 
   const workbook = new ExcelJS.Workbook()

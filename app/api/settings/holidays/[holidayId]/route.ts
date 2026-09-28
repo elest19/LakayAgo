@@ -8,7 +8,7 @@ export async function PUT(req: Request, ctx: any) {
     const { holidayId } = await params || {}
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const body = await req.json()
     const { date, holiday_name, type, active } = body
@@ -33,7 +33,7 @@ export async function DELETE(_req: Request, ctx: any) {
     const { holidayId } = await params || {}
     const session = await getSessionFromRequest(_req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     await query('DELETE FROM holidays WHERE id=$1', [holidayId])
     return NextResponse.json({ success: true })

@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     const clauses: string[] = []
     const values: any[] = []
 
-    if (session.role !== 'SuperAdmin') {
+    if (session.role !== 'Admin') {
       clauses.push('s.restaurant = $1')
       values.push(session.restaurant)
     } else if (qRestaurant) {
@@ -133,7 +133,7 @@ export async function POST(req: Request) {
         }
 
         // Enforce restaurant scoping for non-superadmin
-        if (session.role !== 'SuperAdmin' && lookupRestaurant && lookupRestaurant !== session.restaurant) {
+        if (session.role !== 'Admin' && lookupRestaurant && lookupRestaurant !== session.restaurant) {
           throw new Error('Mismatched restaurant for selected item')
         }
 

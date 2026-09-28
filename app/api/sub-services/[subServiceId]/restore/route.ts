@@ -15,7 +15,7 @@ export async function PATCH(req: Request, { params }: { params: any }) {
     const existingRes = await query('SELECT * FROM sub_services WHERE sub_service_id = $1 LIMIT 1', [id])
     const existing = existingRes.rows[0]
     if (!existing) return NextResponse.json({ error: 'Sub-service not found' }, { status: 404 })
-    if (session.role !== 'SuperAdmin' && existing.restaurant !== session.restaurant) {
+    if (session.role !== 'Admin' && existing.restaurant !== session.restaurant) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

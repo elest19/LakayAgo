@@ -7,7 +7,7 @@ async function ensureServiceAccess(session: any, serviceId: number) {
   const serviceRes = await query('SELECT service_id, restaurant FROM services WHERE service_id = $1 LIMIT 1', [serviceId])
   const service = serviceRes.rows[0]
   if (!service) throw new Error('Service not found')
-  if (session.role !== 'SuperAdmin' && service.restaurant !== session.restaurant) {
+  if (session.role !== 'Admin' && service.restaurant !== session.restaurant) {
     throw new Error('Forbidden')
   }
   return service

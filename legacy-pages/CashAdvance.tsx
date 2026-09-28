@@ -52,11 +52,15 @@ const statusStyles: Record<string, string> = {
   pending: 'bg-yellow-100 text-amber-700',
   approved: 'bg-green-100 text-green-700',
   released: 'bg-green-700 text-violet-100',
+  paid: 'bg-emerald-100 text-emerald-700',
   cancelled: 'bg-gray-100 text-gray-700',
   rejected: 'bg-red-100 text-red-700',
 }
 
-const lockedStatuses = ['cancelled', 'rejected', 'released'] as const
+// "paid" is the UI-facing name for a fully settled advance (balance 0); the database
+// stores that same state as "deducted". It is terminal: no further status changes,
+// edits, or deletes are allowed once an advance is paid.
+const lockedStatuses = ['cancelled', 'rejected', 'released', 'paid'] as const
 
 const getRowBg = (index: number) => (index % 2 === 0 ? 'bg-white' : 'bg-slate-100')
 
@@ -64,7 +68,7 @@ function getStatusOptions(currentStatus: string): string[] {
   // Per requirements:
   // pending -> approved, cancelled, rejected
   // approved -> released, cancelled
-  // cancelled|rejected|released -> no options
+  // cancelled|rejected|released|paid -> no options
   if (currentStatus === 'pending') return ['approved', 'cancelled', 'rejected']
   if (currentStatus === 'approved') return ['released', 'cancelled']
   if (lockedStatuses.includes(currentStatus as any)) return []
@@ -262,7 +266,9 @@ export default function CashAdvancePage() {
         amount: Number(item.amount ?? 0),
         date_requested: item.date_requested ?? null,
         date_released: item.date_released ?? null,
-        status: item.status ?? 'pending',
+        // A zero balance means the advance is fully settled. The database records
+        // that state as "deducted", but the UI presents it as "paid".
+        status: Number(item.balance_remaining ?? 0) <= 0 ? 'paid' : (item.status ?? 'pending'),
         approved_by: item.approved_by ?? null,
         approved_name: item.approved_name ?? null,
         remarks: item.remarks ?? '',
@@ -631,14 +637,10 @@ export default function CashAdvancePage() {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="p-4 border-b border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-3">
           <select value={filters.employee} onChange={e => { setFilters(prev => ({ ...prev, employee: e.target.value })); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
             <option value="all">All employees</option>
             {employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
-          </select>
-          <select value={filters.restaurant} onChange={e => { setFilters(prev => ({ ...prev, restaurant: e.target.value })); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
-            <option value="all">All restaurants</option>
-            {['Lakay Ago', 'Aroo', 'Both'].map(r => <option key={r} value={r}>{r}</option>)}
           </select>
           <select value={filters.status} onChange={e => { setFilters(prev => ({ ...prev, status: e.target.value })); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 outline-none focus:border-indigo-400">
             <option value="all">All status</option>
@@ -846,7 +848,7 @@ export default function CashAdvancePage() {
               )}
             </div>
 
-            {/* Status section: hide entirely for locked statuses (cancelled, rejected, released) */}
+            {/* Status section: hide entirely for locked/terminal statuses (cancelled, rejected, released, paid) */}
             {!lockedStatuses.includes(selectedRecord.status as any) && (
               <div className="pt-3 border-t border-slate-100">
                 <p className="text-xs text-slate-400 mb-2">Status</p>
@@ -878,8 +880,8 @@ export default function CashAdvancePage() {
             )}
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              {/* Edit button: hidden for locked statuses */}
-              {!lockedStatuses.includes(selectedRecord.status as any) && (
+              {/* Edit button: only pending requests can be edited */}
+              {selectedRecord.status === 'pending' && (
                 <button
                   type="button"
                   onClick={() => {
@@ -898,8 +900,8 @@ export default function CashAdvancePage() {
                 </button>
               )}
 
-              {/* Delete button: hidden for locked statuses */}
-              {!lockedStatuses.includes(selectedRecord.status as any) && (
+              {/* Delete button: only pending requests can be deleted */}
+              {selectedRecord.status === 'pending' && (
                 <button
                   type="button"
                   onClick={() => { setShowDetailModal(false); setDeleteTarget(selectedRecord) }}

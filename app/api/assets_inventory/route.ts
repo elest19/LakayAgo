@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     const params: any[] = []
     const where: string[] = []
 
-    if (session.role !== 'SuperAdmin') {
+    if (session.role !== 'Admin') {
       where.push(`restaurant = $${params.length + 1}`)
       params.push(session.restaurant)
     } else if (qRestaurant) {

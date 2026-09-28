@@ -19,9 +19,9 @@ export async function GET(req: Request) {
     const ALL_RESTAURANTS = ['Lakay Ago', 'Aroo']
     const params: any[] = []
     const conditions: string[] = []
-    let text = `select leave_type_id, name, coalesce(leave_number,0) as leave_number, restaurant, coalesce(is_paid, false) as is_paid, coalesce(is_archived, false) as is_archived from leave_types`
+    let text = `select leave_type_id, name, restaurant, coalesce(is_paid, false) as is_paid, coalesce(is_archived, false) as is_archived from leave_types`
 
-    if (session.role === 'SuperAdmin') {
+    if (session.role === 'Admin') {
       if (qRestaurant) {
         params.push(qRestaurant)
         conditions.push(`restaurant = $${params.length}`)
@@ -49,16 +49,15 @@ export async function POST(req: Request) {
   try {
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const body = await req.json()
-    const { name, leave_number, restaurant, is_paid } = body
+    const { name, restaurant, is_paid } = body
     if (!name) return NextResponse.json({ error: 'Missing name' }, { status: 400 })
     const restaurantValue = restaurant || session.restaurant || 'Both'
-
     const res = await query(
-      `insert into leave_types(name, leave_number, restaurant, is_paid, created_at) values($1,$2,$3,$4, now()) returning *`,
-      [name, Number(leave_number || 0), restaurantValue, Boolean(is_paid)]
+      `insert into leave_types(name, restaurant, is_paid, created_at) values($1,$2,$3, now()) returning *`,
+      [name, restaurantValue, Boolean(is_paid)]
     )
     return NextResponse.json(res.rows[0], { status: 201 })
   } catch (err) {
@@ -71,16 +70,16 @@ export async function PATCH(req: Request) {
   try {
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const body = await req.json()
-    const { leave_type_id, name, leave_number, restaurant, is_paid, is_archived } = body
+    const { leave_type_id, name, restaurant, is_paid, is_archived } = body
     if (!leave_type_id) return NextResponse.json({ error: 'Missing leave_type_id' }, { status: 400 })
 
     const fields: string[] = []
     const params: any[] = []
     if (name) { params.push(String(name).trim()); fields.push(`name = $${params.length}`) }
-    if (leave_number != null) { params.push(Number(leave_number)); fields.push(`leave_number = $${params.length}`) }
+    // leave_number removed: per-employee totals live in employee_leave_balances
     if (is_paid !== undefined) { params.push(Boolean(is_paid)); fields.push(`is_paid = $${params.length}`) }
     if (restaurant !== undefined) {
       const value = String(restaurant || '').trim()
@@ -96,7 +95,7 @@ export async function PATCH(req: Request) {
     params.push(leave_type_id)
     // NOTE: leave_types has no updated_at column in the schema, so only the
     // explicitly supplied fields are written here.
-    const text = `update leave_types set ${fields.join(', ')} where leave_type_id = $${params.length} returning leave_type_id, name, coalesce(leave_number,0) as leave_number, restaurant, coalesce(is_paid, false) as is_paid, coalesce(is_archived, false) as is_archived`
+    const text = `update leave_types set ${fields.join(', ')} where leave_type_id = $${params.length} returning leave_type_id, name, restaurant, coalesce(is_paid, false) as is_paid, coalesce(is_archived, false) as is_archived`
     const { rows } = await query(text, params)
     if (!rows || rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     return NextResponse.json(rows[0])
@@ -110,7 +109,7 @@ export async function DELETE(req: Request) {
   try {
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'SuperAdmin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const url = new URL(req.url)
     const rawId = url.searchParams.get('leave_type_id') ?? url.searchParams.get('id')

@@ -11,7 +11,6 @@ import PaginationFooter from '../components/PaginationFooter'
 type Tab = 'payroll' | 'attendance' | 'holidays' | 'users'
 
 const tabLabels: { id: Tab; label: string }[] = [
-  { id: 'payroll', label: 'Payroll' },
   { id: 'attendance', label: 'Attendance' },
   { id: 'holidays', label: 'Holidays' },
   { id: 'users', label: 'Users & Roles' },
@@ -24,7 +23,6 @@ const deductionTypes = ['SSS', 'PhilHealth', 'Pag-IBIG', 'Withholding Tax', 'Lat
 
 
 const roleColor: Record<string, string> = {
-  'Super Admin': 'bg-indigo-300 text-indigo-700',
   'Admin': 'bg-blue-300 text-blue-700',
   'Staff': 'bg-violet-300 text-violet-700',
 }
@@ -182,22 +180,7 @@ export default function SettingsPage() {
     }
   }, [])
 
-  const refreshPayrollSettings = useCallback(async () => {
-    try {
-      const res = await fetch('/api/settings/payroll')
-      if (!res.ok) return
-      const body = await res.json()
-      const mapped = {
-        undertimeDeduction: body && (body.undertime_deduction != null) ? String(body.undertime_deduction) : defaultPayrollSettings.undertimeDeduction,
-        undertimeDeductionRateType: body?.undertime_deduction_rate_type === 'Minute' ? 'Minute' : 'Hour',
-        undertimeDeductionRate: body && (body.undertime_deduction_rate != null) ? String(body.undertime_deduction_rate) : defaultPayrollSettings.undertimeDeductionRate,
-      }
-      setPayrollSettings(mapped)
-      setOriginalPayrollSettings(mapped)
-    } catch (err) {
-      console.error('Failed to load payroll settings', err)
-    }
-  }, [])
+  // payroll settings loader removed; payroll settings are deprecated
 
   useRealtimeEntity('holidays', {
     onChange: () => { void refreshHolidays() },
@@ -207,9 +190,7 @@ export default function SettingsPage() {
     onChange: () => { void refreshAttendanceSettings() },
   })
 
-  useRealtimeEntity('payroll_settings', {
-    onChange: () => { void refreshPayrollSettings() },
-  })
+  // payroll settings removed: no realtime subscription
 
   useEffect(() => { setHolidayPage(1) }, [holidayList, holidayStatusFilter])
 
@@ -239,8 +220,7 @@ export default function SettingsPage() {
           email: u.email,
           username: u.username,
           restaurant: u.restaurant || 'Both',
-          // map DB role values like 'SuperAdmin' to UI label 'Super Admin'
-          role: u.role === 'SuperAdmin' ? 'Super Admin' : u.role === 'Admin' ? 'Admin' : u.role,
+          role: u.role === 'Admin' ? 'Admin' : u.role,
           is_archived: Boolean(u.is_archived),
           status: u.is_archived ? 'Archived' : 'Active',
         }))
@@ -308,28 +288,7 @@ export default function SettingsPage() {
     return () => { mounted = false }
   }, [])
 
-  // load payroll settings from backend and map to UI shape
-  useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      try {
-        const res = await fetch('/api/settings/payroll')
-        if (!res.ok) return
-        const body = await res.json()
-        if (!mounted) return
-        const mapped = {
-          undertimeDeduction: body && (body.undertime_deduction != null) ? String(body.undertime_deduction) : defaultPayrollSettings.undertimeDeduction,
-          undertimeDeductionRateType: body?.undertime_deduction_rate_type === 'Minute' ? 'Minute' : 'Hour',
-          undertimeDeductionRate: body && (body.undertime_deduction_rate != null) ? String(body.undertime_deduction_rate) : defaultPayrollSettings.undertimeDeductionRate,
-        }
-        setPayrollSettings(mapped)
-        setOriginalPayrollSettings(mapped)
-      } catch (err) {
-        console.error('Failed to load payroll settings', err)
-      }
-    })()
-    return () => { mounted = false }
-  }, [])
+  // payroll settings loader removed; payroll settings are deprecated
   const [earningsTypesList, setEarningsTypesList] = useState(earningsTypes)
   const [deductionTypesList, setDeductionTypesList] = useState(deductionTypes)
   const [selectedHoliday, setSelectedHoliday] = useState<any | null>(null)
@@ -429,7 +388,7 @@ export default function SettingsPage() {
   const [newUser, setNewUser] = useState<{ username: string; name: string; email: string; password: string; role: string; status: string; restaurant: string }>({ username: '', name: '', email: '', password: '', role: 'Staff', status: 'Active', restaurant: 'Both' })
   const [deleteTarget, setDeleteTarget] = useState<{ kind: 'holiday' | 'user'; index: number; item: any } | null>(null)
   const [deleteSalaryTarget, setDeleteSalaryTarget] = useState<{ kind: 'earning' | 'deduction'; key: string } | null>(null)
-  const [tab, setTab] = useState<Tab>('payroll')
+  const [tab, setTab] = useState<Tab>('attendance')
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
   const [editingPayroll, setEditingPayroll] = useState(false)
   const [editingAttendance, setEditingAttendance] = useState(false)
@@ -678,22 +637,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
         }
       }
 
-      if (tab === 'payroll') {
-        const payResponse = await fetch('/api/settings/payroll', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            undertime_deduction: Number((payrollSettings as any).undertimeDeduction || 0),
-            undertime_deduction_rate_type: (payrollSettings as any).undertimeDeductionRateType === 'Minute' ? 'Minute' : 'Hour',
-            undertime_deduction_rate: Number((payrollSettings as any).undertimeDeductionRate || 0),
-          }),
-        })
-
-        if (!payResponse.ok) {
-          const errorBody = await payResponse.json().catch(() => ({}))
-          throw new Error(errorBody?.error || 'Payroll settings save failed')
-        }
-      }
+      // payroll settings save removed; payroll settings are deprecated
       showToast({
         type: 'success',
         message: 'Settings saved',
@@ -1571,7 +1515,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                       return
                     }
                     const created = await res.json()
-                    const mapped = { user_id: created.user_id, username: newUser.username, name: created.name || newUser.name, email: created.email || newUser.email, role: created.role === 'SuperAdmin' ? 'Super Admin' : created.role, restaurant: created.restaurant || newUser.restaurant, status: 'Active' }
+                    const mapped = { user_id: created.user_id, username: newUser.username, name: created.name || newUser.name, email: created.email || newUser.email, role: created.role, restaurant: created.restaurant || newUser.restaurant, status: 'Active' }
                     setUserList(prev => [mapped, ...prev])
                     setAddUserOpen(false)
                     setNewUser({ username: '', name: '', email: '', password: '', role: 'Staff', status: 'Active', restaurant: 'Both' })
@@ -1765,7 +1709,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                         return
                       }
                       const updated = await res.json()
-                      const mapped = { user_id: updated.user_id, username: updated.username, name: updated.name, email: updated.email, role: updated.role === 'SuperAdmin' ? 'Super Admin' : updated.role, restaurant: updated.restaurant || 'Both', status: 'Active' }
+                      const mapped = { user_id: updated.user_id, username: updated.username, name: updated.name, email: updated.email, role: updated.role, restaurant: updated.restaurant || 'Both', status: 'Active' }
                       setUserList(prev => prev.map((item, idx) => idx === editingUser.index ? mapped : item))
                       showToast({ type: 'success', message: 'User updated', description: `${mapped.name} was updated successfully.` })
                     } else {

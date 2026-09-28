@@ -20,11 +20,16 @@ function normalizePayrollRow(row: any) {
   const sss = Math.max(0, Number(row?.sss_deduction ?? 0))
   const philhealth = Math.max(0, Number(row?.philhealth_deduction ?? 0))
   const pagibig = Math.max(0, Number(row?.pagibig_deduction ?? 0))
-  const undertime = Math.max(0, Number(row?.undertime_deduction_total ?? row?.undertime_deduction ?? 0))
-  const late = Math.max(0, Number(row?.late_deduction ?? row?.sum_late_min ?? 0))
+  // For new payslips we no longer record monetary undertime/late deductions.
+  // Persist counters separately and set monetary values to zero.
+  const undertimeMinutes = Math.max(0, Number(row?.undertime_minutes_total ?? row?.undertime_minutes ?? 0))
+  const lateMinutes = Math.max(0, Number(row?.late_minutes_total ?? row?.late_minutes ?? 0))
+  const halfDayCount = Math.max(0, Number(row?.halfday_total ?? row?.half_day_count ?? row?.half_day_total ?? 0))
+  const undertime = 0
+  const late = 0
   const cashAdvance = Math.max(0, Number(row?.cash_advance_deduction ?? 0))
-
-  const totalDeduction = Number((sss + philhealth + pagibig + undertime + late + cashAdvance).toFixed(2))
+  // Total deduction for new payrolls: only health deductions + cash advance.
+  const totalDeduction = Number((sss + philhealth + pagibig + cashAdvance).toFixed(2))
   const netPay = (row?.net_pay_overridden === true) && (typeof row?.net_pay === 'number' || !Number.isNaN(Number(row?.net_pay)))
     ? Number(row.net_pay)
     : Number((grossPay - totalDeduction).toFixed(2))
@@ -44,6 +49,9 @@ function normalizePayrollRow(row: any) {
     undertime_deduction: Number(undertime.toFixed(2)),
     late_deduction: Number(late.toFixed(2)),
     cash_advance_deduction: Number(cashAdvance.toFixed(2)),
+    late_minutes: lateMinutes,
+    undertime_minutes: undertimeMinutes,
+    half_day_count: halfDayCount,
     total_deduction: Number(totalDeduction.toFixed(2)),
     net_pay: Number(netPay.toFixed(2)),
   }
@@ -68,7 +76,7 @@ export async function POST(req: Request) {
       await client.query('ROLLBACK')
       return NextResponse.json({ error: 'Report period not found' }, { status: 404 })
     }
-    if (session.role !== 'SuperAdmin' && period.restaurant !== session.restaurant) {
+    if (session.role !== 'Admin' && period.restaurant !== session.restaurant) {
       await client.query('ROLLBACK')
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
@@ -79,8 +87,9 @@ export async function POST(req: Request) {
         base_pay, overtime_pay, halfday_pay, holiday_pay, paid_leave_pay, special_month, gross_pay,
         sss_deduction, philhealth_deduction, pagibig_deduction,
         undertime_deduction, late_deduction, cash_advance_deduction,
+        late_minutes, undertime_minutes, half_day_count,
         total_deduction, net_pay, status
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) returning *
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) returning *
     `
 
     const inserted: any[] = []
@@ -123,6 +132,9 @@ export async function POST(req: Request) {
         row.undertime_deduction,
         row.late_deduction,
         row.cash_advance_deduction,
+        row.late_minutes,
+        row.undertime_minutes,
+        row.half_day_count,
         row.total_deduction,
         row.net_pay,
         'released'

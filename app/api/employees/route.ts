@@ -10,17 +10,12 @@ export async function GET(req: Request) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const url = new URL(req.url)
-    const qRestaurant = url.searchParams.get('restaurant')
-
-    let restaurantFilter = qRestaurant
-    if (!restaurantFilter && session.restaurant && session.role === 'SuperAdmin') {
-      restaurantFilter = null
-    }
+    const activeRestaurant = session.restaurant
 
     let text = `select employee_id, source_employee_id, name, department, pay_per_day, status, restaurant, contact_number, address, sss, philhealth, pagibig, month_pay_13th from employees`
     const params: any[] = []
-    if (restaurantFilter) {
-      params.push(restaurantFilter)
+    if (activeRestaurant && activeRestaurant !== 'Both') {
+      params.push(activeRestaurant)
       text += ` where restaurant = $${params.length}`
     }
     const { rows } = await query(text, params)

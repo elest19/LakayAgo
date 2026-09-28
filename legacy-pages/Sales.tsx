@@ -167,7 +167,7 @@ const getSaleValidationErrors = (form: SaleFormState) => {
 }
 
 export default function Sales() {
-  const { showToast } = useApp()
+  const { showToast, appMode } = useApp()
   const [inventoryItems, setInventoryItems] = useState<any[]>([])
   const [foodBundles, setFoodBundles] = useState<FoodBundle[]>([])
   const [salesRecords, setSalesRecords] = useState<any[]>([])
@@ -175,7 +175,8 @@ export default function Sales() {
   const [search, setSearch] = useState('')
   const [selectedItemFilter, setSelectedItemFilter] = useState('All Items')
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'All' | InventoryCategory>('All')
-  const [selectedRestaurantFilter, setSelectedRestaurantFilter] = useState('All Restaurants')
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
+  const [selectedRestaurantFilter, setSelectedRestaurantFilter] = useState(activeRestaurant)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingSale, setEditingSale] = useState<SaleRecord | null>(null)
   const [form, setForm] = useState<SaleFormState>(emptyForm())
@@ -192,10 +193,13 @@ export default function Sales() {
   const [bulkSaleRestaurant, setBulkSaleRestaurant] = useState<Restaurant | ''>('')
   const [bulkSaleRows, setBulkSaleRows] = useState<Array<{ id: string; itemId: string; item: string; cost: string; quantity: string; discount: string }>>([])
 
-  const loadInventory = async (restaurant?: string) => {
+  useEffect(() => {
+    setSelectedRestaurantFilter(activeRestaurant)
+  }, [activeRestaurant])
+
+  const loadInventory = async (_restaurant?: string) => {
     try {
-      const url = restaurant ? `/api/food_and_beverage?restaurant=${encodeURIComponent(restaurant)}` : '/api/food_and_beverage'
-      const res = await fetch(url)
+      const res = await fetch('/api/food_and_beverage')
       if (!res.ok) return
       const j = await res.json()
       const rows = j.items || []
@@ -205,10 +209,9 @@ export default function Sales() {
     }
   }
 
-  const loadFoodBundles = async (restaurant?: string) => {
+  const loadFoodBundles = async (_restaurant?: string) => {
     try {
       const params = new URLSearchParams({ type: 'menu_bundle' })
-      if (restaurant) params.set('restaurant', restaurant)
       const res = await fetch(`/api/food_packages?${params.toString()}`)
       if (!res.ok) return
       const j = await res.json()
@@ -276,8 +279,8 @@ export default function Sales() {
   const itemFilterOptions = ['All Items', ...inventoryItems.map(item => item.item)]
 
   const restaurantOptions = useMemo(
-    () => Array.from(new Set(salesRecords.map(sale => sale.restaurant).filter(Boolean) as string[])).sort(),
-    [salesRecords],
+    () => [activeRestaurant],
+    [activeRestaurant],
   )
 
   const salesDateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
@@ -288,7 +291,7 @@ export default function Sales() {
       const matchCategory = selectedCategoryFilter === 'All' || sale.category === selectedCategoryFilter
       const matchSearch = !search || sale.item.toLowerCase().includes(search.toLowerCase())
       const matchDate = dateInRange(sale.createdAt, salesDateRange)
-      const matchRestaurant = selectedRestaurantFilter === 'All Restaurants' || sale.restaurant === selectedRestaurantFilter
+      const matchRestaurant = sale.restaurant === selectedRestaurantFilter
       return matchItem && matchCategory && matchSearch && matchDate && matchRestaurant
     })
   }, [salesRecords, search, selectedCategoryFilter, selectedItemFilter, salesDateRange, selectedRestaurantFilter])
@@ -706,7 +709,6 @@ export default function Sales() {
                 onChange={e => setSelectedRestaurantFilter(e.target.value)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none font-display text-slate-600"
               >
-                <option value="All Restaurants">All Restaurant</option>
                 {restaurantOptions.map(restaurant => (
                   <option key={restaurant} value={restaurant}>{restaurant}</option>
                 ))}
@@ -753,7 +755,6 @@ export default function Sales() {
             onChange={e => setSelectedRestaurantFilter(e.target.value)}
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white outline-none  font-display text-slate-600"
           >
-            <option value="All Restaurants">All Restaurants</option>
             {restaurantOptions.map(restaurant => (
               <option key={restaurant} value={restaurant}>{restaurant}</option>
             ))}

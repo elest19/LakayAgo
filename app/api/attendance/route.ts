@@ -38,20 +38,17 @@ export async function GET(req: Request) {
 
     const params: any[] = []
     let where: string[] = []
-    const qRestaurant = url.searchParams.get('restaurant')
-    if (session.role !== 'SuperAdmin') {
-      if (session.restaurant === 'Both') {
-        const target = qRestaurant && (qRestaurant === 'Lakay Ago' || qRestaurant === 'Aroo')
-          ? [qRestaurant]
-          : ['Lakay Ago', 'Aroo']
-        params.push(target)
+    const activeRestaurant = session.restaurant
+    if (session.role !== 'Admin') {
+      if (activeRestaurant === 'Both') {
+        params.push(['Lakay Ago', 'Aroo'])
         where.push(`restaurant = ANY($${params.length})`)
       } else {
-        params.push(session.restaurant)
+        params.push(activeRestaurant)
         where.push(`restaurant = $${params.length}`)
       }
-    } else if (qRestaurant) {
-      params.push(qRestaurant)
+    } else if (activeRestaurant && activeRestaurant !== 'Both') {
+      params.push(activeRestaurant)
       where.push(`restaurant = $${params.length}`)
     }
 

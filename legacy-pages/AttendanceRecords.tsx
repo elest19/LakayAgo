@@ -71,15 +71,16 @@ function SkeletonTableRows({ columns, rows = 10, columnConfig }: SkeletonTableRo
 }
 
 export default function AttendanceRecords() {
-  const { navigate, showToast } = useApp()
+  const { navigate, showToast, appMode } = useApp()
   const isMobile = useIsMobile()
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
+  const restaurant = activeRestaurant
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null)
   const [search, setSearch] = useState('')
   const [dept, setDept] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [period, setPeriod] = useState<string>('')
   const [periods, setPeriods] = useState<PayrollPeriod[]>([])
-  const [restaurant, setRestaurant] = useState<'Lakay Ago' | 'Aroo' | 'Both'>('Both')
   const [specificDate, setSpecificDate] = useState<string>('')
   const [page, setPage] = useState(1)
   const [isEditing, setIsEditing] = useState(false)
@@ -134,15 +135,15 @@ export default function AttendanceRecords() {
   // Fetch payroll periods
   const loadPeriods = useCallback(async () => {
     try {
-      const res = await fetch(`/api/report_periods${restaurant !== 'Both' ? `?restaurant=${restaurant}` : ''}`)
+      const res = await fetch('/api/report_periods')
       if (res.ok) {
         const data = await res.json()
-        setPeriods(data.periods || [])
+        setPeriods((data.periods || []).filter((item: any) => !item.restaurant || item.restaurant === activeRestaurant))
       }
     } catch {
       // ignore
     }
-  }, [restaurant])
+  }, [activeRestaurant])
 
   useEffect(() => {
     loadPeriods()
@@ -246,12 +247,7 @@ export default function AttendanceRecords() {
         return
       }
 
-      // Always pass restaurant filter - backend will respect it for SuperAdmin, 
-      // for non-SuperAdmin it uses session restaurant (periods already filtered by that)
-      if (restaurant !== 'Both') {
-        params.set('restaurant', restaurant)
-      }
-      
+      // Backend resolves the active scope from the current appMode/session and ignores any client restaurant override.
       if (period && selectedPeriod) {
         params.set('from', selectedPeriod.period_start)
         params.set('to', selectedPeriod.period_end)
@@ -388,7 +384,7 @@ export default function AttendanceRecords() {
   }, [period, periods, specificDate, restaurant])
 
   useRealtimeEntity('attendance', {
-    restaurant: 'Both',
+    restaurant: activeRestaurant,
     onChange: () => {
       void loadAttendance()
     },
@@ -494,20 +490,9 @@ export default function AttendanceRecords() {
 
             {/* Restaurant Filter */}
             <div className="flex items-center gap-2 mb-2">
-              <select 
-                value={restaurant} 
-                onChange={e => { 
-                  setRestaurant(e.target.value as 'Lakay Ago' | 'Aroo' | 'Both')
-                  setPeriod('')
-                  setSpecificDate('')
-                  setPage(1)
-                }} 
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px]"
-              >
-                <option value="Both">All Restaurants</option>
-                <option value="Lakay Ago">Lakay Ago</option>
-                <option value="Aroo">Aroo</option>
-              </select>
+              <div className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-slate-50 font-display min-w-[160px]">
+                {restaurant}
+              </div>
             </div>
 
             {/* Payroll Period Filter */}
@@ -519,7 +504,6 @@ export default function AttendanceRecords() {
                   setSpecificDate('')
                   setPage(1)
                 }} 
-                disabled={restaurant === 'Both'}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px] disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
               >
                 <option value="">Select Payroll Period</option>
@@ -620,20 +604,9 @@ export default function AttendanceRecords() {
 
           {/* Restaurant Filter */}
           <div className="flex items-center gap-2">
-            <select 
-              value={restaurant} 
-              onChange={e => { 
-                setRestaurant(e.target.value as 'Lakay Ago' | 'Aroo' | 'Both')
-                setPeriod('')
-                setSpecificDate('')
-                setPage(1)
-              }} 
-              className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[160px]"
-            >
-              <option value="Both">All Restaurants</option>
-              <option value="Lakay Ago">Lakay Ago</option>
-              <option value="Aroo">Aroo</option>
-            </select>
+            <div className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-slate-50 outline-none font-display min-w-[160px]">
+              {restaurant}
+            </div>
           </div>
 
           {/* Payroll Period Filter */}
@@ -645,7 +618,6 @@ export default function AttendanceRecords() {
                 setSpecificDate('')
                 setPage(1)
               }} 
-              disabled={restaurant === 'Both'}
               className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display min-w-[200px] pr-8 appearance-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
             >
               <option value="">Select Payroll Period</option>

@@ -27,20 +27,14 @@ export async function GET(req: Request) {
     const period = periodRows[0]
     if (!period) return NextResponse.json({ error: 'Period not found' }, { status: 404 })
 
-    if (session.role !== 'SuperAdmin' && period.restaurant !== session.restaurant) {
+    if (session.role !== 'Admin' && period.restaurant !== session.restaurant) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const [attendanceSettingsResult, payrollSettingsResult] = await Promise.all([
+    const [attendanceSettingsResult] = await Promise.all([
       query('SELECT * FROM attendance_settings ORDER BY updated_at DESC LIMIT 1'),
-      query("SELECT undertime_deduction, undertime_deduction_rate_type, undertime_deduction_rate FROM payroll_settings ORDER BY updated_at DESC LIMIT 1"),
     ])
 
-    const payrollSettings = payrollSettingsResult.rows[0] || {
-      undertime_deduction: 0,
-      undertime_deduction_rate_type: 'Hour',
-      undertime_deduction_rate: 1,
-    }
     const attendanceSettings = attendanceSettingsResult.rows[0] || {
       required_daily_hours: 8,
     }
@@ -121,6 +115,11 @@ export async function GET(req: Request) {
     }
 
     const rows: any[] = []
+    // ensure period benefit flags default to true when null
+    period.is_sss_enabled = period.is_sss_enabled === null || period.is_sss_enabled === undefined ? true : Boolean(period.is_sss_enabled)
+    period.is_philhealth_enabled = period.is_philhealth_enabled === null || period.is_philhealth_enabled === undefined ? true : Boolean(period.is_philhealth_enabled)
+    period.is_pagibig_enabled = period.is_pagibig_enabled === null || period.is_pagibig_enabled === undefined ? true : Boolean(period.is_pagibig_enabled)
+
     const specialMonthInPeriod = Boolean(period.is_special_month)
 
     for (const employee of employeeRows) {
@@ -205,22 +204,26 @@ export async function GET(req: Request) {
         }
       }
 
-      const sumLateMin = (lateMinutesTotal / 15) * 50
-      const undertimeDeductionRateType = String(payrollSettings.undertime_deduction_rate_type || 'Hour').trim()
-      const undertimeDeductionRate = toNumber(payrollSettings.undertime_deduction_rate, 0)
-      const rateInMinutes = undertimeDeductionRateType === 'Minute' ? undertimeDeductionRate : undertimeDeductionRate * 60
-      const undertimeDeductionTotal = rateInMinutes > 0 ? (undertimeMinutesTotal / rateInMinutes) * toNumber(payrollSettings.undertime_deduction, 0) : 0
+      // New behaviour: stop computing monetary attendance deductions here.
+      // Keep counters (minutes/days) for display, but set money deductions to zero for new payrolls.
+      const sumLateMin = 0
+      const undertimeDeductionTotal = 0
+      // Compute gross base as days present × pay_per_day. Treat half-day as a full day for gross.
       const requiredDailyMinutes = (toNumber(attendanceSettings.required_daily_hours, 8) || 8) * 60
-      const grossBase = requiredDailyMinutes > 0 ? (workedMinutesTotal / requiredDailyMinutes) * payPerDay : 0
+      const grossBase = (presentTotal * payPerDay)
       const overtimePay = (overtimeMinutesTotal / 60) * (payPerDay / 8)
-      const healthDeduction =
-        toNumber(employee.sss, 0) +
-        toNumber(employee.philhealth, 0) +
-        toNumber(employee.pagibig, 0)
+      const sssAmount = toNumber(employee.sss, 0)
+      const philAmount = toNumber(employee.philhealth, 0)
+      const pagibigAmount = toNumber(employee.pagibig, 0)
+      const sssDeduction = period.is_sss_enabled ? sssAmount : 0
+      const philhealthDeduction = period.is_philhealth_enabled ? philAmount : 0
+      const pagibigDeduction = period.is_pagibig_enabled ? pagibigAmount : 0
+      const healthDeduction = sssDeduction + philhealthDeduction + pagibigDeduction
 
-      const grossPay = grossBase + halfdayPayment + overtimePay + holidayPay + paidLeavePay + specialMonthPay
-      const attendanceDeduction = sumLateMin + undertimeDeductionTotal
-      const totalDeduction = attendanceDeduction + healthDeduction
+      // halfdayPayment is intentionally excluded: half-days are counted as full days in grossBase.
+      const grossPay = grossBase + overtimePay + holidayPay + paidLeavePay + specialMonthPay
+      const attendanceDeduction = 0
+      const totalDeduction = healthDeduction
       const netPay = grossPay - totalDeduction
 
       rows.push({
@@ -237,23 +240,22 @@ export async function GET(req: Request) {
         undertime_minutes_total: undertimeMinutesTotal,
         required_daily_minutes: requiredDailyMinutes,
         required_daily_hours: toNumber(attendanceSettings.required_daily_hours, 8) || 8,
-        rate_in_minutes: rateInMinutes,
-        undertime_deduction_rate_type: undertimeDeductionRateType,
-        undertime_deduction: toNumber(payrollSettings.undertime_deduction, 0),
-        undertime_deduction_rate: undertimeDeductionRate,
+        undertime_deduction_rate_type: null,
+        undertime_deduction: 0,
+        undertime_deduction_rate: 0,
         deductions: totalDeduction,
         net_pay: netPay,
         gross_pay: grossPay,
         paid_leave_pay: paidLeavePay,
         special_month: specialMonthPay,
-        halfday_payment: halfdayPayment,
+        halfday_payment: 0,
         holiday_pay: holidayPay,
         attendance_deduction: attendanceDeduction,
         total_deduction: totalDeduction,
         health_deduction: healthDeduction,
-        sss_deduction: toNumber(employee.sss, 0),
-        philhealth_deduction: toNumber(employee.philhealth, 0),
-        pagibig_deduction: toNumber(employee.pagibig, 0),
+        sss_deduction: sssDeduction,
+        philhealth_deduction: philhealthDeduction,
+        pagibig_deduction: pagibigDeduction,
         sum_late_min: sumLateMin,
         undertime_deduction_total: undertimeDeductionTotal,
         gross_base: grossBase,

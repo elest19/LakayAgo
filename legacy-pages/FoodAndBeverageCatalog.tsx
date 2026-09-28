@@ -376,16 +376,15 @@ function IngredientTypeahead({ value, options, onChange, disabledIds = [], place
 
 export default function FoodAndBeverageCatalog() {
   const isMobile = useIsMobile()
-  const { showToast } = useApp()
-  const { appMode } = useApp()
+  const { showToast, appMode } = useApp()
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
 
   const [search, setSearch] = useState('')
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'All' | 'Menu Item' | 'Others'>('All')
   // Archive visibility filter shown next to the category filter.
   const [archiveFilter, setArchiveFilter] = useState<'Archived' | 'Unarchived'>('Unarchived')
   const [items, setItems] = useState<any[]>([])
-  const [lakayPage, setLakayPage] = useState(1)
-  const [arooPage, setArooPage] = useState(1)
+  const [currentPage, setCurrentPage] = useState(1)
   const [initialLoading, setInitialLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState<FBForm>(emptyForm)
@@ -405,9 +404,10 @@ export default function FoodAndBeverageCatalog() {
       const nameMatches = item.name.toLowerCase().includes(search.toLowerCase())
       const categoryMatches = selectedCategoryFilter === 'All' || normalizeCategory(item.category) === selectedCategoryFilter
       const archiveMatches = archiveFilter === 'Archived' ? Boolean(item.is_archived) : !item.is_archived
-      return nameMatches && categoryMatches && archiveMatches
+      const restaurantMatches = item.restaurant === activeRestaurant || !item.restaurant
+      return nameMatches && categoryMatches && archiveMatches && restaurantMatches
     }),
-    [items, search, selectedCategoryFilter, archiveFilter],
+    [items, search, selectedCategoryFilter, archiveFilter, activeRestaurant],
   )
 
   const openCreate = () => { setForm({ ...emptyForm, category: 'Menu Item' }); setErrors({}); setShowModal(true) }
@@ -847,19 +847,14 @@ export default function FoodAndBeverageCatalog() {
     }
   }, [items])
 
-  const lakayAgoItems = filtered.filter(i => i.restaurant === 'Lakay Ago')
-  const arooItems = filtered.filter(i => i.restaurant === 'Aroo')
+  const currentRestaurantItems = filtered
   const pageSize = 10
-  const lakayPageTotal = Math.max(1, Math.ceil(lakayAgoItems.length / pageSize))
-  const arooPageTotal = Math.max(1, Math.ceil(arooItems.length / pageSize))
-  const paginatedLakayItems = lakayAgoItems.slice((lakayPage - 1) * pageSize, lakayPage * pageSize)
-  const paginatedArooItems = arooItems.slice((arooPage - 1) * pageSize, arooPage * pageSize)
+  const currentPageTotal = Math.max(1, Math.ceil(currentRestaurantItems.length / pageSize))
+  const paginatedCurrentItems = currentRestaurantItems.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-  const lakayEmptyCount = paginatedLakayItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedLakayItems.length)
-  const arooEmptyCount = paginatedArooItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedArooItems.length)
+  const currentEmptyCount = paginatedCurrentItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedCurrentItems.length)
 
-  useEffect(() => { setLakayPage(1) }, [search, selectedCategoryFilter, archiveFilter, items.length])
-  useEffect(() => { setArooPage(1) }, [search, selectedCategoryFilter, archiveFilter, items.length])
+  useEffect(() => { setCurrentPage(1) }, [search, selectedCategoryFilter, archiveFilter, items.length])
 
   const renderRestaurantTable = (title: string, displayItems: typeof filtered, totalItems: typeof filtered, currentPage: number, totalPages: number, setPage: (value: number | ((prev: number) => number)) => void, emptyCount: number) => (
     <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden mb-6" style={{ display: initialLoading || totalItems.length > 0 ? 'block' : 'none' }}>
@@ -1025,8 +1020,7 @@ export default function FoodAndBeverageCatalog() {
         </div>
       </div>
 
-      {renderRestaurantTable('Lakay Ago', paginatedLakayItems, lakayAgoItems, lakayPage, lakayPageTotal, setLakayPage, lakayEmptyCount)}
-      {renderRestaurantTable('Aroo', paginatedArooItems, arooItems, arooPage, arooPageTotal, setArooPage, arooEmptyCount)}
+      {renderRestaurantTable(activeRestaurant, paginatedCurrentItems, currentRestaurantItems, currentPage, currentPageTotal, setCurrentPage, currentEmptyCount)}
 
       <Modal
         open={showModal}

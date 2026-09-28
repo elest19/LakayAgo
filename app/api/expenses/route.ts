@@ -9,18 +9,14 @@ export async function GET(req: Request) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const url = new URL(req.url)
-    const qRestaurant = url.searchParams.get('restaurant')
 
     let sql = 'SELECT * FROM expenses'
     const params: any[] = []
     const where: string[] = []
 
-    if (session.role !== 'SuperAdmin') {
+    if (session.restaurant && session.restaurant !== 'Both') {
       where.push(`restaurant = $${params.length + 1}`)
       params.push(session.restaurant)
-    } else if (qRestaurant) {
-      where.push(`restaurant = $${params.length + 1}`)
-      params.push(qRestaurant)
     }
 
     if (where.length) sql += ` WHERE ${where.join(' AND ')}`

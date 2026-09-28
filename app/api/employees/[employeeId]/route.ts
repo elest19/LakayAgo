@@ -15,7 +15,7 @@ export async function GET(req: Request, context: any) {
     const emp = rows[0]
     if (!emp) return NextResponse.json({ employee: null })
 
-    if (session.role !== 'SuperAdmin' && emp.restaurant !== session.restaurant) {
+    if (session.role !== 'Admin' && emp.restaurant !== session.restaurant) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -66,7 +66,7 @@ export async function PUT(req: Request, context: any) {
     const { rows: existingRows } = await query('select * from employees where employee_id = $1 limit 1', [Number(employeeId)])
     const emp = existingRows[0]
     if (!emp) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    if (session.role !== 'SuperAdmin' && emp.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin' && emp.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const nextStatus = allowed.status ?? emp.status
     if (String(nextStatus ?? '').trim().toLowerCase() === 'active') {
@@ -112,7 +112,7 @@ export async function DELETE(req: Request, context: any) {
     const { rows: existingRows } = await query('select * from employees where employee_id = $1 limit 1', [Number(employeeId)])
     const emp = existingRows[0]
     if (!emp) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    if (session.role !== 'SuperAdmin' && emp.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin' && emp.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     // Hard delete: related rows (attendance, leave, cash advances, deductions,
     // leave balances, payslips) cascade; cash_advances.approved_by is set null.

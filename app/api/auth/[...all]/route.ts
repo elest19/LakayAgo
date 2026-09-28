@@ -9,7 +9,7 @@ async function guardSignUp(req: Request) {
 		const url = new URL(req.url, 'http://localhost')
 		if (req.method === 'POST' && url.pathname === '/api/auth/sign-up/email') {
 			const session = await getSessionFromRequest(req)
-			if (!session || !(session.role === 'Admin' || session.role === 'SuperAdmin')) {
+			if (!session || session.role !== 'Admin') {
 				return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
 			}
 		}

@@ -14,7 +14,7 @@ export async function POST(req: Request, context: any) {
   const { rows: existingRows } = await query('select * from report_periods where report_period_id = $1 limit 1', [Number(periodId)])
   const existing = existingRows[0]
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (session.role !== 'SuperAdmin' && existing.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (session.role !== 'Admin' && existing.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { rows } = await query('update report_periods set status = $1 where report_period_id = $2 returning *', [status, Number(periodId)])
   const updated = rows[0]

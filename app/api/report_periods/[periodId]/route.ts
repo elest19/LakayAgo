@@ -10,7 +10,11 @@ export async function GET(req: Request, context: any) {
   const { rows } = await query('select * from report_periods where report_period_id = $1 limit 1', [Number(periodId)])
   const period = rows[0]
   if (!period) return NextResponse.json({ period: null })
-  if (session.role !== 'SuperAdmin' && period.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (session.role !== 'Admin' && period.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // ensure boolean defaults when DB null
+  period.is_sss_enabled = period.is_sss_enabled === null || period.is_sss_enabled === undefined ? true : period.is_sss_enabled
+  period.is_philhealth_enabled = period.is_philhealth_enabled === null || period.is_philhealth_enabled === undefined ? true : period.is_philhealth_enabled
+  period.is_pagibig_enabled = period.is_pagibig_enabled === null || period.is_pagibig_enabled === undefined ? true : period.is_pagibig_enabled
   return NextResponse.json({ period })
 }
 
@@ -20,12 +24,24 @@ export async function PUT(req: Request, context: any) {
   const { periodId } = await context.params
   const body = await req.json()
   const allowed: any = {}
-  ;['tabulation_date','source_file','restaurant','is_special_month'].forEach(k => { if (k in body) allowed[k] = body[k] })
+  ;['tabulation_date','source_file','restaurant','is_special_month','is_sss_enabled','is_philhealth_enabled','is_pagibig_enabled'].forEach(k => { if (k in body) allowed[k] = body[k] })
 
   const { rows: existingRows } = await query('select * from report_periods where report_period_id = $1 limit 1', [Number(periodId)])
   const existing = existingRows[0]
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (session.role !== 'SuperAdmin' && existing.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (session.role !== 'Admin' && existing.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // Lock editing of benefit flags once payroll processing moved past editable statuses
+  const editableStatuses = ['Pending','Attendance Imported','Validation Required','Ready for Payroll']
+  const editingFlags = ['is_sss_enabled','is_philhealth_enabled','is_pagibig_enabled']
+  if (!editableStatuses.includes(existing.status || 'Pending')) {
+    // If request attempts to change any of the locked flags, deny
+    for (const f of editingFlags) {
+      if (f in body && body[f] !== (existing[f] === undefined ? true : existing[f])) {
+        return NextResponse.json({ error: `Cannot change ${f} once payroll processing has advanced` }, { status: 403 })
+      }
+    }
+  }
 
   const sets: string[] = []
   const params: any[] = []
@@ -47,7 +63,7 @@ export async function DELETE(req: Request, context: any) {
   const { rows: existingRows } = await query('select * from report_periods where report_period_id = $1 limit 1', [Number(periodId)])
   const existing = existingRows[0]
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (session.role !== 'SuperAdmin' && existing.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (session.role !== 'Admin' && existing.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     await query('delete from report_periods where report_period_id = $1', [Number(periodId)])

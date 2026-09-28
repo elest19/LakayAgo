@@ -165,8 +165,9 @@ function minutesToHHMM(mins?: number | null) {
 }
 
 export default function ImportHistory() {
-  const { showToast } = useApp()
+  const { showToast, appMode } = useApp()
   const isMobile = useIsMobile()
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
   const [imports, setImports] = useState<ImportRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedImport, setSelectedImport] = useState<ImportRecord | null>(null)
@@ -203,7 +204,9 @@ export default function ImportHistory() {
       await loadImports()
     })()
     return () => { mounted = false }
-  }, [loadImports])
+    // activeRestaurant changes when the user switches app mode, so refetch to stay in the
+    // same restaurant scope the API resolves from the X-App-Mode header
+  }, [loadImports, activeRestaurant])
 
   const loadEmployeesForImport = useCallback(async (importRecord: ImportRecord) => {
     try {
@@ -241,7 +244,7 @@ export default function ImportHistory() {
   }, [])
 
   useRealtimeEntity('attendance', {
-    restaurant: 'Both',
+    restaurant: activeRestaurant,
     onChange: () => {
       void loadImports()
       if (selectedImport) {

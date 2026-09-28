@@ -16,7 +16,7 @@ export async function GET(req: Request, ctx: any) {
     const res = await query('select * from payslips where payslip_id = $1 limit 1', [payslipId])
     const p = res.rows[0]
     if (!p) return NextResponse.json({ error: 'Payslip not found' }, { status: 404 })
-    if (session.role !== 'SuperAdmin' && p.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (session.role !== 'Admin' && p.restaurant !== session.restaurant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     // fetch report period for date range
     const periodRes = await query('select period_start, period_end from report_periods where report_period_id = $1 limit 1', [p.report_period_id])
@@ -93,6 +93,16 @@ export async function GET(req: Request, ctx: any) {
     sy -= 14
     page.drawText(`Pay Period: ${periodLabel || ''}`, { x: leftBoxX + 8, y: sy, size: 10, font })
     sy -= 14
+    // Attendance counters (informational only)
+    const lateMinutes = Number(p.late_minutes ?? p.sum_late_min ?? 0)
+    const undertimeMinutes = Number(p.undertime_minutes ?? 0)
+    const halfDayCount = Number(p.half_day_count ?? p.halfday_total ?? 0)
+    page.drawText(`Late: ${((lateMinutes / 60) || 0).toFixed(2)} hrs`, { x: leftBoxX + 8, y: sy, size: 9, font })
+    sy -= 12
+    page.drawText(`Undertime: ${((undertimeMinutes / 60) || 0).toFixed(2)} hrs`, { x: leftBoxX + 8, y: sy, size: 9, font })
+    sy -= 12
+    page.drawText(`Half-day: ${halfDayCount} day(s)`, { x: leftBoxX + 8, y: sy, size: 9, font })
+    sy -= 12
 
     // right highlighted box (green)
     const green = rgb(0.87, 0.96, 0.88)
@@ -122,8 +132,6 @@ export async function GET(req: Request, ctx: any) {
       ['Holiday Pay', Number(p.holiday_pay || 0)],
     ]
     const deductions: [string, number][] = [
-      ['Undertime Deductions', Number(p.undertime_deduction || 0)],
-      ['Late Deductions', Number((p.late_deduction ?? p.sum_late_min) || 0)],
       ['Cash Advance', Number(p.cash_advance_deduction || 0)],
       ['SSS', Number(p.sss_deduction || 0)],
       ['PhilHealth', Number(p.philhealth_deduction || 0)],

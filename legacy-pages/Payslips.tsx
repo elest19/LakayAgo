@@ -114,8 +114,6 @@ function PayslipDetailModal({ item, onClose }: { item: any; onClose: () => void 
                 { id: 'sss', label: 'SSS', amount: Number(item.raw?.sss_deduction ?? 0) },
                 { id: 'philhealth', label: 'PhilHealth', amount: Number(item.raw?.philhealth_deduction ?? 0) },
                 { id: 'pagibig', label: 'Pag-IBIG', amount: Number(item.raw?.pagibig_deduction ?? 0) },
-                { id: 'undertime', label: 'Undertime Deductions', amount: Number(item.raw?.undertime_deduction ?? 0) },
-                { id: 'late', label: 'Late Deductions', amount: Number(item.raw?.late_deduction ?? 0) },
                 { id: 'cash-advance', label: 'Cash Advance', amount: Number(item.raw?.cash_advance_deduction ?? 0) },
               ].map(d => (
                 <div key={d.id} className="flex justify-between text-sm">
@@ -127,6 +125,22 @@ function PayslipDetailModal({ item, onClose }: { item: any; onClose: () => void 
                 <span className="text-slate-700">Total Deductions</span>
                 <span className="font-mono text-red-600">{formatCurrency(Number(item.raw?.total_deduction ?? item.deductions ?? 0))}</span>
               </div>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide font-display mb-3">Attendance (informational)</p>
+            <div className="space-y-2">
+              {[
+                { id: 'late', label: 'Late', value: `${((Number(item.raw?.late_minutes ?? item.raw?.sum_late_min ?? 0)) / 60).toFixed(2)} hrs` },
+                { id: 'undertime', label: 'Undertime', value: `${((Number(item.raw?.undertime_minutes ?? item.raw?.undertime_deduction ?? 0)) / 60).toFixed(2)} hrs` },
+                { id: 'halfday', label: 'Half-day', value: `${Number(item.raw?.half_day_count ?? item.raw?.halfday_total ?? 0)} days` },
+              ].map(d => (
+                <div key={d.id} className="flex justify-between text-sm">
+                  <span className="text-slate-600">{d.label}</span>
+                  <span className="font-mono text-slate-700">{d.value}</span>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -249,9 +263,10 @@ export default function Payslips() {
   const isMobile = useIsMobile()
   // component-scoped in-memory cache mapping employee_id -> employee object
   const employeesRef = useRef<Map<string, any>>(new Map())
+  const { appMode } = useApp()
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
   const [search, setSearch] = useState('')
   const [period, setPeriod] = useState('all')
-  const [dept, setDept] = useState('')
   const [viewing, setViewing] = useState<any | null>(null)
   const [periods, setPeriods] = useState<any[]>([])
   const [payslips, setPayslips] = useState<any[]>([])
@@ -367,7 +382,7 @@ export default function Payslips() {
   const filtered = payslips.filter(p => {
     const q = search.toLowerCase()
     const matchQ = !q || `${p.emp.firstName} ${p.emp.lastName}`.toLowerCase().includes(q)
-    const matchRestaurant = !dept || p.emp.restaurant === dept
+    const matchRestaurant = p.emp.restaurant === activeRestaurant || p.emp.restaurant === 'Both'
     return matchQ && matchRestaurant
   })
 
@@ -404,12 +419,7 @@ export default function Payslips() {
               )}
             </select>
           </div>
-          <div className="w-full">
-            <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-              <option value="">Restaurant: All</option>
-              {['Lakay Ago', 'Aroo'].map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
+          {/* Restaurant is driven by the current app mode; we do not allow client-side restaurant switching on this page. */}
           {/* <button onClick={() => clearEmployeesCache()} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white hover:bg-slate-50 font-display">Refresh Employee Data</button> */}
         </div>
       ) : (
@@ -428,10 +438,9 @@ export default function Payslips() {
               ))
             )}
           </select>
-          <select value={dept} onChange={e => { setDept(e.target.value); setPage(1) }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white outline-none focus:border-indigo-400 font-display">
-            <option value="">Restaurant: All</option>
-            {['Lakay Ago', 'Aroo'].map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
+          <div className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-slate-50 font-display min-w-[160px]">
+            {activeRestaurant}
+          </div>
           {/* <button onClick={() => clearEmployeesCache()} className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-white hover:bg-slate-50 font-display">Refresh Employee Data</button> */}
         </div>
       )}

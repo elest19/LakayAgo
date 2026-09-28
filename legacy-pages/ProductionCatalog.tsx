@@ -153,7 +153,8 @@ const getValidationErrors = (form: ProductionFormState) => {
 }
 
 export default function ProductionCatalog() {
-  const { showToast } = useApp()
+  const { showToast, appMode } = useApp()
+  const activeRestaurant = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
   const [productionStock, setProductionStock] = useState<ProductionItem[]>([])
   const isMobile = useIsMobile()
   const [loading, setLoading] = useState(true)
@@ -219,8 +220,11 @@ export default function ProductionCatalog() {
 
   const filteredItems = useMemo(() => productionStock
     .filter(item => (showArchived ? item.isArchived : !item.isArchived))
+    .filter(item => item.restaurant === activeRestaurant)
     .filter(item => item.name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name)), [productionStock, search, showArchived])
+    .sort((a, b) => a.name.localeCompare(b.name)), [productionStock, search, showArchived, activeRestaurant])
+
+  const currentRestaurantItems = filteredItems
 
   // jump back to page 1 when the archive filter changes so the view isn't stuck on an empty page
   useEffect(() => { setLakayPage(1); setArooPage(1) }, [showArchived])
@@ -634,8 +638,7 @@ export default function ProductionCatalog() {
 
     return (
       <div className="space-y-0">
-        {renderRestaurantTable('Lakay Ago', lakayAgoItems)}
-        {renderRestaurantTable('Aroo', arooItems)}
+        {renderRestaurantTable(activeRestaurant, currentRestaurantItems)}
         {!loading && filteredItems.length === 0 && <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center"><p className="text-sm text-slate-400">No production items found.</p></div>}
       </div>
     )

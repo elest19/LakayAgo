@@ -15,7 +15,7 @@ export async function GET(req: Request, { params }: { params: any }) {
 
     const paramsList: any[] = [itemId]
     let restaurantClause = ''
-    if (session.role !== 'SuperAdmin') {
+    if (session.role !== 'Admin') {
       restaurantClause = `and (fp.restaurant = $2 or fp.restaurant = 'Both')`
       paramsList.push(session.restaurant)
     }

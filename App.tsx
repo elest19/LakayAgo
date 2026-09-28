@@ -53,6 +53,7 @@ import { authClient } from './lib/auth-client'
 import Modal from './components/Modal'
 import isMobile from './hooks/isMobile'
 import { useRealtimeConnectionStatus } from './hooks/useRealtimeEntity'
+import { normalizeRole } from './lib/permissions'
 
 const AppContext = createContext<AppContextType>({
   currentPage: 'dashboard',
@@ -87,12 +88,13 @@ export const useApp = () => useContext(AppContext)
 const normalizeAppUser = (value: any) => {
   if (!value) return null
   const userId = value.user_id ?? value.id ?? null
+  const role = normalizeRole(value.role) ?? (value.role ?? 'Staff')
   return {
     ...value,
     id: value.id ?? userId,
     user_id: userId,
     username: value.username ?? '',
-    role: value.role ?? 'Staff',
+    role,
     restaurant: value.restaurant ?? 'Both',
   }
 }
@@ -110,6 +112,22 @@ interface NavGroup {
 }
 
 type NavEntry = NavItem | ({ type: 'group' } & NavGroup)
+
+const staffInventoryGroup: NavEntry = {
+  type: 'group',
+  label: 'Inventory Management',
+  icon: <ShoppingCart size={18} />,
+  items: [
+    { id: 'sales-summary', label: 'Summary Report', icon: <BarChart3 size={16} /> },
+    { id: 'sales', label: 'Sales', icon: <Wallet size={16} /> },
+    { id: 'services', label: 'Services', icon: <FileText size={16} /> },
+    { id: 'food-and-beverage-catalog', label: 'Food & Beverage / Kitchen Catalog', icon: <CookingPot size={16} /> },
+    { id: 'food-packages', label: 'Food Packages', icon: <Package2 size={16} /> },
+    { id: 'assets-catalog', label: 'Assets List', icon: <Package2 size={16} /> },
+    { id: 'production-catalog', label: 'Ingredients / Production Catalog', icon: <Factory size={16} /> },
+    { id: 'expenses', label: 'Expenses', icon: <CreditCard size={16} /> },
+  ],
+}
 
 const navItems: NavEntry[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
@@ -305,12 +323,13 @@ export default function App() {
 
   useEffect(() => {
     const path = window.location.pathname.replace(/\/+$/, '') || '/'
-    const page = routePageMap[path] ?? 'dashboard'
+    const fallbackPage = user?.role === 'Staff' ? 'sales-summary' : (routePageMap[path] ?? 'dashboard')
+    const page = user?.role === 'Staff' ? (routePageMap[path] === 'sales-summary' || routePageMap[path] === 'sales' || routePageMap[path] === 'services' || routePageMap[path] === 'food-and-beverage-catalog' || routePageMap[path] === 'food-packages' || routePageMap[path] === 'assets-catalog' || routePageMap[path] === 'production-catalog' || routePageMap[path] === 'expenses' ? routePageMap[path] : 'sales-summary') : (routePageMap[path] ?? 'dashboard')
     setCurrentPage(page)
     const group = navItems.find((entry): entry is { type: 'group' } & NavGroup =>
       'type' in entry && entry.type === 'group' && entry.items.some(i => i.id === page))
     if (group) setExpandedGroups(prev => new Set(prev).add(group.label))
-  }, [])
+  }, [user])
 
   
 
@@ -330,7 +349,7 @@ export default function App() {
         firstName: nameParts[0] || '',
         lastName: nameParts.slice(1).join(' ') || '',
         contactNumber: '',
-        role: nextUser.role === 'SuperAdmin' ? 'Super Admin' : nextUser.role || '',
+        role: nextUser.role || '',
         email: nextUser.email || '',
         password: '',
       })
@@ -355,7 +374,7 @@ export default function App() {
         firstName: nameParts[0] || '',
         lastName: nameParts.slice(1).join(' ') || '',
         contactNumber: '',
-        role: user.role === 'SuperAdmin' ? 'Super Admin' : user.role || '',
+        role: user.role || '',
         email: user.email || '',
         password: '',
       })
@@ -380,7 +399,28 @@ export default function App() {
   useEffect(() => {
     const orig = window.fetch.bind(window)
     window.fetch = async (...args: any[]) => {
-      const res = await (orig as any)(...args)
+      const [input, init] = args
+      const requestOptions = init ? { ...init } : {}
+      const headers = new Headers(requestOptions.headers || {})
+      headers.set('X-App-Mode', appMode === 'aroo' ? 'Aroo' : 'Lakay Ago')
+      requestOptions.headers = headers
+
+      if (typeof input === 'string') {
+        const nextUrl = new URL(input, window.location.origin)
+        nextUrl.searchParams.delete('restaurant')
+        nextUrl.searchParams.delete('appMode')
+        return (orig as any)(nextUrl.toString(), requestOptions)
+      }
+
+      if (input instanceof Request) {
+        const nextRequest = new Request(input, requestOptions)
+        const nextUrl = new URL(nextRequest.url)
+        nextUrl.searchParams.delete('restaurant')
+        nextUrl.searchParams.delete('appMode')
+        return (orig as any)(new Request(nextUrl.toString(), nextRequest), requestOptions)
+      }
+
+      const res = await (orig as any)(input, requestOptions)
       if (res.status === 401) {
         setUser(null)
         setCurrentPage('login')
@@ -389,7 +429,7 @@ export default function App() {
       return res
     }
     return () => { window.fetch = orig }
-  }, [])
+  }, [appMode])
 
   // redirect logic after auth load
   useEffect(() => {
@@ -403,8 +443,12 @@ export default function App() {
         window.history.replaceState({}, '', redirectUrl)
         setCurrentPage('login')
       } else if ((user || loginPending) && currentPage === 'login') {
-        setCurrentPage('dashboard')
-        window.history.replaceState({}, '', '/dashboard')
+        const landingPage = user?.role === 'Staff' ? 'sales-summary' : 'dashboard'
+        setCurrentPage(landingPage)
+        window.history.replaceState({}, '', landingPage === 'sales-summary' ? '/sales-summary' : '/dashboard')
+      } else if (user?.role === 'Staff' && !['sales-summary', 'sales', 'services', 'food-and-beverage-catalog', 'food-packages', 'assets-catalog', 'production-catalog', 'expenses'].includes(currentPage)) {
+        setCurrentPage('sales-summary')
+        window.history.replaceState({}, '', '/sales-summary')
       }
     }
   }, [authLoading, user, currentPage])
@@ -991,7 +1035,7 @@ export default function App() {
           </div>
         )}
         <div className="mt-3 border-t border-slate-800 pt-3"></div>
-        {navItems.map((entry, idx) => {
+        {(user?.role === 'Staff' ? [{ ...staffInventoryGroup, type: 'group' } as NavEntry] : navItems).map((entry, idx) => {
           if ('type' in entry && entry.type === 'group') {
             const group = entry as { type: 'group' } & NavGroup
             const expanded = expandedGroups.has(group.label)
@@ -1288,8 +1332,7 @@ export default function App() {
                  disabled={!isEditingProfile}
                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
                >
-                 <option value="Super Admin">Super Admin</option>
-                 <option value="Admin">Admin</option>
+                   <option value="Admin">Admin</option>
                  <option value="Staff">Staff</option>
                </select>
               </label>
@@ -1348,7 +1391,7 @@ export default function App() {
                           firstName: nameParts[0] || '',
                           lastName: nameParts.slice(1).join(' ') || '',
                           contactNumber: '',
-                          role: user.role === 'SuperAdmin' ? 'Super Admin' : user.role || '',
+                          role: user.role || '',
                           email: user.email || '',
                           password: '',
                         })
