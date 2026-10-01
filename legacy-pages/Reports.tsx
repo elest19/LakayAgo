@@ -117,7 +117,7 @@ export default function Reports() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('all')
   
   // Dropdown options
-  const [periods, setPeriods] = useState<{ id: string; label: string; period_start?: string; period_end?: string; is_special_month?: boolean }[]>([])
+  const [periods, setPeriods] = useState<{ id: string; label: string; period_start?: string; period_end?: string }[]>([])
   const [departments, setDepartments] = useState<string[]>([])
   const [employees, setEmployees] = useState<{ id: string; name: string; department: string; restaurant: string }[]>([])
   
@@ -165,7 +165,6 @@ async function fetchPeriods() {
             label: (p.period_start || '') + ' - ' + (p.period_end || '') + ' (' + (p.restaurant || '') + ')',
             period_start: p.period_start,
             period_end: p.period_end,
-            is_special_month: Boolean(p.is_special_month)
           }
         }))
     } catch (err) {
@@ -228,10 +227,9 @@ async function fetchEmployees() {
         const body = await res.json()
         const rows = body.payslips || []
 
-        // Determine is_special_month from periods cache
         const period = periods.find(p => p.id === selectedPeriodId)
-        const isSpecial = Boolean(period?.is_special_month)
-        setPayrollIsSpecial(isSpecial)
+        const hasSpecialMonthRows = rows.some((r: any) => Number(r.special_month || 0) > 0)
+        setPayrollIsSpecial(hasSpecialMonthRows)
 
         // Aggregate totals
         const totals = rows.reduce((acc: any, r: any) => {
@@ -258,7 +256,7 @@ async function fetchEmployees() {
           { name: 'Late Time Pay', value: totals.halfday_pay, color: '#7c3aed' },
           { name: 'Holiday Pay', value: totals.holiday_pay, color: '#f97316' },
         ]
-        if (isSpecial) earningsSlices.push({ name: '13th Month Pay', value: totals.special_month, color: '#3b82f6' })
+        if (hasSpecialMonthRows) earningsSlices.push({ name: '13th Month Pay', value: totals.special_month, color: '#3b82f6' })
 
         // Build deduction slices
         const deductionSlices: any[] = [

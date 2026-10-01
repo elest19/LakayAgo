@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 
 interface ModalProps {
   open: boolean
@@ -6,7 +7,22 @@ interface ModalProps {
   onClose: () => void
   children?: React.ReactNode
   className?: string
+  /** Accessible name for the dialog when no visible title is rendered. */
+  ariaLabel?: string
+  /** Close when the backdrop (outside the panel) is clicked. */
+  closeOnBackdrop?: boolean
+  /** Lock body scrolling and trap focus inside the dialog. Default: true. */
+  trapFocus?: boolean
 }
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
 
 export default function Modal({
   open,
@@ -14,6 +30,9 @@ export default function Modal({
   onClose,
   children,
   className = '',
+  ariaLabel,
+  closeOnBackdrop = false,
+  trapFocus = true,
 }: ModalProps) {
   const [mounted, setMounted] = useState(open)
   const [show, setShow] = useState(false)
@@ -21,6 +40,13 @@ export default function Modal({
   const onCloseRef = useRef(onClose)
   const inTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const outTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  const [portalNode, setPortalNode] = useState<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (!portalNode) setPortalNode(document.body)
+  }, [portalNode])
 
   useEffect(() => {
     onCloseRef.current = onClose
@@ -29,8 +55,62 @@ export default function Modal({
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       onCloseRef.current()
+      return
     }
-  }, [])
+
+    // Keep Tab focus cycling inside the dialog while it is open.
+    if (e.key !== 'Tab' || !trapFocus) return
+    const panel = panelRef.current
+    if (!panel) return
+
+    const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      .filter(el => el.offsetParent !== null || el === document.activeElement)
+    if (focusable.length === 0) {
+      e.preventDefault()
+      panel.focus()
+      return
+    }
+
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const active = document.activeElement
+
+    if (e.shiftKey && (active === first || !panel.contains(active))) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }, [trapFocus])
+
+  // Lock background scrolling and move focus into the dialog, restoring it on close.
+  useEffect(() => {
+    if (!open) return
+
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null
+
+    const { overflow, paddingRight } = document.body.style
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    document.body.style.overflow = 'hidden'
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`
+
+    const rafId = requestAnimationFrame(() => {
+      const panel = panelRef.current
+      if (!panel) return
+      const focusable = panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      const target = focusable[0] ?? panel
+      target.focus()
+    })
+
+    return () => {
+      cancelAnimationFrame(rafId)
+      document.body.style.overflow = overflow
+      document.body.style.paddingRight = paddingRight
+      previouslyFocusedRef.current?.focus()
+      previouslyFocusedRef.current = null
+    }
+  }, [open])
 
   useEffect(() => {
     if (open) {

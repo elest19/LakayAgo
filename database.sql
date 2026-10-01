@@ -235,14 +235,42 @@ CREATE TABLE IF NOT EXISTS employees (
     philhealth numeric DEFAULT 0,
     pagibig numeric DEFAULT 0,
     address text,
-    month_pay_13th numeric
+    month_pay_13th numeric,
+    start_date date,
+    special_month_pay date
 );
 
 ALTER TABLE employees ADD CONSTRAINT employees_pkey PRIMARY KEY (employee_id);
 ALTER TABLE employees ADD CONSTRAINT employees_restaurant_check CHECK ((restaurant = ANY (ARRAY['Lakay Ago'::text, 'Aroo'::text, 'Both'::text])));
 ALTER TABLE employees ADD CONSTRAINT employees_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'fired'::text])));
+ALTER TABLE employees ADD CONSTRAINT employees_special_month_pay_min_12_months_check CHECK (((start_date IS NULL) OR (special_month_pay IS NULL) OR (special_month_pay >= (start_date + '12 months'::interval))));
 CREATE UNIQUE INDEX employees_pkey ON public.employees USING btree (employee_id);
 CREATE INDEX idx_employees_status ON public.employees USING btree (status);
+CREATE INDEX idx_employees_special_month_pay ON public.employees USING btree (special_month_pay);
+
+CREATE OR REPLACE FUNCTION public.normalize_employee_13th_month_dates()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.start_date IS NOT NULL AND NEW.special_month_pay IS NULL THEN
+    NEW.special_month_pay := (NEW.start_date + INTERVAL '12 months')::DATE;
+  END IF;
+
+  IF NEW.start_date IS NOT NULL
+     AND NEW.special_month_pay IS NOT NULL
+     AND NEW.special_month_pay < (NEW.start_date + INTERVAL '12 months') THEN
+    RAISE EXCEPTION 'special_month_pay must be at least 12 months after start_date';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER employees_13th_month_dates_trigger
+BEFORE INSERT OR UPDATE ON public.employees
+FOR EACH ROW
+EXECUTE FUNCTION public.normalize_employee_13th_month_dates();
 
 -- --------------------------------------------------
 -- Table: expenses
@@ -508,8 +536,7 @@ CREATE TABLE IF NOT EXISTS report_periods (
     source_file text,
     created_at timestamptz DEFAULT now() NOT NULL,
     restaurant text DEFAULT 'Both'::text NOT NULL,
-    status character varying(50) DEFAULT 'Pending'::character varying,
-    is_special_month boolean DEFAULT false NOT NULL
+    status character varying(50) DEFAULT 'Pending'::character varying
 );
 
 ALTER TABLE report_periods ADD CONSTRAINT report_periods_pkey PRIMARY KEY (report_period_id);

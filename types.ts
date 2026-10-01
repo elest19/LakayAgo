@@ -37,6 +37,8 @@ export interface Employee {
   philhealth?: number
   pagibig?: number
   month_pay_13th?: number
+  start_date?: string | null
+  special_month_pay?: string | null
 }
 
 export interface AttendanceRecord {
@@ -71,7 +73,6 @@ export interface PayrollPeriod {
   source_file: string | null
   created_at: string
   restaurant: string
-  is_special_month?: boolean
   is_sss_enabled?: boolean
   is_philhealth_enabled?: boolean
   is_pagibig_enabled?: boolean

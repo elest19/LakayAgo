@@ -101,7 +101,9 @@ type PayrollRow = {
   on_leave_total: number
   paid_leave_pay: number
   special_month?: number
-  
+  special_month_eligible?: boolean
+  special_month_date?: string | null
+
   halfday_total: number
   worked_minutes_total: number
   overtime_minutes_total: number
@@ -219,7 +221,9 @@ function PayrollBreakdownModal({ row, onClose }: { row: any; onClose: () => void
         id: 'special-month-pay',
         label: '13th Month Pay',
         amount: specialMonthPay,
-        detail: `13th month pay schedule active for this period: ${fmt(specialMonthPay)}`,
+        detail: row.special_month_date
+          ? `13th month pay date ${formatIsoToShort(row.special_month_date)} falls within this payroll period.`
+          : '13th month pay date falls within this payroll period.',
       }] : []),
       {
         id: 'halfday-pay',
@@ -386,6 +390,7 @@ export default function ProcessPayroll() {
   const [netDrafts, setNetDrafts] = useState<Record<string, string>>({})
   const [advancesOpen, setAdvancesOpen] = useState(false)
   const [holidaysOpen, setHolidaysOpen] = useState(true)
+  const [specialMonthOpen, setSpecialMonthOpen] = useState(false)
   const [payrollPage, setPayrollPage] = useState(0)
   const [reviewPage, setReviewPage] = useState(0)
   const PAYROLL_PAGE_SIZE = 10
@@ -395,6 +400,9 @@ export default function ProcessPayroll() {
   const advancesInnerRef = useRef<HTMLDivElement | null>(null)
   const advancesWrapperRef = useRef<HTMLDivElement | null>(null)
   const [advancesMaxHeight, setAdvancesMaxHeight] = useState('0px')
+  const specialMonthInnerRef = useRef<HTMLDivElement | null>(null)
+  const specialMonthWrapperRef = useRef<HTMLDivElement | null>(null)
+  const [specialMonthMaxHeight, setSpecialMonthMaxHeight] = useState('0px')
   const advancesRequestId = useRef(0)
   const payrollRequestId = useRef(0)
   const lastLoadedPeriodRef = useRef<number | null>(null)
@@ -410,8 +418,16 @@ export default function ProcessPayroll() {
   const totalOvertime = payrollRowsState.reduce((sum, row) => sum + Number(row.overtime_pay || 0), 0)
   const totalHolidayPay = payrollRowsState.reduce((sum, row) => sum + Number(row.holiday_pay || 0), 0)
   const totalSpecialMonthPay = payrollRowsState.reduce((sum, row) => sum + Number(row.special_month ?? 0), 0)
-  // 13th Month Pay card is only shown for periods flagged as a 13th month (special) period
-  const show13thMonthCard = Boolean(activePayrollPeriod?.is_special_month)
+  const specialMonthEmployees = payrollRowsState
+    .filter(row => Boolean(row.special_month_eligible) || Number(row.special_month ?? 0) > 0)
+    .map(row => ({
+      employee_id: row.employee_id,
+      employee_name: row.employee_name,
+      employee_department: row.employee_department,
+      special_month: Number(row.special_month ?? 0),
+      special_month_date: row.special_month_date ?? null,
+    }))
+  const show13thMonthCard = payrollRowsState.some(row => Number(row.special_month ?? 0) > 0)
 
   const activePayrollIndex = stepToIndex[step]
   const maxCarouselIndex = Math.max(0, payrollWorkflowSteps.length - 3)
@@ -521,6 +537,8 @@ export default function ProcessPayroll() {
           on_leave_total: Number(r.on_leave_total ?? 0),
           paid_leave_pay: Number(r.paid_leave_pay ?? 0),
           special_month: Number(r.special_month ?? 0),
+          special_month_eligible: Boolean(r.special_month_eligible ?? Number(r.special_month ?? 0) > 0),
+          special_month_date: r.special_month_date ?? null,
           halfday_total: Number(r.halfday_total ?? 0),
           worked_minutes_total: Number(r.worked_minutes_total ?? 0),
           overtime_minutes_total: Number(r.overtime_minutes_total ?? 0),
@@ -1250,12 +1268,13 @@ export default function ProcessPayroll() {
       {step === 'review' && (
         <div className="space-y-5">
           {/* Summary */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className={`grid grid-cols-2 ${show13thMonthCard ? 'md:grid-cols-6' : 'md:grid-cols-5'} gap-3`}>
               {[
               { label: 'Total Employees', value: String(totalEmployees), color: 'text-slate-600' },
               { label: 'Total Deductions', value: fmt(totalDeductions), color: 'text-red-600' },
               { label: 'Gross Payroll', value: fmt(totalGrossPayroll), color: 'text-green-600' },
               { label: 'Net Payroll', value: fmt(totalNetPayroll), color: 'text-green-600' },
+              ...(show13thMonthCard ? [{ label: '13th Month Pay', value: fmt(totalSpecialMonthPay), color: 'text-indigo-600' }] : []),
               { label: 'Overtime Cost', value: fmt(totalOvertime), color: 'text-yellow-600' },
             ].map(s => (
               <div key={s.label} className="gap-2 bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm text-center">

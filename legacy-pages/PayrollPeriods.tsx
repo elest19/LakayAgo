@@ -97,7 +97,6 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
   const [periodStart, setPeriodStart] = useState(existingPeriod?.period_start ?? 'yyyy/mm/dd')
   const [periodEnd, setPeriodEnd] = useState(existingPeriod?.period_end ?? 'yyyy/mm/dd')
   const [tabulationDate, setTabulationDate] = useState(existingPeriod?.tabulation_date ?? 'yyyy/mm/dd')
-  const [isSpecialMonth, setIsSpecialMonth] = useState<boolean>(existingPeriod?.is_special_month ?? false)
   const [isSssEnabled, setIsSssEnabled] = useState<boolean>(existingPeriod?.is_sss_enabled ?? true)
   const [isPhilhealthEnabled, setIsPhilhealthEnabled] = useState<boolean>(existingPeriod?.is_philhealth_enabled ?? true)
   const [isPagibigEnabled, setIsPagibigEnabled] = useState<boolean>(existingPeriod?.is_pagibig_enabled ?? true)
@@ -130,7 +129,7 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
 
     try {
       if (existingPeriod) {
-        const payload: any = { tabulation_date: tabulationDate, restaurant, is_special_month: isSpecialMonth, is_sss_enabled: isSssEnabled, is_philhealth_enabled: isPhilhealthEnabled, is_pagibig_enabled: isPagibigEnabled }
+        const payload: any = { tabulation_date: tabulationDate, restaurant, is_sss_enabled: isSssEnabled, is_philhealth_enabled: isPhilhealthEnabled, is_pagibig_enabled: isPagibigEnabled }
         const res = await fetch(`/api/report_periods/${existingPeriod.report_period_id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -147,7 +146,7 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
         const res = await fetch('/api/report_periods', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ period_start: periodStart, period_end: periodEnd, tabulation_date: tabulationDate, restaurant, is_special_month: isSpecialMonth, is_sss_enabled: isSssEnabled, is_philhealth_enabled: isPhilhealthEnabled, is_pagibig_enabled: isPagibigEnabled }),
+          body: JSON.stringify({ period_start: periodStart, period_end: periodEnd, tabulation_date: tabulationDate, restaurant, is_sss_enabled: isSssEnabled, is_philhealth_enabled: isPhilhealthEnabled, is_pagibig_enabled: isPagibigEnabled }),
         })
         const data = await res.json()
         if (res.ok) {
@@ -194,10 +193,6 @@ function CreatePeriodModal({ onClose, onSave, existingPeriods, existingPeriod }:
               onChange={e => setTabulationDate(e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
-          </div>
-          <div className="flex items-center gap-2 px-2">
-            <input id="isSpecialMonth" type="checkbox" checked={isSpecialMonth} onChange={e => setIsSpecialMonth(e.target.checked)} className="w-4 h-4" />
-            <label htmlFor="isSpecialMonth" className="text-sm text-slate-600">13th Month Pay period</label>
           </div>
           <div className="border-t border-slate-200 pt-3">
             <p className="text-md font-bold text-slate-600">Benefit Deductions</p>
@@ -273,7 +268,6 @@ export default function PayrollPeriods() {
         created_at: p.created_at,
         restaurant: p.restaurant,
         status: p.status,
-        is_special_month: p.is_special_month,
         is_sss_enabled: p.is_sss_enabled === undefined || p.is_sss_enabled === null ? true : p.is_sss_enabled,
         is_philhealth_enabled: p.is_philhealth_enabled === undefined || p.is_philhealth_enabled === null ? true : p.is_philhealth_enabled,
         is_pagibig_enabled: p.is_pagibig_enabled === undefined || p.is_pagibig_enabled === null ? true : p.is_pagibig_enabled,

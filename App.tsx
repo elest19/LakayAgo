@@ -260,27 +260,6 @@ const routePageMap: Record<string, Page> = {
   '/login': 'login',
 }
 
-function RealtimeStatusPill() {
-  const status = useRealtimeConnectionStatus('employees', 'Both')
-  const isLive = status === 'connected'
-
-  return (
-    <div
-      className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
-        isLive
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          : 'border-amber-200 bg-amber-50 text-amber-700'
-      }`}
-    >
-      <span
-        className={`h-2.5 w-2.5 rounded-full ${
-          isLive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-        }`}
-      />
-      {isLive ? 'Live' : status === 'connecting' ? 'Connecting' : status === 'channel_error' ? 'Error' : 'Offline'}
-    </div>
-  )
-}
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard')
@@ -306,6 +285,8 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [notifications, setNotifications] = useState<Array<{ id: string; msg: string; time?: string; type?: 'info'|'success'|'warning'|'error'; read?: boolean; href?: string }>>([])
   const [profileOpen, setProfileOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifMounted, setNotifMounted] = useState(false)
   const [notifVisible, setNotifVisible] = useState(false)
@@ -469,12 +450,25 @@ export default function App() {
       if (e.key === 'Escape') {
         setProfileOpen(false)
         setNotifOpen(false)
+        setUserMenuOpen(false)
       }
     }
 
-    if (profileOpen || notifOpen) window.addEventListener('keydown', onKey)
+    if (profileOpen || notifOpen || userMenuOpen) window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [profileOpen, notifOpen])
+  }, [profileOpen, notifOpen, userMenuOpen])
+
+  // Close the sidebar user menu on outside click.
+  useEffect(() => {
+    if (!userMenuOpen) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [userMenuOpen])
 
   useEffect(() => {
     if (notifOpen) {
@@ -491,6 +485,7 @@ export default function App() {
   const navigate = useCallback((page: Page, push: boolean = true) => {
     setCurrentPage(page)
     setMobileSidebarOpen(false)
+    setUserMenuOpen(false)
     if (push) {
       const pageToPath: Record<Page, string> = {
         login: '/login',
@@ -530,6 +525,17 @@ export default function App() {
     setToasts(prev => [...prev, { ...toast, id }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4500)
   }, [])
+
+  // Shared sign-out logic — reused by the sidebar user menu, the profile modal,
+  // and the `logout` value exposed on the app context.
+  const handleLogout = useCallback(async (opts: { toast?: boolean } = {}) => {
+    try { await authClient.signOut() } catch {}
+    setUser(null)
+    setProfileOpen(false)
+    setUserMenuOpen(false)
+    if (opts.toast) showToast({ type: 'info', message: 'Signed out' })
+    navigate('login')
+  }, [navigate, showToast])
 
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id))
@@ -1093,6 +1099,38 @@ export default function App() {
           )
         })}
       </nav> 
+
+      {/* User menu — desktop only. On mobile the header/sidebar top chip is used instead. */}
+      {!isMobileView && (
+        <div ref={userMenuRef} className="relative border-t border-slate-800 mt-auto">
+          <button
+            type="button"
+            onClick={() => { setUserMenuOpen(false); setProfileOpen(true) }}
+            aria-haspopup="menu"
+            aria-expanded={userMenuOpen}
+            title={user?.name || 'User menu'}
+            className={`w-full flex items-center gap-3 p-3 cursor-pointer ${showLabels ? '' : 'justify-center'} text-slate-400 hover:text-white hover:bg-slate-800`}
+          >
+            <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center shrink-0">
+              <span className="text-white text-xs font-bold font-display">
+                {user ? (user.name || '').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : '...'}
+              </span>
+            </div>
+            {showLabels && (
+              <>
+                <div className="text-start min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-white truncate font-display">{user?.name || 'Loading...'}</p>
+                  {(user?.role || user?.email) && (
+                    <p className="text-xs text-slate-400 truncate">{user?.role || user?.email}</p>
+                  )}
+                </div>
+              </>
+            )}
+          </button>
+          {/* extra bottom padding so the floating Next.js dev indicator never overlaps */}
+          <div className="h-10" aria-hidden="true" />
+        </div>
+      )}
     </div>
     )
   }
@@ -1108,7 +1146,7 @@ export default function App() {
         user,
         setUser,
         authLoading,
-        logout: async () => { try { await authClient.signOut() } catch {} setUser(null); navigate('login') },
+        logout: async () => { await handleLogout() },
         inventoryItems,
         setInventoryItems,
         productionStock,
@@ -1173,21 +1211,9 @@ export default function App() {
               )}
 
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
-                <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-3.5 flex items-center gap-4 shrink-0 z-30">
-                  {!isMobileView ? (
-                    <div>
-                      <h1 className="text-base font-bold text-slate-800 leading-tight font-display">{meta.title}</h1>
-                      <div className="flex items-center gap-1 text-xs text-slate-400">
-                        {meta.breadcrumbs.map((crumb, i) => (
-                          <span key={i} className="flex items-center gap-1">
-                            {i > 0 && <ChevronRight size={10} />}
-                            <span>{crumb}</span>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-3">
+                {isMobileView && (
+                <header className="bg-white border-b border-slate-200 px-4 py-3.5 flex items-center gap-4 shrink-0 z-30">
+                  <div className="flex items-center gap-3">
                       <img src={logoSrc} alt={appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'} className="w-12 h-12 object-contain rounded-sm" />
                       <div className="flex flex-col">
                         <span className="text-base font-bold text-slate-800 leading-tight font-display">
@@ -1198,42 +1224,20 @@ export default function App() {
                         </span>
                       </div>
                     </div>
-                  )}
 
                   <div className="flex-1" />
                   <div className="flex items-center gap-3">
-                    <RealtimeStatusPill />
-
-                    {!isMobileView && (
-                      <div className="relative">
-                        <button
-                          onClick={() => { setProfileOpen(!profileOpen); setNotifOpen(false) }}
-                          className="flex items-center gap-2 rounded-lg hover:bg-slate-100 px-2 py-1.5 cursor-pointer"
-                        >
-                          <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center">
-                            <span className="text-white text-xs font-bold font-display">
-                              {user ? (user.name || '').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : '...'}
-                            </span>
-                          </div>
-                          <span className="text-sm font-medium text-slate-700 font-display">
-                            {user?.name || 'Loading...'}
-                          </span>
-                        </button>
-                      </div>
-                    )}
-
-                    {isMobileView && (
-                      <button
-                        className="text-slate-500 hover:text-slate-700 cursor-pointer"
-                        onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-                      >
-                        <Menu size={20} />
-                      </button>
-                    )}
+                    <button
+                      className="text-slate-500 hover:text-slate-700 cursor-pointer"
+                      onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+                    >
+                      <Menu size={20} />
+                    </button>
                   </div>
                 </header>
+                )}
 
-                <main className="flex-1 overflow-y-auto">
+                <main className={`flex-1 overflow-y-auto ${isMobileView ? '' : 'pt-4'}`}>
                   {renderPage()}
                 </main>
               </div>
@@ -1366,15 +1370,7 @@ export default function App() {
                 <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={async () => {
-                    try {
-                      await authClient.signOut()
-                    } catch (err) {}
-                    setUser(null)
-                    setProfileOpen(false)
-                    showToast({ type: 'info', message: 'Signed out' })
-                    navigate('login')
-                  }}
+                  onClick={() => { void handleLogout({ toast: true }) }}
                   className="rounded-md px-3 py-2 text-sm text-white bg-red-600 border hover:bg-red-700 shadow-sm cursor-pointer"
                 >
                   Sign Out

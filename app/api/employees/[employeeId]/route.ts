@@ -11,7 +11,7 @@ export async function GET(req: Request, context: any) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { employeeId } = await params
-    const { rows } = await query('select employee_id, source_employee_id, name, department, pay_per_day, status, restaurant, contact_number, address, sss, philhealth, pagibig, month_pay_13th from employees where employee_id = $1 limit 1', [Number(employeeId)])
+    const { rows } = await query('select employee_id, source_employee_id, name, department, pay_per_day, status, restaurant, contact_number, address, sss, philhealth, pagibig, month_pay_13th, start_date, special_month_pay from employees where employee_id = $1 limit 1', [Number(employeeId)])
     const emp = rows[0]
     if (!emp) return NextResponse.json({ employee: null })
 
@@ -37,17 +37,27 @@ export async function PUT(req: Request, context: any) {
     // Map frontend camelCase fields to DB snake_case columns
     const fieldMap: Record<string, string> = {
       source_employee_id: 'source_employee_id',
+      sourceEmployeeId: 'source_employee_id',
       name: 'name',
       department: 'department',
       pay_per_day: 'pay_per_day',
+      payPerDay: 'pay_per_day',
       status: 'status',
       address: 'address',
       contactNumber: 'contact_number',
+      contact_number: 'contact_number',
       sss: 'sss',
       philhealth: 'philhealth',
       pagibig: 'pagibig',
       restaurant: 'restaurant',
       month_pay_13th: 'month_pay_13th',
+      monthPay13th: 'month_pay_13th',
+      start_date: 'start_date',
+      startDate: 'start_date',
+      start_month: 'start_date',
+      startMonth: 'start_date',
+      special_month_pay: 'special_month_pay',
+      specialMonthPay: 'special_month_pay',
     }
     const allowed: Record<string, any> = {}
     for (const [frontKey, dbCol] of Object.entries(fieldMap)) {

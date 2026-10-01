@@ -12,7 +12,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const activeRestaurant = session.restaurant
 
-    let text = `select employee_id, source_employee_id, name, department, pay_per_day, status, restaurant, contact_number, address, sss, philhealth, pagibig, month_pay_13th from employees`
+    let text = `select employee_id, source_employee_id, name, department, pay_per_day, status, restaurant, contact_number, address, sss, philhealth, pagibig, month_pay_13th, start_date, special_month_pay from employees`
     const params: any[] = []
     if (activeRestaurant && activeRestaurant !== 'Both') {
       params.push(activeRestaurant)
@@ -43,6 +43,8 @@ export async function POST(req: Request) {
 
     const body = await req.json()
     const { source_employee_id, name, department, pay_per_day, restaurant, address, contactNumber, sss, philhealth, pagibig, month_pay_13th, status } = body
+    const startDate = body.start_date ?? body.startDate ?? body.start_month ?? body.startMonth ?? null
+    const specialMonthPay = body.special_month_pay ?? body.specialMonthPay ?? null
     if (!source_employee_id || !name) return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
 
     const restaurantValue = restaurant || session.restaurant || 'Both'
@@ -57,9 +59,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `An active employee with ID ${source_employee_id} already exists for ${restaurantValue}.` }, { status: 409 })
     }
 
-    const text = `insert into employees(source_employee_id, name, department, pay_per_day, restaurant, status, contact_number, address, sss, philhealth, pagibig, month_pay_13th)
-      values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`
-    const { rows } = await query(text, [Number(source_employee_id), name, department ?? null, pay_per_day ?? null, restaurantValue, normalizedStatus, contactNumber ?? null, address ?? null, sss ?? null, philhealth ?? null, pagibig ?? null, month_pay_13th ?? null])
+    const text = `insert into employees(source_employee_id, name, department, pay_per_day, restaurant, status, contact_number, address, sss, philhealth, pagibig, month_pay_13th, start_date, special_month_pay)
+      values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning *`
+    const { rows } = await query(text, [Number(source_employee_id), name, department ?? null, pay_per_day ?? null, restaurantValue, normalizedStatus, contactNumber ?? null, address ?? null, sss ?? null, philhealth ?? null, pagibig ?? null, month_pay_13th ?? null, startDate ?? null, specialMonthPay ?? null])
     const created = rows[0]
     logAudit({ user_id: session.user_id, restaurant: restaurantValue, action: 'create_employee', table_name: 'employees', record_id: String(created.employee_id), new_data: created })
 

@@ -24,7 +24,7 @@ export async function PUT(req: Request, context: any) {
   const { periodId } = await context.params
   const body = await req.json()
   const allowed: any = {}
-  ;['tabulation_date','source_file','restaurant','is_special_month','is_sss_enabled','is_philhealth_enabled','is_pagibig_enabled'].forEach(k => { if (k in body) allowed[k] = body[k] })
+  ;['tabulation_date','source_file','restaurant','is_sss_enabled','is_philhealth_enabled','is_pagibig_enabled'].forEach(k => { if (k in body) allowed[k] = body[k] })
 
   const { rows: existingRows } = await query('select * from report_periods where report_period_id = $1 limit 1', [Number(periodId)])
   const existing = existingRows[0]

@@ -11,6 +11,37 @@ import type { Employee } from "../types"
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2 }).format(n)
 
+const formatDateLabel = (value?: string | null) => {
+  if (!value) return '—'
+  const match = String(value).match(/^\d{4}-\d{2}-\d{2}$/)
+  if (!match) return String(value)
+  const [year, month, day] = match[0].split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date)
+}
+
+const dateStringToDate = (value?: string | null) => {
+  if (!value) return null
+  const normalized = String(value).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null
+  const [year, month, day] = normalized.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (Number.isNaN(date.getTime())) return null
+  return date
+}
+
+const addMonthsToDate = (value?: string | null, months = 0) => {
+  const date = dateStringToDate(value)
+  if (!date) return null
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, date.getUTCDate()))
+  return next.toISOString().slice(0, 10)
+}
+
+const getMinimumSpecialDate = (startDate?: string | null) => {
+  if (!startDate) return null
+  return addMonthsToDate(startDate, 12)
+}
+
 function SkeletonBar({ width = "100%", height = "1rem", rounded = "rounded-md", className = "" }: { width?: string | number; height?: string | number; rounded?: string; className?: string }) {
   return (
     <div
@@ -80,6 +111,8 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, onDelete,
     philhealth: employee.philhealth,
     pagibig: employee.pagibig,
     month_pay_13th: employee.month_pay_13th,
+    start_date: employee.start_date ?? null,
+    special_month_pay: employee.special_month_pay ?? null,
     status: employee.status,
   })
   const [loading, setLoading] = useState(false)
@@ -107,6 +140,8 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, onDelete,
       philhealth: employee.philhealth,
       pagibig: employee.pagibig,
       month_pay_13th: employee.month_pay_13th,
+      start_date: employee.start_date ?? null,
+      special_month_pay: employee.special_month_pay ?? null,
       status: employee.status,
     })
   }, [formData, employee])
@@ -227,12 +262,26 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, onDelete,
       return
     }
 
+    const minimumSpecialDate = getMinimumSpecialDate(formData.start_date)
+    if (minimumSpecialDate && formData.special_month_pay && formData.special_month_pay < minimumSpecialDate) {
+      showToast({
+        type: "error",
+        message: "Invalid 13th month pay date",
+        description: `13th month pay date must be on or after ${formatDateLabel(minimumSpecialDate)} for this employee.`,
+      })
+      return
+    }
+
     setLoading(true)
     try {
       const res = await fetch(`/api/employees/${employee.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          start_date: formData.start_date || null,
+          special_month_pay: formData.special_month_pay || null,
+        }),
       })
       if (!res.ok) throw new Error("Failed to update")
       const { employee: updated } = await res.json()
@@ -333,6 +382,8 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, onDelete,
                         { label: "SSS", value: employee.sss ? formatCurrency(employee.sss) : "—" },
                         { label: "PhilHealth", value: employee.philhealth ? formatCurrency(employee.philhealth) : "—" },
                         { label: "Pag-IBIG", value: employee.pagibig ? formatCurrency(employee.pagibig) : "—" },
+                        { label: "Start Date", value: formatDateLabel(employee.start_date) },
+                        { label: "13th Month Pay Date", value: formatDateLabel(employee.special_month_pay) },
                         { label: "13th Month Pay", value: employee.month_pay_13th ? formatCurrency(employee.month_pay_13th) : "—" },
                         { label: "Status", value: employee.status },
                       ].map(f => (
@@ -405,6 +456,33 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, onDelete,
                 <div>
                   <label className="block text-xs text-slate-500 mb-1 font-display">Pag-IBIG (PHP)</label>
                   <input type="number" step="0.01" value={formData.pagibig} onChange={(e) => setFormData({ ...formData, pagibig: Number(e.target.value) || 0 })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">Start Date</label>
+                  <input
+                    type="date"
+                    value={formData.start_date || ''}
+                    onChange={(e) => {
+                      const nextStartDate = e.target.value || null
+                      setFormData({
+                        ...formData,
+                        start_date: nextStartDate,
+                        special_month_pay: nextStartDate ? addMonthsToDate(nextStartDate, 12) ?? null : null,
+                      })
+                    }}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">13th Month Pay Date</label>
+                  <input
+                    type="date"
+                    value={formData.special_month_pay || ''}
+                    readOnly
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-600 outline-none cursor-not-allowed"
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -866,6 +944,8 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
     philHealth: 0,
     pagibig: 0,
     month_pay_13th: 0,
+    start_date: "",
+    special_month_pay: "",
   })
   const [loading, setLoading] = useState(false)
 
@@ -881,6 +961,16 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
         type: "error",
         message: "Duplicate active employee",
         description: `An active employee with ID ${formData.source_employee_id} already exists for ${formData.restaurant}.`,
+      })
+      return
+    }
+
+    const minimumSpecialDate = getMinimumSpecialDate(formData.start_date || null)
+    if (minimumSpecialDate && formData.special_month_pay && formData.special_month_pay < minimumSpecialDate) {
+      showToast({
+        type: "error",
+        message: "Invalid 13th month pay date",
+        description: `13th month pay date must be on or after ${formatDateLabel(minimumSpecialDate)}.`,
       })
       return
     }
@@ -903,6 +993,8 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
         philhealth: formData.philHealth || null,
         pagibig: formData.pagibig || null,
         month_pay_13th: formData.month_pay_13th || null,
+        start_date: formData.start_date || null,
+        special_month_pay: formData.special_month_pay || null,
       }),
     })
       if (!res.ok) {
@@ -926,6 +1018,8 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
         philhealth: formData.philHealth,
         pagibig: formData.pagibig,
         month_pay_13th: formData.month_pay_13th,
+        start_date: created.start_date ?? (formData.start_date || null),
+        special_month_pay: created.special_month_pay ?? (formData.special_month_pay || null),
       }
       showToast({ type: "success", message: "Employee created", description: `${employee.name} was added.` })
       onSave(employee)
@@ -1061,6 +1155,33 @@ function AddEmployeeModal({ onClose, onSave, existingEmployees }: { onClose: () 
                   <input type="number" step="0.01" inputMode="decimal" value={formData.month_pay_13th === 0 ? "" : formData.month_pay_13th} placeholder="0.00" onChange={(e) => setFormData({ ...formData, month_pay_13th: e.target.value === "" ? 0 : Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" required />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">Start Date</label>
+                  <input
+                    type="date"
+                    value={formData.start_date || ""}
+                    onChange={(e) => {
+                      const nextStartDate = e.target.value || ""
+                      setFormData({
+                        ...formData,
+                        start_date: nextStartDate,
+                        special_month_pay: nextStartDate ? addMonthsToDate(nextStartDate, 12) ?? "" : "",
+                      })
+                    }}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1 font-display">13th Month Pay Date</label>
+                  <input
+                    type="date"
+                    value={formData.special_month_pay || ""}
+                    readOnly
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-600 outline-none cursor-not-allowed"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1103,6 +1224,8 @@ export default function Employees() {
       philhealth: value.philhealth ?? 0,
       pagibig: value.pagibig ?? 0,
       month_pay_13th: value.month_pay_13th ?? value.monthPay13th ?? 0,
+      start_date: value.start_date ?? value.startDate ?? value.start_month ?? value.startMonth ?? null,
+      special_month_pay: value.special_month_pay ?? value.specialMonthPay ?? null,
       restaurant: value.restaurant ?? 'Both',
       address: value.address ?? value.email ?? '',
     }

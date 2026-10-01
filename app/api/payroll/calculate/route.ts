@@ -7,6 +7,31 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(num) ? num : fallback
 }
 
+function normalizeIsoDate(value: unknown) {
+  if (value == null) return ''
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return ''
+    // pg returns DATE columns as local-midnight Date objects; format from local parts
+    // to avoid the UTC shift that toISOString() would introduce.
+    const y = value.getFullYear()
+    const m = String(value.getMonth() + 1).padStart(2, '0')
+    const d = String(value.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  const raw = String(value).trim()
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+  return raw.length >= 10 ? raw.slice(0, 10) : ''
+}
+
+function isDateInRange(value: unknown, start: unknown, end: unknown) {
+  const normalized = normalizeIsoDate(value)
+  const startDate = normalizeIsoDate(start)
+  const endDate = normalizeIsoDate(end)
+  if (!normalized || !startDate || !endDate) return false
+  return normalized >= startDate && normalized <= endDate
+}
+
 export async function GET(req: Request) {
   try {
     const session = await getSessionFromRequest(req)
@@ -21,7 +46,14 @@ export async function GET(req: Request) {
     }
 
     const { rows: periodRows } = await query(
-      'select * from report_periods where report_period_id = $1 limit 1',
+      `select report_period_id, restaurant, status,
+              to_char(period_start, 'YYYY-MM-DD') as period_start,
+              to_char(period_end, 'YYYY-MM-DD') as period_end,
+              to_char(tabulation_date, 'YYYY-MM-DD') as tabulation_date,
+              is_sss_enabled, is_philhealth_enabled, is_pagibig_enabled
+       from report_periods
+       where report_period_id = $1
+       limit 1`,
       [periodNumber],
     )
     const period = periodRows[0]
@@ -57,7 +89,8 @@ export async function GET(req: Request) {
      // Only include active employees in payroll calculations
      const employeeWhere = "WHERE restaurant = $1 AND lower(coalesce(status, '')) = 'active'"
      const employeeCountQuery = `SELECT COUNT(*)::int AS count FROM employees ${employeeWhere}`
-     const employeeQuery = `SELECT employee_id, name, department, pay_per_day, sss, philhealth, pagibig, month_pay_13th, restaurant, status
+     const employeeQuery = `SELECT employee_id, name, department, pay_per_day, sss, philhealth, pagibig, month_pay_13th,
+        to_char(special_month_pay, 'YYYY-MM-DD') AS special_month_pay, restaurant, status
        FROM employees
        ${employeeWhere}${limit !== null ? ' LIMIT $2 OFFSET $3' : ''}`
 
@@ -120,12 +153,11 @@ export async function GET(req: Request) {
     period.is_philhealth_enabled = period.is_philhealth_enabled === null || period.is_philhealth_enabled === undefined ? true : Boolean(period.is_philhealth_enabled)
     period.is_pagibig_enabled = period.is_pagibig_enabled === null || period.is_pagibig_enabled === undefined ? true : Boolean(period.is_pagibig_enabled)
 
-    const specialMonthInPeriod = Boolean(period.is_special_month)
-
     for (const employee of employeeRows) {
       const attendanceRowsForEmployee = attendanceByEmployee.get(String(employee.employee_id)) ?? []
       const payPerDay = toNumber(employee.pay_per_day, 0)
-      const specialMonthPay = specialMonthInPeriod ? toNumber(employee.month_pay_13th, 0) : 0
+      const eligibleFor13thMonth = isDateInRange(employee.special_month_pay, period.period_start, period.period_end)
+      const specialMonthPay = eligibleFor13thMonth ? toNumber(employee.month_pay_13th, 0) : 0
       const leaveDateMap = new Map<string, boolean>()
       const approvedLeaveRowsForEmployee = approvedLeaveByEmployee.get(String(employee.employee_id)) ?? []
       for (const leave of approvedLeaveRowsForEmployee) {
@@ -248,6 +280,8 @@ export async function GET(req: Request) {
         gross_pay: grossPay,
         paid_leave_pay: paidLeavePay,
         special_month: specialMonthPay,
+        special_month_eligible: eligibleFor13thMonth,
+        special_month_date: normalizeIsoDate(employee.special_month_pay) || null,
         halfday_payment: 0,
         holiday_pay: holidayPay,
         attendance_deduction: attendanceDeduction,

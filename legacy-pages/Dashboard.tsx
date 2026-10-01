@@ -5,10 +5,11 @@ import { useApp } from '../App'
 import useIsMobile from '../hooks/isMobile'
 import {
   Users, UserCheck, AlertTriangle, Clock, TrendingUp, TrendingDown,
-  ArrowRight, CheckCircle2, Circle, FileText, Activity,
+  ArrowRight, CheckCircle2, Circle, Activity,
   Eye, HeartPulse
 } from 'lucide-react'
 import DateFilter, { defaultDateFilterValue, resolveDateRange, type DateFilterValue } from '../components/DateFilter'
+import { formatActionLabel } from '../lib/auditLogFormat'
 
 const ChartPlaceholder = ({ height = 180 }: { height?: number }) => (
   <div
@@ -78,6 +79,36 @@ const formatDateRange = (start: string | null | undefined, end: string | null | 
 const isTrueLike = (value: any) => value === true || value === 'true' || value === 'TRUE' || value === 1 || value === '1'
 
 const RECENT_ACTIVITY_LIMIT = 5
+
+// Audit log timestamps come back as 'YYYY-MM-DD' (no time component), so render
+// a short relative-ish label instead of showing a bare date.
+const formatActivityTime = (value: unknown) => {
+  const raw = String(value ?? '').trim()
+  if (!raw) return 'Recently'
+
+  const parsed = new Date(raw.length <= 10 ? `${raw}T00:00:00` : raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+
+  const now = new Date()
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(parsed)) / 86400000)
+
+  if (dayDiff <= 0) return 'Today'
+  if (dayDiff === 1) return 'Yesterday'
+  if (dayDiff < 7) return `${dayDiff} days ago`
+
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// Reuse the audit-log colour conventions so the dashboard matches the Audit Logs page.
+const activityColorForAction = (action: string) => {
+  if (action.startsWith('create_')) return 'bg-emerald-100 text-emerald-600'
+  if (action.startsWith('update_') || action.startsWith('override_')) return 'bg-amber-100 text-amber-600'
+  if (action.startsWith('archive_')) return 'bg-slate-100 text-slate-500'
+  if (action.startsWith('delete_')) return 'bg-red-100 text-red-600'
+  if (action.startsWith('attach_') || action.startsWith('link_')) return 'bg-indigo-100 text-indigo-600'
+  return 'bg-slate-100 text-slate-600'
+}
 
 // --- Dashboard loading skeleton (mirrors the real layout: cards, panels, charts) ---
 
@@ -206,7 +237,7 @@ export default function Dashboard() {
 
   const renderActivityRows = (list: Array<any>) =>
     list.length > 0 ? list.map((item, i) => (
-      <div key={`${item.msg}-${i}`} className="flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 cursor-pointer">
+      <div key={item.key ?? `${item.msg}-${i}`} className="flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 cursor-pointer">
         <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${item.color}`}>
           {item.icon}
         </div>
@@ -275,19 +306,28 @@ export default function Dashboard() {
     if (selectedPeriodId !== 'all') payslipsParams.set('period_id', String(selectedPeriodId))
     const payslipsUrl = `/api/payslips?${payslipsParams.toString()}`
 
+    // Recent Activity mirrors the Audit Logs list: always the latest 5 entries,
+    // newest first, independent of the selected payroll period / date range.
+    const auditParams = new URLSearchParams()
+    auditParams.set('page', '1')
+    auditParams.set('pageSize', String(RECENT_ACTIVITY_LIMIT))
+    const auditUrl = `/api/audit-logs?${auditParams.toString()}`
+
     Promise.all([
       fetch(employeeUrl),
       fetch('/api/leave_requests'),
       fetch(attendanceUrl),
       fetch(payslipsUrl),
+      fetch(auditUrl),
     ])
-      .then(async ([employeesRes, leaveRes, attendanceRes, payslipsRes]) => {
+      .then(async ([employeesRes, leaveRes, attendanceRes, payslipsRes, auditRes]) => {
         if (!mounted) return
 
         const employeePayload = employeesRes.ok ? await employeesRes.json() : { employees: [] }
         const leavePayload = leaveRes.ok ? await leaveRes.json() : { leaveRequests: [] }
         const attendancePayload = attendanceRes.ok ? await attendanceRes.json() : { attendance: [] }
         const payslipPayload = payslipsRes.ok ? await payslipsRes.json() : { payslips: [] }
+        const auditPayload = auditRes.ok ? await auditRes.json() : { logs: [] }
 
         const employees = Array.isArray(employeePayload.employees) ? employeePayload.employees : []
         const leaveRequests = Array.isArray(leavePayload.leaveRequests) ? leavePayload.leaveRequests : []
@@ -306,22 +346,15 @@ export default function Dashboard() {
         const latest = reportPeriods.find((period: any) => String(period.restaurant || '') === selectedRestaurant)
           ?? reportPeriods[0] ?? null
 
-        const activity = [
-          ...(leaveRequests.slice(0, 3).map((item: any) => ({
-            icon: <FileText size={14} />,
-            msg: `Leave request: ${String(item.status ?? 'Pending')}`,
-            sub: `${item.employeeName || 'Employee'} • ${item.leaveType || 'Leave'} • ${item.status || 'Pending'}`,
-            time: item.startDate || 'Recently',
-            color: 'bg-violet-100 text-violet-600',
-          }))),
-          ...(latest ? [{
-            icon: <CheckCircle2 size={14} />,
-            msg: 'Latest payroll period available',
-            sub: `${formatDateRange(latest.period_start, latest.period_end)} • ${latest.status || 'Open'}`,
-            time: 'Current',
-            color: 'bg-emerald-100 text-emerald-600',
-          }] : []),
-        ].slice(0, RECENT_ACTIVITY_LIMIT)
+        const auditLogs = Array.isArray(auditPayload.logs) ? auditPayload.logs : []
+        const activity = auditLogs.slice(0, RECENT_ACTIVITY_LIMIT).map((log: any) => ({
+          key: String(log.id ?? `${log.dateTime}-${log.action}`),
+          icon: <Activity size={14} />,
+          msg: String(log.description || '').trim() || formatActionLabel(String(log.action || '')),
+          sub: `${log.user || 'System'} • ${formatActionLabel(String(log.action || ''))}`,
+          time: formatActivityTime(log.dateTime),
+          color: activityColorForAction(String(log.action || '')),
+        }))
 
         setAttendanceRows(filteredAttendance)
         setEmployeeCount(employees.filter((emp: any) => {
