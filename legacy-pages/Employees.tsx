@@ -11,13 +11,22 @@ import type { Employee } from "../types"
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2 }).format(n)
 
-const formatDateLabel = (value?: string | null) => {
+const formatDateLabel = (value?: string | Date | null) => {
   if (!value) return '—'
-  const match = String(value).match(/^\d{4}-\d{2}-\d{2}$/)
-  if (!match) return String(value)
+
+  const valueText = value instanceof Date ? value.toISOString().slice(0, 10) : String(value).trim()
+  const match = valueText.match(/^\d{4}-\d{2}-\d{2}/)
+  if (!match) {
+    const parsed = new Date(valueText)
+    if (Number.isNaN(parsed.getTime())) return String(value)
+    const month = String(parsed.getMonth() + 1).padStart(2, '0')
+    const day = String(parsed.getDate()).padStart(2, '0')
+    const year = parsed.getFullYear()
+    return `${month}-${day}-${year}`
+  }
+
   const [year, month, day] = match[0].split('-').map(Number)
-  const date = new Date(Date.UTC(year, month - 1, day))
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date)
+  return `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}-${year}`
 }
 
 const dateStringToDate = (value?: string | null) => {
@@ -146,12 +155,22 @@ function EmployeeDetailModal({ employee, onClose, onUpdate, onArchive, onDelete,
     })
   }, [formData, employee])
 
-  const formatDateForDisplay = (value?: string | null) => {
+  const formatDateForDisplay = (value?: string | Date | null) => {
     if (!value) return '—'
-    const match = String(value).match(/^\d{4}-\d{2}-\d{2}/)
-    if (!match) return String(value)
+
+    const valueText = value instanceof Date ? value.toISOString().slice(0, 10) : String(value).trim()
+    const match = valueText.match(/^\d{4}-\d{2}-\d{2}/)
+    if (!match) {
+      const parsed = new Date(valueText)
+      if (Number.isNaN(parsed.getTime())) return String(value)
+      const month = String(parsed.getMonth() + 1).padStart(2, '0')
+      const day = String(parsed.getDate()).padStart(2, '0')
+      const year = parsed.getFullYear()
+      return `${month}-${day}-${year}`
+    }
+
     const [year, month, day] = match[0].split('-').map(Number)
-    return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    return `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}-${year}`
   }
 
   const formatTabTime = (value?: string | null) => {

@@ -10,6 +10,40 @@ export const formatEmployeeStatus = (status?: string | null): Employee["status"]
   return 'Active'
 }
 
+const coerceDateOnly = (value: unknown) => {
+  if (value === null || value === undefined || value === '') return null
+
+  if (value instanceof Date) {
+    const year = value.getFullYear()
+    const month = String(value.getMonth() + 1).padStart(2, '0')
+    const day = String(value.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const text = String(value).trim()
+  const match = text.match(/^\d{4}-\d{2}-\d{2}/)
+  if (match) return match[0]
+
+  const parsed = new Date(text)
+  if (!Number.isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear()
+    const month = String(parsed.getMonth() + 1).padStart(2, '0')
+    const day = String(parsed.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  return null
+}
+
+const pickDateValue = (row: any, keys: string[]) => {
+  for (const key of keys) {
+    const normalized = coerceDateOnly(row?.[key])
+    if (normalized) return normalized
+  }
+
+  return null
+}
+
 // Central mapper: PostgreSQL row → frontend Employee shape
 // Ensures GET / POST / PUT all return the same structure
 export function mapEmployee(row: any): Employee {
@@ -30,8 +64,8 @@ export function mapEmployee(row: any): Employee {
     philhealth: row?.philhealth != null ? Number(row.philhealth) : undefined,
     pagibig: row?.pagibig != null ? Number(row.pagibig) : undefined,
     month_pay_13th: row?.month_pay_13th != null ? Number(row.month_pay_13th) : undefined,
-    start_date: row?.start_date ?? row?.startDate ?? row?.start_month ?? row?.startMonth ? String(row?.start_date ?? row?.startDate ?? row?.start_month ?? row?.startMonth).slice(0, 10) : null,
-    special_month_pay: row?.special_month_pay ?? row?.specialMonthPay ? String(row?.special_month_pay ?? row?.specialMonthPay).slice(0, 10) : null,
+    start_date: pickDateValue(row, ['start_date', 'startDate', 'start_month', 'startMonth']),
+    special_month_pay: pickDateValue(row, ['special_month_pay', 'specialMonthPay']),
   }
 }
 
