@@ -31,6 +31,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const { price, downpayment, discount, penalty, status, service_date, balance, deductions_applied: _deductionsApplied } = body
+    if (status !== undefined && !['Under Reservation', 'Partial Payment', 'Finalized', 'Fully Paid'].includes(status)) {
+      return NextResponse.json({ error: 'Invalid status value' }, { status: 400 })
+    }
 
     const existingRes = await query('SELECT * FROM service_transactions WHERE service_transaction_id = $1 LIMIT 1', [id])
     const existing = existingRes.rows[0]

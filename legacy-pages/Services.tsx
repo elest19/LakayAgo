@@ -46,6 +46,8 @@ const statusColor: Record<string, string> = {
   'Fully Paid': 'bg-teal-200 text-teal-700',
 }
 
+const TRANSACTION_STATUS_OPTIONS = ['Under Reservation', 'Partial Payment', 'Finalized', 'Fully Paid'] as const
+
 const PACKAGE_FETCH_LIMIT = 200
 
 const getErrors = (f: ServiceForm) => {
@@ -245,6 +247,8 @@ export default function Services() {
   const [serviceAssetsTarget, setServiceAssetsTarget] = useState<any | null>(null)
   const [selectedSubService, setSelectedSubService] = useState<any | null>(null)
   const [selectedTransaction, setSelectedTransaction] = useState<any | null>(null)
+  const [statusUpdateTx, setStatusUpdateTx] = useState<any | null>(null)
+  const [statusUpdateValue, setStatusUpdateValue] = useState<string>('')
   const [showServiceAssetsModal, setShowServiceAssetsModal] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<{ type: 'service' | 'sub_service' | 'transaction'; item: any } | null>(null)
   const [pendingArchive, setPendingArchive] = useState<{ type: 'service' | 'sub_service'; item: any; unarchive?: boolean } | null>(null)
@@ -1118,6 +1122,37 @@ export default function Services() {
     } else {
       const err = await res.json().catch(() => ({}))
       showToast({ type: 'error', message: err.error || 'This asset is not assigned to this service' })
+    }
+  }
+
+  const updateTransactionStatus = async (tx: any, nextStatus: string) => {
+    if (!tx || !nextStatus) return
+    if (!TRANSACTION_STATUS_OPTIONS.includes(nextStatus as typeof TRANSACTION_STATUS_OPTIONS[number])) {
+      showToast({ type: 'error', message: 'Invalid status selected' })
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/service_transactions/${tx.service_transaction_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        showToast({ type: 'error', message: payload.error || 'Failed to update status' })
+        return
+      }
+
+      setTransactions(prev => prev.map(item => Number(item.service_transaction_id) === Number(tx.service_transaction_id)
+        ? { ...item, status: nextStatus }
+        : item))
+      setSelectedTransaction(null)
+      setStatusUpdateTx(null)
+      setStatusUpdateValue('')
+      showToast({ type: 'success', message: 'Transaction status updated' })
+    } catch (error) {
+      showToast({ type: 'error', message: 'Failed to update status' })
     }
   }
 
@@ -2518,7 +2553,8 @@ export default function Services() {
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                <button type="button" onClick={() => { setSelectedTransaction(null); setStatusUpdateTx(tx); setStatusUpdateValue(tx.status || 'Under Reservation') }} className="px-4 py-2 text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-display flex justify-center items-center gap-2"><Pencil size={14}/>Update Status</button>
                 {canDeleteTransaction && (
                   <button type="button" onClick={() => { setSelectedTransaction(null); setPendingDelete({ type: 'transaction', item: tx }) }} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg font-display flex justify-center items-center gap-2"><Trash2 size={14}/>Delete</button>
                 )}
@@ -2534,6 +2570,36 @@ export default function Services() {
           </Modal>
         )
       })()}
+
+      <Modal open={!!statusUpdateTx} title="Update Status" onClose={() => { setStatusUpdateTx(null); setStatusUpdateValue('') }}>
+        <div className="space-y-4 w-full max-w-md">
+          {statusUpdateTx && (
+            <>
+              <div className="space-y-1">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Transaction</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-slate-700">{items.find(s => s.service_id === statusUpdateTx.service_id)?.service_type || `#${statusUpdateTx.service_transaction_id}`}</p>
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[statusUpdateTx.status] || 'bg-slate-50 text-slate-700'}`}>
+                    {statusUpdateTx.status || 'Pending'}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-600 mb-1">Status</label>
+                <select value={statusUpdateValue} onChange={(e) => setStatusUpdateValue(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+                  {TRANSACTION_STATUS_OPTIONS.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button type="button" onClick={() => { setStatusUpdateTx(null); setStatusUpdateValue('') }} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
+                <button type="button" disabled={!statusUpdateValue || statusUpdateValue === (statusUpdateTx.status || 'Under Reservation')} onClick={() => void updateTransactionStatus(statusUpdateTx, statusUpdateValue)} className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Save</button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
 
       <Modal open={expenseModalTxId !== null} title="Transaction Expenses" onClose={resetExpenseModalState}>
         <div className="w-full max-w-md space-y-4">
