@@ -10,16 +10,19 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url)
     const qRestaurant = url.searchParams.get('restaurant')
+    const includeArchived = url.searchParams.get('includeArchived') === 'true'
+    const effectiveRestaurant = qRestaurant || session.restaurant
 
     const params: any[] = []
     const where: string[] = []
 
-    if (session.role !== 'Admin') {
+    if (effectiveRestaurant && effectiveRestaurant !== 'Both') {
       where.push(`restaurant = $${params.length + 1}`)
-      params.push(session.restaurant)
-    } else if (qRestaurant) {
-      where.push(`restaurant = $${params.length + 1}`)
-      params.push(qRestaurant)
+      params.push(effectiveRestaurant)
+    }
+
+    if (!includeArchived) {
+      where.push(`COALESCE(is_archived, false) = false`)
     }
 
     let sql = 'SELECT * FROM services'
@@ -169,23 +172,33 @@ export async function DELETE(req: Request) {
     const session = await getSessionFromRequest(req)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const url = new URL(req.url)
-    const id = url.searchParams.get('id')
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+    const idParam = url.searchParams.get('id')
+    const serviceId = Number(idParam)
+    if (!idParam || !Number.isFinite(serviceId) || serviceId <= 0) {
+      return NextResponse.json({ error: 'Missing or invalid service id' }, { status: 400 })
+    }
 
-    // capture existing before archiving
-    const existingRes = await query('SELECT * FROM services WHERE service_id = $1 LIMIT 1', [id])
+    const existingRes = await query('SELECT * FROM services WHERE service_id = $1 LIMIT 1', [serviceId])
     const existing = existingRes.rows[0]
-    if (!existing) return NextResponse.json({ error: 'Service not found' }, { status: 404 })
+    if (!existing) {
+      return NextResponse.json({ error: 'Service not found' }, { status: 404 })
+    }
 
-    const result = await query(
-      'UPDATE services SET is_archived = true WHERE service_id = $1 RETURNING *',
-      [id]
-    )
+    const deleteSql = session.restaurant ? 'DELETE FROM services WHERE service_id = $1 AND restaurant = $2 RETURNING *' : 'DELETE FROM services WHERE service_id = $1 RETURNING *'
+    const deleteParams = session.restaurant ? [serviceId, session.restaurant] : [serviceId]
+    const result = await query(deleteSql, deleteParams)
+    if (!result.rowCount || result.rows.length === 0) {
+      return NextResponse.json({ error: 'Service not found' }, { status: 404 })
+    }
+
     const deleted = result.rows[0]
-
-    await logAudit({ user_id: session.user_id, restaurant: deleted.restaurant || session.restaurant, action: 'archive_service', table_name: 'services', record_id: String(id), old_data: existing, new_data: deleted })
+    await logAudit({ user_id: session.user_id, restaurant: deleted.restaurant || session.restaurant, action: 'delete_service', table_name: 'services', record_id: String(serviceId), old_data: existing, new_data: null })
     return NextResponse.json({ service: deleted })
-  } catch (err) {
+  } catch (err: any) {
+    if (err && err.code === '23503') {
+      return NextResponse.json({ error: 'This service has existing transactions or linked records and cannot be deleted. Archive it instead.' }, { status: 409 })
+    }
+    console.error('DELETE /api/services failed', err)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
 }

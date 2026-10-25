@@ -727,7 +727,7 @@ export default function Services() {
   }
 
   const refetchServices = async () => {
-    const res = await fetch('/api/services')
+    const res = await fetch('/api/services?includeArchived=true')
     if (res.ok) {
       const j = await res.json().catch(() => ({ services: [] }))
       setItems(j.services || [])
@@ -1203,15 +1203,19 @@ export default function Services() {
 
   const archiveService = async (service: any) => {
     try {
-      const res = await fetch(`/api/services?id=${service.service_id}`, { method: 'DELETE' })
+      const res = await fetch('/api/services', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service_id: service.service_id, is_archived: true }),
+      })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         showToast({ type: 'error', message: err.error || 'Failed to archive service' })
         return
       }
-    setItems(prev => prev.map(item => Number(item.service_id) === Number(service.service_id) ? { ...item, is_archived: true } : item))
-    setSelectedService(null)
-    showToast({ type: 'success', message: 'Service archived' })
+      setItems(prev => prev.map(item => Number(item.service_id) === Number(service.service_id) ? { ...item, is_archived: true } : item))
+      setSelectedService(null)
+      showToast({ type: 'success', message: 'Service archived' })
     } catch (error) {
       showToast({ type: 'error', message: 'Failed to archive service' })
     }
@@ -1240,16 +1244,16 @@ export default function Services() {
   const deleteService = async (service: any) => {
     try {
       const res = await fetch(`/api/services?id=${service.service_id}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        showToast({ type: 'error', message: err.error || 'Failed to delete service' })
+        showToast({ type: 'error', message: body.error || 'Failed to delete service' })
         return
       }
-      setItems(prev => prev.filter(item => Number(item.service_id) !== Number(service.service_id)))
+      await refetchServices()
       setSelectedService(null)
       showToast({ type: 'success', message: 'Service deleted' })
-    } catch (error) {
-      showToast({ type: 'error', message: 'Failed to delete service' })
+    } catch (error: any) {
+      showToast({ type: 'error', message: error?.message || 'Failed to delete service' })
     }
   }
 
