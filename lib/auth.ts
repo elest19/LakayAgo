@@ -26,7 +26,15 @@ export const auth = betterAuth({
     enabled: true,
   },
   plugins: [
-    username(),
+    username({
+      schema: {
+        user: {
+          fields: {
+            displayUsername: 'display_username',
+          },
+        },
+      },
+    }),
   ],
   user: {
     modelName: 'users',
@@ -38,14 +46,10 @@ export const auth = betterAuth({
       image: 'image',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
+      username: 'username',
+      role: 'role',
     },
     additionalFields: {
-      username: {
-        type: 'string',
-        required: true,
-        input: true,
-        unique: true,
-      },
       role: {
         type: 'string',
         required: true,

@@ -1509,12 +1509,13 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                       restaurant: newUser.restaurant,
                     }
                     const res = await fetch('/api/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+                    const body = await res.json().catch(() => ({}))
                     if (!res.ok) {
-                      const body = await res.json().catch(() => ({}))
-                      showToast({ type: 'error', message: 'Create failed', description: body?.error || 'Could not create user' })
+                      const message = typeof body?.error === 'string' && body.error ? body.error : 'Could not create user'
+                      showToast({ type: 'error', message })
                       return
                     }
-                    const created = await res.json()
+                    const created = body
                     const mapped = { user_id: created.user_id, username: newUser.username, name: created.name || newUser.name, email: created.email || newUser.email, role: created.role, restaurant: created.restaurant || newUser.restaurant, status: 'Active' }
                     setUserList(prev => [mapped, ...prev])
                     setAddUserOpen(false)
@@ -1522,7 +1523,7 @@ const [openTimePicker, setOpenTimePicker] = useState<{ field: 'startTime' | 'end
                     showToast({ type: 'success', message: 'User added', description: `${mapped.name} was added.` })
                   } catch (err) {
                     console.error('Create user error', err)
-                    showToast({ type: 'error', message: 'Create failed', description: 'Could not create user' })
+                    showToast({ type: 'error', message: err instanceof Error ? err.message : 'Could not create user' })
                   }
                 }}
                 className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-display"

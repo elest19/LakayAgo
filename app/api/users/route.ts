@@ -4,6 +4,18 @@ import getSessionFromRequest from '../../../lib/session'
 import { auth } from '../../../lib/auth'
 import { requireRole } from '../../../lib/permissions'
 
+const getBetterAuthErrorMessage = (err: any): string => {
+  if (err?.body?.message) return String(err.body.message)
+  if (err?.message) return String(err.message)
+  if (err?.cause?.message) return String(err.cause.message)
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object') {
+    const json = JSON.stringify(err)
+    if (json && json !== '{}') return json
+  }
+  return 'Failed to create user'
+}
+
 export async function GET(req: Request) {
   try {
     const session = await getSessionFromRequest(req)
@@ -68,12 +80,13 @@ export async function POST(req: Request) {
 
       return NextResponse.json({ user_id: createdUser.id, name: createdUser.name, email: createdUser.email, role: createdUser.role, restaurant: createdUser.restaurant, restaurant_id: null })
     } catch (err: any) {
-      console.error('Create user error (auth.signUpEmail)', err)
-      const message = err?.body?.message || String(err)
+      const message = getBetterAuthErrorMessage(err)
+      console.error('Create user error (auth.signUpEmail)', { message, statusCode: err?.statusCode, body: err?.body, stack: err?.stack })
       return NextResponse.json({ error: message }, { status: err?.statusCode || 500 })
     }
   } catch (err) {
-    console.error('Create user error', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    const message = getBetterAuthErrorMessage(err)
+    console.error('Create user error', { message, stack: err instanceof Error ? err.stack : undefined })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
