@@ -7,6 +7,7 @@ import useIsMobile from '../hooks/isMobile'
 import { useRealtimeEntity } from '../hooks/useRealtimeEntity'
 import { VOLUME_UNITS, WEIGHT_UNITS, isSpoonUnit, isCupUnit, fullUnitName, getConversionFactorForRecipeUnit } from '../lib/unitConversions'
 import { formatStockReadable } from '../lib/formatStock'
+import { LOCATIONS, isLocation, type Location } from '../lib/locations'
 import type { ProductionItem } from '../types'
 
 const FRACTION_TO_DECIMAL: Record<string, number> = {
@@ -51,7 +52,7 @@ interface ProductionFormState {
   name: string
   unit: string
   stock: string
-  restaurant?: string
+  location?: Location
   recipe_unit?: string
   conversion_factor?: string
   ingredient_category?: string
@@ -61,7 +62,7 @@ const emptyForm: ProductionFormState = {
   name: '',
   unit: '',
   stock: '0',
-  restaurant: 'Lakay Ago',
+  location: 'Warehouse',
   recipe_unit: '',
   conversion_factor: '',
   ingredient_category: '',
@@ -139,7 +140,7 @@ export function SkeletonTableRows({ columns, rows = 6, columnConfig, mobile = fa
 const getValidationErrors = (form: ProductionFormState) => {
   const errors: Partial<Record<keyof ProductionFormState, string>> = {}
   if (!form.name.trim()) errors.name = 'Name is required.'
-  if (!form.restaurant) errors.restaurant = 'Restaurant is required.'
+  if (!form.location) errors.location = 'Location is required.'
   if (form.stock === '' || Number.isNaN(Number(form.stock)) || Number(form.stock) < 0) errors.stock = 'Stock must be a valid non-negative number.'
   if (form.conversion_factor !== undefined && form.conversion_factor !== '' && (Number.isNaN(Number(form.conversion_factor)) || Number(form.conversion_factor) <= 0)) errors.conversion_factor = 'Conversion factor must be a positive number.'
   // conversion_factor required when weight category uses spoon units
@@ -168,7 +169,7 @@ export default function ProductionCatalog() {
       const mapped = rows.map((r: any) => ({
         id: String(r.production_inventory_id),
         name: r.name,
-        restaurant: r.restaurant,
+        location: r.location,
         unit: r.unit || '',
         stock: Number(r.stock) || 0,
         isArchived: Boolean(r.is_archived),
@@ -193,10 +194,8 @@ export default function ProductionCatalog() {
     return () => { mounted = false }
   }, [loadProductionInventory])
 
-  // Live updates: refetch whenever any user adds, edits, archives, or stocks a production item.
-  // ProductionCatalog shows both restaurants, so subscribe without a restaurant filter.
+  // Live updates: refetch whenever any location changes an inventory item.
   useRealtimeEntity('production_inventory', {
-    restaurant: 'Both',
     onChange: loadProductionInventory,
   })
 
@@ -206,8 +205,7 @@ export default function ProductionCatalog() {
   const [editingItem, setEditingItem] = useState<ProductionItem | null>(null)
   const [form, setForm] = useState<ProductionFormState>(emptyForm)
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof ProductionFormState, string>>>({})
-  const [lakayPage, setLakayPage] = useState(1)
-  const [arooPage, setArooPage] = useState(1)
+  const [locationPages, setLocationPages] = useState<Record<string, number>>({})
   const [showConversionTooltip, setShowConversionTooltip] = useState(false);
   const [addStockId, setAddStockId] = useState<string | null>(null)
   const [addStockValue, setAddStockValue] = useState('')
@@ -220,14 +218,11 @@ export default function ProductionCatalog() {
 
   const filteredItems = useMemo(() => productionStock
     .filter(item => (showArchived ? item.isArchived : !item.isArchived))
-    .filter(item => item.restaurant === activeRestaurant)
     .filter(item => item.name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name)), [productionStock, search, showArchived, activeRestaurant])
-
-  const currentRestaurantItems = filteredItems
+    .sort((a, b) => a.name.localeCompare(b.name)), [productionStock, search, showArchived])
 
   // jump back to page 1 when the archive filter changes so the view isn't stuck on an empty page
-  useEffect(() => { setLakayPage(1); setArooPage(1) }, [showArchived])
+  useEffect(() => { setLocationPages(Object.fromEntries(LOCATIONS.map(location => [location, 1]))) }, [showArchived, search])
 
   const resetForm = () => {
     setForm(emptyForm)
@@ -259,7 +254,7 @@ export default function ProductionCatalog() {
       name: item.name,
       unit: fullUnitName(unitFromDb),
       stock: String(item.stock),
-      restaurant: item.restaurant || 'Lakay Ago',
+      location: (LOCATIONS.includes(item.location as Location) ? item.location : 'Warehouse') as Location,
       recipe_unit: fullUnitName(initialRecipeUnit),
       conversion_factor: (item as any).conversion_factor ? String((item as any).conversion_factor) : '',
       ingredient_category: category,
@@ -285,7 +280,7 @@ export default function ProductionCatalog() {
     if (editingItem) {
       setLoading(true)
       try {
-        const res = await fetch('/api/production_inventory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ production_inventory_id: Number(editingItem.id), name: form.name.trim(), unit: normalizedUnit, stock: parsedStock, is_archived: editingItem.isArchived, restaurant: form.restaurant, recipe_unit: recipeUnit, conversion_factor: conversionFactor, ingredient_category: form.ingredient_category }) })
+        const res = await fetch('/api/production_inventory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ production_inventory_id: Number(editingItem.id), name: form.name.trim(), unit: normalizedUnit, stock: parsedStock, is_archived: editingItem.isArchived, recipe_unit: recipeUnit, conversion_factor: conversionFactor, ingredient_category: form.ingredient_category }) })
         const body = await res.json().catch(() => ({}))
         setLoading(false)
         if (!res.ok) { showToast({ type: 'error', message: 'Failed to update production item', description: body.error || body.detail || `Status ${res.status}` }); return }
@@ -296,7 +291,7 @@ export default function ProductionCatalog() {
           unit: updated.unit || form.unit.trim(),
           stock: Number(updated.stock ?? parsedStock),
           isArchived: Boolean(updated.is_archived),
-          restaurant: updated.restaurant || form.restaurant || editingItem.restaurant,
+          location: updated.location || form.location || editingItem.location,
           recipe_unit: updated.recipe_unit ?? recipeUnit,
           conversion_factor: updated.conversion_factor ?? conversionFactor,
           ingredient_category: updated.ingredient_category || form.ingredient_category || null,
@@ -314,7 +309,7 @@ export default function ProductionCatalog() {
     } else {
       setLoading(true)
       try {
-        const payload = { name: form.name.trim(), unit: normalizedUnit, stock: parsedStock, restaurant: form.restaurant, recipe_unit: isQuantity ? normalizedUnit : (normalizedRecipeUnit || null), conversion_factor: isQuantity ? 1 : (form.conversion_factor ? Number(form.conversion_factor) : null), ingredient_category: form.ingredient_category || null }
+        const payload = { name: form.name.trim(), unit: normalizedUnit, stock: parsedStock, location: 'Warehouse', recipe_unit: isQuantity ? normalizedUnit : (normalizedRecipeUnit || null), conversion_factor: isQuantity ? 1 : (form.conversion_factor ? Number(form.conversion_factor) : null), ingredient_category: form.ingredient_category || null }
         const res = await fetch('/api/production_inventory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         const body = await res.json().catch(() => ({}))
         setLoading(false)
@@ -323,7 +318,7 @@ export default function ProductionCatalog() {
         const newItem: ProductionItem = {
           id: String(created.production_inventory_id || `PRO-${Date.now()}`),
           name: created.name,
-          restaurant: created.restaurant || form.restaurant,
+          location: created.location || 'Warehouse',
           unit: created.unit || form.unit,
           stock: Number(created.stock ?? parsedStock),
           isArchived: Boolean(created.is_archived),
@@ -418,10 +413,9 @@ export default function ProductionCatalog() {
     }
   }
 
-  const renderTable = () => {
-    const lakayAgoItems = filteredItems.filter(item => item.restaurant === 'Lakay Ago')
-    const arooItems = filteredItems.filter(item => item.restaurant === 'Aroo')
+  const locationOrder: Location[] = ['Warehouse', activeRestaurant, 'Pasalubong Center', 'Food Cart']
 
+  const renderTable = () => {
     const PaginationFooter = ({ items, page, setPage }: { items: typeof filteredItems, page: number, setPage: (value: number | ((prev: number) => number)) => void }) => {
       const totalPages = Math.ceil(items.length / PAGE_SIZE)
       if (totalPages <= 1) return null
@@ -451,12 +445,12 @@ export default function ProductionCatalog() {
 
     const renderRestaurantTable = (title: string, items: typeof filteredItems) => {
       const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE))
-      const pageState = title === 'Lakay Ago' ? { page: lakayPage, setPage: setLakayPage } : { page: arooPage, setPage: setArooPage }
+      const pageState = { page: locationPages[title] || 1, setPage: (value: number | ((prev: number) => number)) => setLocationPages(prev => ({ ...prev, [title]: typeof value === 'function' ? value(prev[title]) : value })) }
       const safePage = Math.min(pageState.page, totalPages)
       const pagedItems = items.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
       const emptyCount = pagedItems.length === 0 ? 0 : Math.max(0, PAGE_SIZE - pagedItems.length)
       return (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6" style={{ display: loading || items.length > 0 ? 'block' : 'none' }}>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
           {isMobile ?  (
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100 bg-indigo-600">
               <h3 className="text-lg font-semibold text-white font-display">{title}</h3>
@@ -541,7 +535,7 @@ export default function ProductionCatalog() {
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <button type="button" onClick={(e) => { e.stopPropagation(); setAddStockId(item.id); setAddStockValue('') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">+ Add Stock</button>
+                                  {title === 'Warehouse' && <button type="button" onClick={(e) => { e.stopPropagation(); setAddStockId(item.id); setAddStockValue('') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">+ Add Stock</button>}
                                   <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(item) }} className="text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline flex items-center gap-1"><Pencil size={12} /> Edit</button>
                                   {item.isArchived ? (
                                     <button type="button" onClick={(e) => { e.stopPropagation(); setConfirmTarget({ item, action: 'restore' }) }} className="text-xs font-medium text-emerald-600 hover:text-emerald-800 hover:underline flex items-center gap-1"><ArchiveRestore size={12} /> Restore</button>
@@ -622,7 +616,7 @@ export default function ProductionCatalog() {
                         </div>
                       ) : (
                           <>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); setAddStockId(item.id); setAddStockValue('') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">+ Add Stock</button>
+                            {title === 'Warehouse' && <button type="button" onClick={(e) => { e.stopPropagation(); setAddStockId(item.id); setAddStockValue('') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">+ Add Stock</button>}
                           </>
                       )}
                     </div>
@@ -638,8 +632,10 @@ export default function ProductionCatalog() {
 
     return (
       <div className="space-y-0">
-        {renderRestaurantTable(activeRestaurant, currentRestaurantItems)}
-        {!loading && filteredItems.length === 0 && <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center"><p className="text-sm text-slate-400">No production items found.</p></div>}
+        {locationOrder.map(location => {
+          const items = filteredItems.filter(item => item.location === location)
+          return <div key={location}>{renderRestaurantTable(location, items)}</div>
+        })}
       </div>
     )
   }
@@ -671,10 +667,7 @@ export default function ProductionCatalog() {
                 <button type="button" onClick={openCreate} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
                   <Plus size={16} /> Add Item
                 </button>
-                <TransferButton title="Transfer" productionStock={productionStock} onTransferComplete={() => {
-                  // refetch
-                  fetch('/api/production_inventory').then(r => r.json()).then(j => setProductionStock((j.production_inventory || []).map((r: any) => ({ id: String(r.production_inventory_id), name: r.name, restaurant: r.restaurant, unit: r.unit || '', stock: Number(r.stock) || 0, isArchived: Boolean(r.is_archived), createdAt: r.created_at, createdBy: r.created_by || 'System', updatedAt: r.updated_at || r.created_at, updatedBy: r.updated_by || 'System', recipe_unit: r.recipe_unit || null, conversion_factor: r.conversion_factor !== undefined ? Number(r.conversion_factor) : null, ingredient_category: r.ingredient_category || null }))))
-                }} />
+                <TransferButton title="Transfer" productionStock={productionStock} onTransferComplete={loadProductionInventory} />
               </div>
             </div>
           </div>
@@ -703,10 +696,7 @@ export default function ProductionCatalog() {
             <button type="button" onClick={openCreate} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg font-display">
               <Plus size={16} /> Add Item
             </button>
-            <TransferButton title="Transfer Stock" productionStock={productionStock} onTransferComplete={() => {
-              // refetch
-              fetch('/api/production_inventory').then(r => r.json()).then(j => setProductionStock((j.production_inventory || []).map((r: any) => ({ id: String(r.production_inventory_id), name: r.name, restaurant: r.restaurant, unit: r.unit || '', stock: Number(r.stock) || 0, isArchived: Boolean(r.is_archived), createdAt: r.created_at, createdBy: r.created_by || 'System', updatedAt: r.updated_at || r.created_at, updatedBy: r.updated_by || 'System', recipe_unit: r.recipe_unit || null, conversion_factor: r.conversion_factor !== undefined ? Number(r.conversion_factor) : null, ingredient_category: r.ingredient_category || null }))))
-            }} />
+            <TransferButton title="Transfer Stock" productionStock={productionStock} onTransferComplete={loadProductionInventory} />
           </div>
         </>
       )}
@@ -970,26 +960,17 @@ export default function ProductionCatalog() {
             </div>
           )}
 
-          {/* Restaurant */}
+          {/* Location */}
           <div className="w-full">
             <label className="block text-xs font-medium text-slate-600 mb-1 font-display">
-              Restaurant
+              Location
             </label>
-            <select
-              value={form.restaurant}
-              onChange={e =>
-                setForm(prev => ({ ...prev, restaurant: e.target.value }))
-              }
-              className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none ${!form.ingredient_category ? 'bg-slate-200' : ''}`}
-            >
-              <option value="Lakay Ago">Lakay Ago</option>
-              <option value="Aroo">Aroo</option>
-            </select>
-            {formErrors.restaurant && (
-              <p className="mt-1 text-xs text-red-600">
-                {formErrors.restaurant}
-              </p>
-            )}
+            <input
+              value={editingItem ? (editingItem.location || 'Warehouse') : 'Warehouse'}
+              readOnly
+              disabled
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-100 text-slate-600"
+            />
           </div>
 
           {/* Buttons */}
@@ -1139,55 +1120,76 @@ export default function ProductionCatalog() {
 function TransferButton({ title, productionStock, onTransferComplete }: { title: string; productionStock: ProductionItem[], onTransferComplete: () => void }) {
   const { showToast } = useApp()
   const [open, setOpen] = useState(false)
+  const [fromLocation, setFromLocation] = useState<Location>('Warehouse')
+  const [toLocation, setToLocation] = useState<Location>('Lakay Ago')
   const [fromId, setFromId] = useState<string | null>(null)
-  const [fromSearch, setFromSearch] = useState('')
-  const [fromOpen, setFromOpen] = useState(false)
+  const [itemSearch, setItemSearch] = useState('')
+  const [itemOpen, setItemOpen] = useState(false)
   const [qty, setQty] = useState('')
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    // set sensible default source from Lakay Ago
-    const fromDefault = productionStock.find(p => p.restaurant === 'Lakay Ago')
-    setFromId(fromDefault ? fromDefault.id : (productionStock[0]?.id ?? null))
-    setFromSearch(fromDefault ? fromDefault.name : '')
-  }, [productionStock])
-
-  // close dropdown when clicking outside
-  useEffect(() => {
-    if (!fromOpen) return
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (!target.closest('.relative')) setFromOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [fromOpen])
+  const availableItems = useMemo(() => productionStock
+    .filter(p => p.location === fromLocation)
+    .filter(p => !p.isArchived)
+    .filter(p => Number(p.stock) > 0)
+    .filter(p => p.name.toLowerCase().includes(itemSearch.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name)), [productionStock, fromLocation, itemSearch])
 
   const selectedFrom = productionStock.find(p => p.id === fromId) || null
 
-  const filteredOptions = productionStock.filter(p => p.restaurant === 'Lakay Ago' && p.name.toLowerCase().includes(fromSearch.toLowerCase()))
+  useEffect(() => {
+    setFromId(null)
+    setItemSearch('')
+  }, [fromLocation])
+
+  useEffect(() => {
+    if (toLocation === fromLocation) {
+      setToLocation(LOCATIONS.find(location => location !== fromLocation) ?? 'Lakay Ago')
+    }
+  }, [fromLocation, toLocation])
+
+  useEffect(() => {
+    if (!itemOpen) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.transfer-item-picker')) setItemOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [itemOpen])
 
   const handleSubmit = async () => {
-    if (!fromId) { showToast({ type: 'error', message: 'Select source item' }); return }
+    if (!isLocation(fromLocation) || !isLocation(toLocation)) { showToast({ type: 'error', message: 'Select valid locations' }); return }
+    if (fromLocation === toLocation) { showToast({ type: 'error', message: 'From and To locations must be different' }); return }
+    if (!fromId) { showToast({ type: 'error', message: 'Select a source item' }); return }
 
     const fromRow = productionStock.find(p => p.id === fromId)
-    if (!fromRow) { showToast({ type: 'error', message: 'From (source) item is not in the database' }); return }
-    if (!qty || Number.isNaN(Number(qty)) || Number(qty) <= 0) { showToast({ type: 'error', message: 'Enter a valid quantity' }); return }
-    if (fromRow.restaurant !== 'Lakay Ago') { showToast({ type: 'error', message: 'Source must be a Lakay Ago item' }); return }
-    if (Number(qty) > fromRow.stock) { showToast({ type: 'error', message: 'Quantity exceeds source stock' }); return }
+    if (!fromRow) { showToast({ type: 'error', message: 'Source item not found' }); return }
+    const amount = Number(qty)
+    if (qty === '' || !Number.isFinite(amount) || amount <= 0) { showToast({ type: 'error', message: 'Enter a valid quantity' }); return }
+    if (amount > Number(fromRow.stock)) { showToast({ type: 'error', message: 'Quantity exceeds source stock' }); return }
 
     setLoading(true)
     try {
-      const res = await fetch('/api/production_inventory_transfers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from_production_inventory_id: Number(fromId), quantity: Math.round(Number(qty) * 100) / 100 }) })
+      const res = await fetch('/api/production_inventory_transfers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from_production_inventory_id: Number(fromId),
+          to_location: toLocation,
+          quantity: Math.round(amount * 100) / 100,
+        }),
+      })
       const body = await res.json().catch(() => ({}))
       setLoading(false)
       if (!res.ok) { showToast({ type: 'error', message: 'Transfer failed', description: body.error || body.detail || `Status ${res.status}` }); return }
-      showToast({ type: 'success', message: 'Transfer recorded', description: `Transferred ${qty}` })
+      showToast({ type: 'success', message: 'Transfer recorded', description: `Transferred ${qty} ${fromRow.unit}` })
       setOpen(false)
       setQty('')
-      setFromSearch('')
+      setFromId(null)
+      setItemSearch('')
       onTransferComplete()
-    } catch (err) {
+    } catch {
       setLoading(false)
       showToast({ type: 'error', message: 'Transfer failed' })
     }
@@ -1195,49 +1197,63 @@ function TransferButton({ title, productionStock, onTransferComplete }: { title:
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={`flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display`}>
+      <button type="button" onClick={() => setOpen(true)} className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg font-display">
         <Send size={16} /> {title}
       </button>
       <Modal open={open} title="Transfer Production Stock" onClose={() => { if (!loading) setOpen(false) }}>
-        <div className="space-y-4 w-full">
-          <div className='w-md relative'>
-            <label className="block text-xs font-medium text-slate-600 mb-1">From (source)</label>
-            <div className="relative">
-              <input
-                type="text"
-                value={fromSearch}
-                onChange={e => { setFromSearch(e.target.value); setFromOpen(true) }}
-                onFocus={() => setFromOpen(true)}
-                placeholder="Search or select source..."
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-              />
-              {fromOpen && (
-                <div className="absolute z-10 w-full mt-1 border border-slate-200 rounded-lg bg-white shadow-lg max-h-[190px] overflow-y-auto">
-                  {filteredOptions.map(p => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => { setFromId(p.id); setFromSearch(p.name); setFromOpen(false) }}
-                      className={`w-full px-3 py-2 text-sm text-left ${fromId === p.id ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50'}`}
-                    >
-                      {p.name} ({formatStock(p.stock, p.unit)} available)
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+        <div className="space-y-4 w-full max-w-md">
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">To (destination)</label>
-            <input value={`Aroo`} readOnly disabled className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50" />
+            <label className="block text-xs font-medium text-slate-600 mb-1">From location</label>
+            <select value={fromLocation} onChange={e => setFromLocation(e.target.value as Location)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+              {LOCATIONS.map(location => <option key={location} value={location}>{location}</option>)}
+            </select>
           </div>
+
+          <div className="transfer-item-picker relative">
+            <label className="block text-xs font-medium text-slate-600 mb-1">Item</label>
+            <input
+              type="text"
+              value={selectedFrom ? `${selectedFrom.name} (${formatStock(selectedFrom.stock, selectedFrom.unit)} available)` : itemSearch}
+              onChange={e => { setFromId(null); setItemSearch(e.target.value); setItemOpen(true) }}
+              onFocus={() => setItemOpen(true)}
+              placeholder="Search available items..."
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+            {itemOpen && (
+              <div className="absolute z-10 w-full mt-1 border border-slate-200 rounded-lg bg-white shadow-lg max-h-[190px] overflow-y-auto">
+                {availableItems.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-slate-400">No available items</div>
+                ) : availableItems.map(p => (
+                 
+                  <button
+                    key={p.id}
+
+                    type="button"
+                    onClick={() => { setFromId(p.id); setItemSearch(p.name); setItemOpen(false) }}
+                    className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50"
+                  >
+                    {p.name} ({formatStock(p.stock, p.unit)} available)
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">To location</label>
+            <select value={toLocation} onChange={e => setToLocation(e.target.value as Location)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+              {LOCATIONS.filter(location => location !== fromLocation).map(location => <option key={location} value={location}>{location}</option>)}
+            </select>
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Quantity</label>
             <input value={qty} onChange={e => { if (e.target.value === '' || /^\d*\.?\d{0,2}$/.test(e.target.value)) setQty(e.target.value) }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" inputMode="decimal" />
           </div>
+
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <button type="button" onClick={() => { if (!loading) setOpen(false) }} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-slate-50">Cancel</button>
-            <button type="button" onClick={handleSubmit} disabled={loading} className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-amber-600">{loading ? 'Transferring…' : 'Transfer'}</button>
+            <button type="button" onClick={() => { if (!loading) setOpen(false) }} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button type="button" onClick={handleSubmit} disabled={loading} className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">{loading ? 'Transferring…' : 'Transfer'}</button>
           </div>
         </div>
       </Modal>

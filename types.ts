@@ -175,7 +175,7 @@ export interface SaleRecord {
 export interface ProductionItem {
   id: string
   name: string
-  restaurant?: string
+  location?: string
   unit: string
   stock: number
   isArchived: boolean

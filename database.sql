@@ -491,19 +491,19 @@ CREATE TABLE IF NOT EXISTS production_inventory (
     stock numeric NOT NULL,
     is_archived boolean DEFAULT false NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
-    restaurant text NOT NULL,
+    location text NOT NULL,
     recipe_unit text,
     conversion_factor numeric,
     ingredient_category text
 );
 
 ALTER TABLE production_inventory ADD CONSTRAINT production_inventory_pkey PRIMARY KEY (production_inventory_id);
-ALTER TABLE production_inventory ADD CONSTRAINT production_inventory_name_restaurant_unique UNIQUE (name, restaurant);
+ALTER TABLE production_inventory ADD CONSTRAINT production_inventory_name_location_unique UNIQUE (name, location);
 ALTER TABLE production_inventory ADD CONSTRAINT production_inventory_ingredient_category_check CHECK ((ingredient_category = ANY (ARRAY['weight'::text, 'volume'::text, 'quantity'::text])));
-ALTER TABLE production_inventory ADD CONSTRAINT production_inventory_restaurant_check CHECK ((restaurant = ANY (ARRAY['Aroo'::text, 'Lakay Ago'::text])));
+ALTER TABLE production_inventory ADD CONSTRAINT production_inventory_location_check CHECK ((location = ANY (ARRAY['Warehouse'::text, 'Lakay Ago'::text, 'Aroo'::text, 'Pasalubong Center'::text, 'Food Cart'::text])));
 ALTER TABLE production_inventory ADD CONSTRAINT production_inventory_stock_check CHECK ((stock >= (0)::numeric));
 CREATE UNIQUE INDEX production_inventory_pkey ON public.production_inventory USING btree (production_inventory_id);
-CREATE UNIQUE INDEX production_inventory_name_restaurant_unique ON public.production_inventory USING btree (name, restaurant);
+CREATE UNIQUE INDEX production_inventory_name_location_unique ON public.production_inventory USING btree (name, location);
 
 -- --------------------------------------------------
 -- Table: production_inventory_transfers

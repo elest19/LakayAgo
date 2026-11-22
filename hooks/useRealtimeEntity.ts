@@ -51,10 +51,11 @@ export function useRealtimeEntity(
   table: string,
   opts: {
     restaurant?: string | null
+    location?: string | null
     onChange: (payload: RealtimePayload) => void
   },
 ) {
-  const { restaurant, onChange } = opts
+  const { restaurant, location, onChange } = opts
 
   useEffect(() => {
     if (!table) return
@@ -63,14 +64,17 @@ export function useRealtimeEntity(
     if (!client) return
 
     const normalizedRestaurant = restaurant && restaurant !== 'Both' ? restaurant.replace(/ /g, '%20') : undefined
-    const channel = client.channel(`${table}-${restaurant ?? 'all'}`)
+    const normalizedLocation = location && location !== 'Both' ? location.replace(/ /g, '%20') : undefined
+    const filterColumn = table === 'production_inventory' ? 'location' : 'restaurant'
+    const normalizedFilter = table === 'production_inventory' ? normalizedLocation : normalizedRestaurant
+    const channel = client.channel(`${table}-${location ?? restaurant ?? 'all'}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table,
-          filter: normalizedRestaurant ? `restaurant=eq.${normalizedRestaurant}` : undefined,
+          filter: normalizedFilter ? `${filterColumn}=eq.${normalizedFilter}` : undefined,
         },
         payload => {
           onChange(payload as RealtimePayload)
@@ -85,7 +89,7 @@ export function useRealtimeEntity(
     return () => {
       client.removeChannel(channel)
     }
-  }, [table, restaurant, onChange])
+  }, [table, restaurant, location, onChange])
 }
 
 export function useRealtimeConnectionStatus(table = 'employees', restaurant?: string | null): 'connecting' | 'connected' | 'closed' | 'channel_error' {

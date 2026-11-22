@@ -70,14 +70,14 @@ export async function POST(req: Request) {
     try {
       await client.query('BEGIN')
 
-      // validate production_inventory ids belong to same restaurant
+      // validate production_inventory ids belong to the matching Lakay Ago/Aroo location
       const prodIds = recipe.map((r: any) => Number(r.production_inventory_id))
-      const prodRes = await client.query(`select production_inventory_id, name, restaurant from production_inventory where production_inventory_id = any($1)`, [prodIds])
+      const prodRes = await client.query(`select production_inventory_id, name, location from production_inventory where production_inventory_id = any($1)`, [prodIds])
       if (prodRes.rows.length !== prodIds.length) {
         await client.query('ROLLBACK')
         return NextResponse.json({ error: 'One or more production inventory items not found' }, { status: 400 })
       }
-      const mismatched = prodRes.rows.filter((row: { restaurant: string }) => row.restaurant !== restaurantValue)
+      const mismatched = prodRes.rows.filter((row: { location: string }) => !['Lakay Ago', 'Aroo'].includes(row.location) || row.location !== restaurantValue)
       if (mismatched.length) {
         await client.query('ROLLBACK')
         const names = mismatched.map((row: { name: string }) => `${row.name} does not belong to ${restaurantValue}`).join('; ')
@@ -156,10 +156,10 @@ export async function PUT(req: Request) {
       if (Array.isArray(recipe)) {
         // validate production ids
         const prodIds = recipe.map((r: any) => Number(r.production_inventory_id))
-        const prodRes = await client.query(`select production_inventory_id, name, restaurant from production_inventory where production_inventory_id = any($1)`, [prodIds])
+        const prodRes = await client.query(`select production_inventory_id, name, location from production_inventory where production_inventory_id = any($1)`, [prodIds])
         if (prodRes.rows.length !== prodIds.length) { await client.query('ROLLBACK'); return NextResponse.json({ error: 'One or more production inventory items not found' }, { status: 400 }) }
         const restaurantValue = restaurant || (await client.query(`select restaurant from food_and_beverage_inventory where food_and_beverage_id = $1`, [food_and_beverage_id])).rows[0].restaurant
-        const mismatched = prodRes.rows.filter((row: { restaurant: string }) => row.restaurant !== restaurantValue)
+        const mismatched = prodRes.rows.filter((row: { location: string }) => !['Lakay Ago', 'Aroo'].includes(row.location) || row.location !== restaurantValue)
         if (mismatched.length) { await client.query('ROLLBACK'); const names = mismatched.map((row: { name: string }) => `${row.name} does not belong to ${restaurantValue}`).join('; '); return NextResponse.json({ error: names, detail: 'Recipe ingredients must match the selected restaurant' }, { status: 400 }) }
 
         // delete existing recipe rows

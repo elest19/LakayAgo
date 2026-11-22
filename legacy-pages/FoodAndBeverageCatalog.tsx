@@ -452,7 +452,7 @@ export default function FoodAndBeverageCatalog() {
 
   // prepare modal for create/edit: set restaurant from app mode and load production options
   const fetchProductionOptions = (restaurant: string) => {
-    fetch(`/api/production_inventory?restaurant=${encodeURIComponent(restaurant)}`)
+    fetch(`/api/production_inventory?location=${encodeURIComponent(restaurant)}`)
       .then(r => r.json())
       .then(j => setProductionOptionsModal(j.production_inventory || []))
       .catch(() => setProductionOptionsModal([]))
@@ -1389,6 +1389,7 @@ export default function FoodAndBeverageCatalog() {
 
                 <div className="min-w-[52px] rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-sm text-slate-600">
                   {(() => {
+                   
                     const selectedIngredient = productionOptions.find(p => String(p.production_inventory_id) === String(newRowIngredientId))
                     const unit = selectedIngredient ? getIngredientUnitAbbrev(selectedIngredient) : ''
                     return unit || 'unit'
