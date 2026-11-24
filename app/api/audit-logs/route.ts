@@ -12,6 +12,7 @@ export async function GET(req: Request) {
     // module filtering removed — module derived column is no longer used
     const startDate = url.searchParams.get('startDate')
     const endDate = url.searchParams.get('endDate')
+    const appMode = url.searchParams.get('appMode')
     const page = Math.max(1, Number(url.searchParams.get('page') || 1))
     const pageSize = Math.max(1, Number(url.searchParams.get('pageSize') || 10))
 
@@ -34,11 +35,21 @@ export async function GET(req: Request) {
       conditions.push('al.created_at <= $' + (params.length + 1))
       params.push(endDate)
     }
+    if (appMode) {
+      const activeLocation = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
+      conditions.push(`(
+        (al.table_name not like '%production_inventory%')
+        or al.restaurant is null
+        or al.restaurant in ('Warehouse','Pasalubong Center','Food Cart')
+        or al.restaurant = $${params.length + 1}
+      )`)
+      params.push(activeLocation)
+    }
 
     let sql = `
       select al.log_id as id, coalesce(u.username, 'System') as user, al.action, al.description,
              to_char(al.created_at::timestamptz, 'YYYY-MM-DD') as dateTime,
-             al.table_name, al.record_id, al.old_data, al.new_data
+             al.table_name, al.record_id, al.old_data, al.new_data, al.restaurant
       from audit_logs al
       left join users u on al.user_id::text = u.id::text
     `
@@ -67,6 +78,7 @@ export async function GET(req: Request) {
         action: r.action,
         description: desc,
         dateTime: r.datetime,
+        location: r.restaurant || r.old_data?.location || r.old_data?.from_location || r.new_data?.location || r.new_data?.to_location || null,
       }
     })
 
@@ -78,6 +90,16 @@ export async function GET(req: Request) {
       if (user) { countConditions.push('al.user_id::text = $' + (countParams.length + 1) + '::text'); countParams.push(user) }
       if (startDate) { countConditions.push('al.created_at >= $' + (countParams.length + 1)); countParams.push(startDate) }
       if (endDate) { countConditions.push('al.created_at <= $' + (countParams.length + 1)); countParams.push(endDate) }
+      if (appMode) {
+        const activeLocation = appMode === 'aroo' ? 'Aroo' : 'Lakay Ago'
+        countConditions.push(`(
+          (al.table_name not like '%production_inventory%')
+          or al.restaurant is null
+          or al.restaurant in ('Warehouse','Pasalubong Center','Food Cart')
+          or al.restaurant = $${countParams.length + 1}
+        )`)
+        countParams.push(activeLocation)
+      }
 
       let countSql = `
         select count(*) as total

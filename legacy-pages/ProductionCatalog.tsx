@@ -448,7 +448,6 @@ export default function ProductionCatalog() {
       const pageState = { page: locationPages[title] || 1, setPage: (value: number | ((prev: number) => number)) => setLocationPages(prev => ({ ...prev, [title]: typeof value === 'function' ? value(prev[title]) : value })) }
       const safePage = Math.min(pageState.page, totalPages)
       const pagedItems = items.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
-      const emptyCount = pagedItems.length === 0 ? 0 : Math.max(0, PAGE_SIZE - pagedItems.length)
       return (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
           {isMobile ?  (
@@ -548,18 +547,6 @@ export default function ProductionCatalog() {
                             </td>
                           </tr>
                         ))}
-                        {emptyCount > 0 && (
-                          Array.from({ length: emptyCount }).map((_, ei) => (
-                            <tr key={`empty-${ei}`} className="invisible">
-                              <td className="py-3 px-4 text-sm font-medium text-slate-700 font-display">Placeholder</td>
-                              <td className="py-3 px-4 text-sm text-slate-600">Unit</td>
-                              <td className="py-3 px-4 font-display text-xs text-slate-700">{formatNumber(0)}</td>
-                              <td className="py-3 px-4 font-display text-xs text-slate-700">{formatNumber(0)}</td>
-                              <td className="py-3 px-4 text-sm text-slate-600">Status</td>
-                              <td className="py-3 px-4"><div className="invisible">Actions</div></td>
-                            </tr>
-                          ))
-                        )}
                       </>
                     )}
                   </tbody>

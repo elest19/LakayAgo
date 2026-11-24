@@ -89,4 +89,43 @@ export async function logAudit(entry: {
   }
 }
 
+export async function logAuditWithClient(client: any, entry: {
+  user_id?: string | null
+  restaurant?: string | null
+  action: string
+  table_name?: string | null
+  record_id?: string | null
+  old_data?: any
+  new_data?: any
+  description?: string | null
+}) {
+  let oldData = entry.old_data ?? null
+  let newData = entry.new_data ?? null
+
+  let description = entry.description ?? null
+  if (!description) {
+    description = generateAuditDescription({
+      action: entry.action,
+      tableName: entry.table_name ?? null,
+      recordId: entry.record_id ?? null,
+      oldData,
+      newData,
+    })
+  }
+
+  await client.query(`
+    insert into audit_logs(user_id, restaurant, action, table_name, record_id, old_data, new_data, description)
+    values($1,$2,$3,$4,$5,$6,$7,$8)
+  `, [
+    entry.user_id ?? null,
+    entry.restaurant ?? null,
+    entry.action,
+    entry.table_name ?? null,
+    entry.record_id ?? null,
+    toJsonValue(oldData),
+    toJsonValue(newData),
+    description,
+  ])
+}
+
 export default logAudit

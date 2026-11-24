@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { query, getClient } from '../../../lib/db'
 import getSessionFromRequest from '../../../lib/session'
-import { logAudit } from '../../../lib/audit'
+import { logAudit, logAuditWithClient } from '../../../lib/audit'
 import { LOCATIONS, isLocation } from '../../../lib/locations'
 import { VOLUME_UNITS, WEIGHT_UNITS, getConversionFactorForRecipeUnit, fullUnitName } from '../../../lib/unitConversions'
 
@@ -64,24 +64,32 @@ export async function POST(req: Request) {
     )
     if (dupCheck.rows.length > 0) return NextResponse.json({ error: 'A production item with this name already exists in Warehouse' }, { status: 409 })
 
-    const result = await query(
-      `insert into production_inventory(name, unit, stock, is_archived, location, recipe_unit, conversion_factor, ingredient_category)
-       values($1, $2, $3, $4, $5, $6, $7, $8)
-       returning *`,
-      [name, unit, Number(stock || 0), Boolean(is_archived), location, recipe_unit || null, conversion_factor !== undefined && conversion_factor !== null ? Number(conversion_factor) : null, ingredient_category || null]
-    )
-
-    const created = result.rows[0]
-    await logAudit({
-      user_id: session.user_id,
-      restaurant: location,
-      action: 'create_production_inventory',
-      table_name: 'production_inventory',
-      record_id: String(created.production_inventory_id),
-      new_data: created,
-    })
-
-    return NextResponse.json({ production_inventory: created })
+    const client = await getClient()
+    try {
+      await client.query('BEGIN')
+      const result = await client.query(
+        `insert into production_inventory(name, unit, stock, is_archived, location, recipe_unit, conversion_factor, ingredient_category)
+         values($1, $2, $3, $4, $5, $6, $7, $8)
+         returning *`,
+        [name, unit, Number(stock || 0), Boolean(is_archived), location, recipe_unit || null, conversion_factor !== undefined && conversion_factor !== null ? Number(conversion_factor) : null, ingredient_category || null]
+      )
+      const created = result.rows[0]
+      await logAuditWithClient(client, {
+        user_id: session.user_id,
+        restaurant: location,
+        action: 'create_production_inventory',
+        table_name: 'production_inventory',
+        record_id: String(created.production_inventory_id),
+        new_data: created,
+      })
+      await client.query('COMMIT')
+      return NextResponse.json({ production_inventory: created })
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined)
+      throw err
+    } finally {
+      client.release()
+    }
   } catch (err) {
     console.error('POST /production_inventory failed:', err)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
@@ -140,20 +148,43 @@ export async function PUT(req: Request) {
     if (fields.length === 0) return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
     values.push(production_inventory_id)
 
-    const result = await query(`update production_inventory set ${fields.join(', ')} where production_inventory_id = $${i} returning *`, values)
-    if (result.rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const client = await getClient()
+    try {
+      await client.query('BEGIN')
+      const locked = await client.query('select * from production_inventory where production_inventory_id = $1 for update', [production_inventory_id])
+      if (locked.rows.length === 0) {
+        await client.query('ROLLBACK')
+        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      }
+      const oldItem = locked.rows[0]
+      const result = await client.query(`update production_inventory set ${fields.join(', ')} where production_inventory_id = $${i} returning *`, values)
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK')
+        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      }
 
-    const updated = result.rows[0]
-    await logAudit({
-      user_id: session.user_id,
-      restaurant: updated.location || null,
-      action: 'update_production_inventory',
-      table_name: 'production_inventory',
-      record_id: String(production_inventory_id),
-      new_data: updated,
-    })
+      const updated = result.rows[0]
+      let auditAction = 'update_production_inventory'
+      if (oldItem.is_archived === false && is_archived === true) auditAction = 'archive_production_inventory'
+      if (oldItem.is_archived === true && is_archived === false) auditAction = 'restore_production_inventory'
 
-    return NextResponse.json({ production_inventory: updated })
+      await logAuditWithClient(client, {
+        user_id: session.user_id,
+        restaurant: updated.location || null,
+        action: auditAction,
+        table_name: 'production_inventory',
+        record_id: String(production_inventory_id),
+        old_data: oldItem,
+        new_data: updated,
+      })
+      await client.query('COMMIT')
+      return NextResponse.json({ production_inventory: updated })
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined)
+      throw err
+    } finally {
+      client.release()
+    }
   } catch (err) {
     console.error('PUT /production_inventory failed:', err)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
@@ -194,8 +225,16 @@ export async function DELETE(req: Request) {
           where from_production_inventory_id = $1 or to_production_inventory_id = $1
         `, [id])
         await client.query('delete from production_inventory where production_inventory_id = $1', [id])
+        await logAuditWithClient(client, {
+          user_id: session.user_id,
+          restaurant: existing.rows[0].location || null,
+          action: 'delete_production_inventory',
+          table_name: 'production_inventory',
+          record_id: String(id),
+          old_data: existing.rows[0],
+          description: `${existing.rows[0].name}: deleted at ${existing.rows[0].location || 'unknown location'} (row #${id}, stock ${existing.rows[0].stock} ${existing.rows[0].unit || ''})`,
+        })
         await client.query('COMMIT')
-        await logAudit({ user_id: session.user_id, restaurant: existing.rows[0].location || null, action: 'delete_production_inventory', table_name: 'production_inventory', record_id: String(id), old_data: existing.rows[0] })
         return NextResponse.json({ ok: true })
       } catch (err) {
         await client.query('ROLLBACK').catch(() => undefined)
@@ -205,11 +244,32 @@ export async function DELETE(req: Request) {
       }
     }
 
-    const existing = await query('select * from production_inventory where production_inventory_id = $1 limit 1', [id])
-    if (existing.rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    const deleted = (await query('update production_inventory set is_archived = true where production_inventory_id = $1 returning *', [id])).rows[0]
-    await logAudit({ user_id: session.user_id, restaurant: deleted.location || null, action: 'archive_production_inventory', table_name: 'production_inventory', record_id: String(id), old_data: existing.rows[0], new_data: deleted })
-    return NextResponse.json({ production_inventory: deleted })
+    const client = await getClient()
+    try {
+      await client.query('BEGIN')
+      const existing = await client.query('select * from production_inventory where production_inventory_id = $1 for update', [id])
+      if (existing.rows.length === 0) {
+        await client.query('ROLLBACK')
+        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      }
+      const deleted = (await client.query('update production_inventory set is_archived = true where production_inventory_id = $1 returning *', [id])).rows[0]
+      await logAuditWithClient(client, {
+        user_id: session.user_id,
+        restaurant: deleted.location || null,
+        action: 'archive_production_inventory',
+        table_name: 'production_inventory',
+        record_id: String(id),
+        old_data: existing.rows[0],
+        new_data: deleted,
+      })
+      await client.query('COMMIT')
+      return NextResponse.json({ production_inventory: deleted })
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined)
+      throw err
+    } finally {
+      client.release()
+    }
   } catch (err) {
     console.error('DELETE /production_inventory failed:', err)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

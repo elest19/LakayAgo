@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_pkey PRIMARY KEY (log_id);
 ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL;
-ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_restaurant_check CHECK ((restaurant = ANY (ARRAY['Lakay Ago'::text, 'Aroo'::text, 'Both'::text])));
+ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_restaurant_check CHECK ((restaurant IS NULL OR restaurant = ANY (ARRAY['Lakay Ago'::text, 'Aroo'::text, 'Both'::text, 'Warehouse'::text, 'Pasalubong Center'::text, 'Food Cart'::text])));
 CREATE UNIQUE INDEX audit_logs_pkey ON public.audit_logs USING btree (log_id);
 CREATE INDEX idx_audit_logs_table_record ON public.audit_logs USING btree (table_name, record_id);
 CREATE INDEX idx_audit_logs_created_at ON public.audit_logs USING btree (created_at);

@@ -4,6 +4,7 @@ import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import useIsMobile from '../hooks/isMobile'
 import Modal from '../components/Modal'
 import { formatActionLabel, actionBadgeClass } from '../lib/auditLogFormat'
+import { useApp } from '../App'
 
 // action badge classes are provided by `actionBadgeClass`
 
@@ -66,6 +67,7 @@ export default function AuditLogs() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const PAGE_SIZE = 10
+  const { appMode } = useApp()
 
   useEffect(() => {
     let mounted = true
@@ -78,6 +80,7 @@ export default function AuditLogs() {
         // module filter removed
         if (action) params.set('action', action)
         if (user) params.set('user', user)
+        params.set('appMode', appMode)
         const res = await fetch(`/api/audit-logs?${params.toString()}`)
         if (!res.ok) return
         const body = await res.json()
@@ -92,11 +95,11 @@ export default function AuditLogs() {
       }
     })()
     return () => { mounted = false }
-  }, [page, action, user])
+  }, [page, action, user, appMode])
 
   const filtered = logs.filter((log: any) => {
     const q = search.toLowerCase()
-    return !q || (log.description || '').toLowerCase().includes(q) || (log.user || '').toLowerCase().includes(q)
+    return !q || (log.description || '').toLowerCase().includes(q) || (log.user || '').toLowerCase().includes(q) || (log.location || '').toLowerCase().includes(q)
   })
 
   const uniqueActions = [...new Set(logs.map(l => l.action))]
@@ -151,7 +154,7 @@ export default function AuditLogs() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Date & Time', 'User', 'Action', 'Description'].map(h => (
+                  {['Date & Time', 'User', 'Action', 'Location', 'Description'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide font-display whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -159,13 +162,14 @@ export default function AuditLogs() {
               <tbody className="divide-y divide-slate-50">
                 {logsLoading ? (
                   <SkeletonTableRows
-                    columns={4}
+                    columns={5}
                     rows={6}
                     columnConfig={[
                       { width: '18%' },
                       { width: '22%' },
                       { width: '18%', pill: true },
-                      { width: '42%' },
+                      { width: '18%' },
+                      { width: '24%' },
                     ]}
                   />
                 ) : (
@@ -187,6 +191,7 @@ export default function AuditLogs() {
                           {formatActionLabel(log.action)}
                         </span>
                       </td>
+                      <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{log.location || '-'}</td>
                       <td className="py-3 px-4 text-sm text-slate-600 max-w-sm">{log.description}</td>
                     </tr>
                   ))
@@ -261,11 +266,15 @@ export default function AuditLogs() {
                     <p className="text-xs text-slate-400">Date & Time</p>
                     <p className="text-sm font-medium">{selectedLog.dateTime}</p>
                   </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Location</p>
+                    <p className="text-sm font-medium">{selectedLog.location || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Description</p>
+                    <p className="text-sm text-slate-600">{selectedLog.description}</p>
+                  </div>
                 </div>
-              <div>
-                <p className="text-xs text-slate-400">Description</p>
-                <p className="text-sm text-slate-600">{selectedLog.description}</p>
-              </div>
             </div>
           </div>
         </Modal>

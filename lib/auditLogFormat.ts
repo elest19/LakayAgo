@@ -90,9 +90,15 @@ export function resolveRecordLabel(tableName: string | null | undefined, oldData
     return label || (recordId ? `${tableName} #${recordId}` : '')
   }
   if (t.includes('production_inventory_transfers')) {
-    const item = data.item_name || data.from_name
+    const item = data.item_name || data.from_name || data.name
     const qty = data.quantity != null ? `${data.quantity}` : ''
-    if (item) return `Transfer of ${qty ? `${qty} ` : ''}${item}`.trim()
+    const unit = data.unit ? ` ${data.unit}` : ''
+    const from = data.from_location || data.from?.location
+    const to = data.to_location || data.to?.location
+    if (item) {
+      const movement = from && to ? `: ${qty}${unit}, ${from} -> ${to}` : (qty ? `: ${qty}${unit}` : '')
+      return `${item}${movement}`
+    }
     return recordId ? `${tableName} #${recordId}` : ''
   }
   if (t.includes('production_inventory') || t.includes('food_and_beverage') || t.includes('food_and_beverage_inventory') || t.includes('assets_inventory') || t.includes('services') || t.includes('sub_services') || t.includes('food_packages')) {
@@ -138,8 +144,12 @@ export function generateAuditDescription({ action, tableName, recordId, oldData,
   // inventory transfers — raw from/to ids aren't meaningful, keep it concise
   const tName = (tableName || '').toLowerCase()
   if (tName.includes('production_inventory_transfers') && newData) {
-    const label = resolveRecordLabel(tableName, oldData, newData, recordId)
-    return `${label}: ${formatActionLabel(action)}`
+    const item = newData.item_name || newData.from_name || resolveRecordLabel(tableName, oldData, newData, recordId)
+    const qty = newData.quantity != null ? `${newData.quantity}` : (oldData?.quantity != null ? `${oldData.quantity}` : '')
+    const unit = newData.unit || oldData?.unit
+    const from = newData.from_location || oldData?.from_location || (oldData?.from as any)?.location
+    const to = newData.to_location || oldData?.to_location || (oldData?.to as any)?.location
+    if (item && qty && from && to) return `${item}: ${qty} ${unit || ''}, ${from} -> ${to}`.replace('  ,', ',')
   }
 
   // create

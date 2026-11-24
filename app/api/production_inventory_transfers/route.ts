@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { query, getClient } from '../../../lib/db'
 import getSessionFromRequest from '../../../lib/session'
-import { logAudit } from '../../../lib/audit'
+import { logAudit, logAuditWithClient } from '../../../lib/audit'
 import { isLocation } from '../../../lib/locations'
 
 export async function GET(req: Request) {
@@ -96,6 +96,7 @@ export async function POST(req: Request) {
       )
 
       let toId: number
+      let destinationCreated = false
       if (toRes.rows.length > 0) {
         const toRow = toRes.rows[0]
         if (Boolean(toRow.is_archived)) {
@@ -115,6 +116,7 @@ export async function POST(req: Request) {
           [fromRow.name, fromRow.unit || null, to_location, fromRow.recipe_unit || null, fromRow.conversion_factor ?? null, fromRow.ingredient_category || null]
         )
         toId = Number(insertRes.rows[0].production_inventory_id)
+        destinationCreated = true
       }
 
       const insertTransfer = await client.query(
@@ -124,19 +126,39 @@ export async function POST(req: Request) {
       )
       const created = insertTransfer.rows[0]
 
-      await client.query('COMMIT')
-
-      await logAudit({
+      await logAuditWithClient(client, {
         user_id: session.user_id,
         restaurant: to_location,
         action: 'transfer_production_inventory',
         table_name: 'production_inventory_transfers',
         record_id: String(created.transfer_id),
-        old_data: { from: from_production_inventory_id, from_location: fromRow.location, to: toId, to_location },
-        new_data: { ...created, item_name: fromRow.name },
+        old_data: {
+          item_name: fromRow.name,
+          quantity: transferQuantity,
+          unit: fromRow.unit || null,
+          from_location: fromRow.location,
+          to_location,
+          source_row_id: Number(from_production_inventory_id),
+          destination_row_id: toId,
+          destination_row_created: destinationCreated,
+        },
+        new_data: {
+          ...created,
+          item_name: fromRow.name,
+          quantity: transferQuantity,
+          unit: fromRow.unit || null,
+          from_location: fromRow.location,
+          to_location,
+          source_row_id: Number(from_production_inventory_id),
+          destination_row_id: toId,
+          destination_row_created: destinationCreated,
+        },
+        description: `${fromRow.name}: ${transferQuantity} ${fromRow.unit || ''}, ${fromRow.location} -> ${to_location}`,
       })
 
-      return NextResponse.json({ transfer: created })
+      await client.query('COMMIT')
+
+      return NextResponse.json({ transfer: created, destination_created: destinationCreated })
     } catch (err) {
       await client.query('ROLLBACK').catch(() => undefined)
       console.error('POST /production_inventory_transfers failed (transaction):', err)
