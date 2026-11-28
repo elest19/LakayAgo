@@ -59,6 +59,15 @@ const formatNumber = (value: number | string | null | undefined, maximumFraction
   }).format(amount)
 }
 
+const getResponseErrorMessage = (body: any, fallback: string) => {
+  const error = typeof body?.error === 'string' ? body.error.trim() : ''
+  const detail = typeof body?.detail === 'string' ? body.detail.trim() : ''
+
+  if (error && error !== 'Server error') return error
+  if (detail) return detail
+  return fallback
+}
+
 const ensureFractionLabel = (value?: string) => {
   if (value && FRACTION_OPTIONS.some(option => option.label === value)) return value
   return '1/2'
@@ -510,6 +519,19 @@ export default function FoodAndBeverageCatalog() {
     const ids = recipeRowsModal.map(r => String(r.production_inventory_id))
     const dup = ids.find((id, idx) => ids.indexOf(id) !== idx)
     if (dup) { setRecipeErrors('Duplicate ingredient selected.'); return }
+    const invalidQuantity = recipeRowsModal.find(r => {
+      const mode = getRowQuantityMode(r)
+      const fractionValue = ensureFractionLabel(r.fractionValue)
+      const wholePart = toDecimal(r.quantity_required || '0')
+      const fractionAmount = FRACTION_TO_DECIMAL[fractionValue] || 0
+      const quantityRequired = mode === 'whole+fraction'
+        ? wholePart + fractionAmount
+        : mode === 'fraction'
+          ? fractionAmount
+          : toDecimal(r.quantity_required || r.fractionValue || '0')
+      return !Number.isFinite(quantityRequired) || quantityRequired <= 0
+    })
+    if (invalidQuantity) { setRecipeErrors('Each ingredient quantity must be greater than zero.'); return }
     if (savingAction) return
     setRecipeErrors(null)
     const payload = { 
@@ -539,7 +561,7 @@ export default function FoodAndBeverageCatalog() {
     try {
       if (editingId) {
         const r = await fetch('/api/food_and_beverage', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ food_and_beverage_id: editingId, ...payload }) })
-        if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.error || b.detail || 'Update failed') }
+        if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(getResponseErrorMessage(b, 'Update failed')) }
         const j = await r.json()
         const updated = j.item
         setItems(prev => {
@@ -552,7 +574,7 @@ export default function FoodAndBeverageCatalog() {
         setEditingId(null)
       } else {
         const r = await fetch('/api/food_and_beverage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-        if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.error || b.detail || 'Create failed') }
+        if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(getResponseErrorMessage(b, 'Create failed')) }
         const j = await r.json()
         const created = j.item
         setItems(prev => {
@@ -852,11 +874,9 @@ export default function FoodAndBeverageCatalog() {
   const currentPageTotal = Math.max(1, Math.ceil(currentRestaurantItems.length / pageSize))
   const paginatedCurrentItems = currentRestaurantItems.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-  const currentEmptyCount = paginatedCurrentItems.length === 0 ? 0 : Math.max(0, pageSize - paginatedCurrentItems.length)
-
   useEffect(() => { setCurrentPage(1) }, [search, selectedCategoryFilter, archiveFilter, items.length])
 
-  const renderRestaurantTable = (title: string, displayItems: typeof filtered, totalItems: typeof filtered, currentPage: number, totalPages: number, setPage: (value: number | ((prev: number) => number)) => void, emptyCount: number) => (
+  const renderRestaurantTable = (title: string, displayItems: typeof filtered, totalItems: typeof filtered, currentPage: number, totalPages: number, setPage: (value: number | ((prev: number) => number)) => void) => (
     <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden mb-6" style={{ display: initialLoading || totalItems.length > 0 ? 'block' : 'none' }}>
       {isMobile ? (
         <div className="px-4 py-3 border-b border-slate-200 bg-indigo-600 text-white">
@@ -936,18 +956,6 @@ export default function FoodAndBeverageCatalog() {
                   </td>
                 </tr>
               ))}
-              {emptyCount > 0 && (
-                Array.from({ length: emptyCount }).map((_, ii) => (
-                  <tr key={`empty-${ii}`} className="invisible border-slate-200">
-                    <td className="py-3 px-4 font-medium"><div className="flex items-center gap-2 flex-wrap"><span>Placeholder</span></div></td>
-                    <td className="py-3 px-4 text-center text-sm"><span className="inline-flex rounded-full px-2 py-1 text-[10px] font-medium">Menu Item</span></td>
-                    <td className="py-3 px-4 text-center font-display text-sm text-slate-700">{formatCurrency(0)}</td>
-                    <td className="py-3 px-4 text-center text-sm text-slate-600">0</td>
-                    <td className="py-3 px-4 text-center text-sm text-slate-600">0</td>
-                    <td className="py-3 px-4 text-center text-sm"><div className="flex items-center justify-center gap-2"><button className="invisible">Edit</button></div></td>
-                  </tr>
-                ))
-              )}
             </tbody>
           </table>
         </div>
@@ -974,7 +982,7 @@ export default function FoodAndBeverageCatalog() {
         ))}
         </div>
       )}
-      <PaginationFooter items={totalItems} page={currentPage} setPage={setPage} pageSize={pageSize} noun="items" />
+      <PaginationFooter items={totalItems} page={currentPage} setPage={setCurrentPage} pageSize={pageSize} noun="items" />
     </div>
   )
 
@@ -1020,7 +1028,7 @@ export default function FoodAndBeverageCatalog() {
         </div>
       </div>
 
-      {renderRestaurantTable(activeRestaurant, paginatedCurrentItems, currentRestaurantItems, currentPage, currentPageTotal, setCurrentPage, currentEmptyCount)}
+      {renderRestaurantTable(activeRestaurant, paginatedCurrentItems, currentRestaurantItems, currentPage, currentPageTotal, setCurrentPage)}
 
       <Modal
         open={showModal}

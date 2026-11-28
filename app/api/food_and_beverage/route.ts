@@ -5,6 +5,27 @@ import { logAudit } from '../../../lib/audit'
 
 const normalizeMenuCategory = (value: unknown) => value === 'Others' ? 'Others' : 'Menu Item'
 
+const getDatabaseErrorMessage = (err: any) => {
+  if (err?.code === '23505') return 'This menu item or recipe already exists.'
+  if (err?.code === '23503') return 'One or more selected ingredients no longer exist.'
+  if (err?.code === '23514') {
+    if (err?.constraint === 'food_and_beverage_recipe_quantity_required_check') {
+      return 'Each recipe ingredient must have a quantity greater than zero.'
+    }
+    if (err?.constraint === 'food_and_beverage_inventory_price_check') {
+      return 'Menu item price must be zero or greater.'
+    }
+    if (err?.constraint === 'food_and_beverage_inventory_servings_check') {
+      return 'Servings must be a positive integer.'
+    }
+    return 'One or more menu item values are invalid.'
+  }
+  if (err?.code === '42703') return 'A database column used by menu items is missing or outdated.'
+
+  if (typeof err?.message === 'string' && err.message.trim()) return err.message
+  return 'Server error'
+}
+
 const hasCategoryColumn = async () => {
   const result = await query(`
     select 1
@@ -35,7 +56,7 @@ export async function GET(req: Request) {
     }
 
     const text = `
-      select fi.*, coalesce(json_agg(json_build_object('recipe_id', r.recipe_id, 'production_inventory_id', r.production_inventory_id, 'quantity_required', r.quantity_required, 'name', p.name, 'unit', p.unit) ) filter (where r.recipe_id is not null), '[]') as recipe
+      select fi.*, coalesce(json_agg(json_build_object('recipe_id', r.recipe_id, 'production_inventory_id', r.quantity_required, 'name', p.name, 'unit', p.unit) ) filter (where r.recipe_id is not null), '[]') as recipe
       from food_and_beverage_inventory fi
       left join food_and_beverage_recipe r on r.food_and_beverage_id = fi.food_and_beverage_id
       left join production_inventory p on p.production_inventory_id = r.production_inventory_id
@@ -62,6 +83,8 @@ export async function POST(req: Request) {
     if (!name || price == null) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
     if (!restaurantValue) return NextResponse.json({ error: 'Missing restaurant' }, { status: 400 })
     if (!Array.isArray(recipe) || recipe.length === 0) return NextResponse.json({ error: 'Recipe must be a non-empty array' }, { status: 400 })
+    const invalidQuantity = recipe.find((r: any) => !Number.isFinite(Number(r.quantity_required)) || Number(r.quantity_required) <= 0)
+    if (invalidQuantity) return NextResponse.json({ error: 'Each recipe ingredient must have a quantity greater than zero.' }, { status: 400 })
     if (servings !== undefined && (Number.isNaN(Number(servings)) || !Number.isInteger(Number(servings)) || Number(servings) <= 0)) {
       return NextResponse.json({ error: 'servings must be a positive integer' }, { status: 400 })
     }
@@ -102,16 +125,18 @@ export async function POST(req: Request) {
       await client.query('COMMIT')
 
       // fetch created item with recipe
-      const itemRes = await query(`select fi.*, coalesce(json_agg(json_build_object('recipe_id', r.recipe_id, 'production_inventory_id', r.production_inventory_id, 'quantity_required', r.quantity_required, 'name', p.name, 'unit', p.unit) ) filter (where r.recipe_id is not null), '[]') as recipe from food_and_beverage_inventory fi left join food_and_beverage_recipe r on r.food_and_beverage_id = fi.food_and_beverage_id left join production_inventory p on p.production_inventory_id = r.production_inventory_id where fi.food_and_beverage_id = $1 group by fi.food_and_beverage_id`, [created.food_and_beverage_id])
+      const itemRes = await query(`select fi.*, coalesce(json_agg(json_build_object('recipe_id', r.recipe_id, 'production_inventory_id', r.quantity_required, 'name', p.name, 'unit', p.unit) ) filter (where r.recipe_id is not null), '[]') as recipe from food_and_beverage_inventory fi left join food_and_beverage_recipe r on r.food_and_beverage_id = fi.food_and_beverage_id left join production_inventory p on p.production_inventory_id = r.production_inventory_id where fi.food_and_beverage_id = $1 group by fi.food_and_beverage_id`, [created.food_and_beverage_id])
 
       const newItem = itemRes.rows[0]
       await logAudit({ user_id: session.user_id, restaurant: restaurantValue, action: 'create_food_and_beverage', table_name: 'food_and_beverage_inventory', record_id: String(created.food_and_beverage_id), new_data: newItem })
 
       return NextResponse.json({ item: newItem })
-    } catch (err) {
+    } catch (err: any) {
       try { await client.query('ROLLBACK') } catch (e) {}
       console.error('POST /food_and_beverage failed:', err)
-      return NextResponse.json({ error: 'Server error' }, { status: 500 })
+      const message = getDatabaseErrorMessage(err)
+      const status = ['23505', '23503', '23514'].includes(err?.code) ? 400 : 500
+      return NextResponse.json({ error: message, detail: err?.detail || err?.message || undefined }, { status })
     } finally {
       client.release()
     }
@@ -154,6 +179,9 @@ export async function PUT(req: Request) {
 
       // replace recipe if provided
       if (Array.isArray(recipe)) {
+        const invalidQuantity = recipe.find((r: any) => !Number.isFinite(Number(r.quantity_required)) || Number(r.quantity_required) <= 0)
+        if (invalidQuantity) { await client.query('ROLLBACK'); return NextResponse.json({ error: 'Each recipe ingredient must have a quantity greater than zero.' }, { status: 400 }) }
+
         // validate production ids
         const prodIds = recipe.map((r: any) => Number(r.production_inventory_id))
         const prodRes = await client.query(`select production_inventory_id, name, location from production_inventory where production_inventory_id = any($1)`, [prodIds])
@@ -172,14 +200,16 @@ export async function PUT(req: Request) {
 
       await client.query('COMMIT')
 
-      const itemRes = await query(`select fi.*, coalesce(json_agg(json_build_object('recipe_id', r.recipe_id, 'production_inventory_id', r.production_inventory_id, 'quantity_required', r.quantity_required, 'name', p.name, 'unit', p.unit) ) filter (where r.recipe_id is not null), '[]') as recipe from food_and_beverage_inventory fi left join food_and_beverage_recipe r on r.food_and_beverage_id = fi.food_and_beverage_id left join production_inventory p on p.production_inventory_id = r.production_inventory_id where fi.food_and_beverage_id = $1 group by fi.food_and_beverage_id`, [food_and_beverage_id])
+      const itemRes = await query(`select fi.*, coalesce(json_agg(json_build_object('recipe_id', r.recipe_id, 'production_inventory_id', r.quantity_required, 'name', p.name, 'unit', p.unit) ) filter (where r.recipe_id is not null), '[]') as recipe from food_and_beverage_inventory fi left join food_and_beverage_recipe r on r.food_and_beverage_id = fi.food_and_beverage_id left join production_inventory p on p.production_inventory_id = r.production_inventory_id where fi.food_and_beverage_id = $1 group by fi.food_and_beverage_id`, [food_and_beverage_id])
       const updatedItem = itemRes.rows[0]
       await logAudit({ user_id: session.user_id, restaurant: restaurant || session.restaurant, action: 'update_food_and_beverage', table_name: 'food_and_beverage_inventory', record_id: String(food_and_beverage_id), new_data: updatedItem })
       return NextResponse.json({ item: updatedItem })
-    } catch (err) {
+    } catch (err: any) {
       try { await client.query('ROLLBACK') } catch (e) {}
       console.error('PUT /food_and_beverage failed:', err)
-      return NextResponse.json({ error: 'Server error' }, { status: 500 })
+      const message = getDatabaseErrorMessage(err)
+      const status = ['23505', '23503', '23514'].includes(err?.code) ? 400 : 500
+      return NextResponse.json({ error: message, detail: err?.detail || err?.message || undefined }, { status })
     } finally { client.release() }
   } catch (err) {
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
